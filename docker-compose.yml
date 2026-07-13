@@ -1,0 +1,115 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        MARLINSPIKE_DPI_REPO: ${MARLINSPIKE_DPI_REPO:-https://github.com/eris-ot/marlinspike-dpi.git}
+        MARLINSPIKE_DPI_REF: ${MARLINSPIKE_DPI_REF:-326bdbb744a7b8f71295381fd209d9587dc09a3b}
+        MARLINSPIKE_MITRE_REPO: ${MARLINSPIKE_MITRE_REPO:-https://github.com/eris-ot/marlinspike-mitre.git}
+        MARLINSPIKE_MITRE_REF: ${MARLINSPIKE_MITRE_REF:-c3583ec2d189b8cde69f2160da6a5e8e5b643f7b}
+        MARLINSPIKE_MALWARE_REPO: ${MARLINSPIKE_MALWARE_REPO:-https://github.com/eris-ot/marlinspike-malware.git}
+        MARLINSPIKE_MALWARE_REF: ${MARLINSPIKE_MALWARE_REF:-4a008211cad7e56609e8a667b95f1c09b790c1b4}
+        MARLINSPIKE_MALWARE_RULES_REPO: ${MARLINSPIKE_MALWARE_RULES_REPO:-https://github.com/eris-ot/marlinspike-malware-rules.git}
+        MARLINSPIKE_MALWARE_RULES_REF: ${MARLINSPIKE_MALWARE_RULES_REF:-99cbe9358d0a5047d9b5e57a7e4ff5eafdee9bd4}
+    container_name: marlinspike-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:5001"
+    environment:
+      - DATABASE_URL=postgresql://marlinspike:${DB_PASSWORD}@db:5432/marlinspike
+      - SECRET_KEY=${SECRET_KEY}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
+      - RATELIMIT_STORAGE_URI=${RATELIMIT_STORAGE_URI:-redis://ratelimit:6379/0}
+      - MARLINSPIKE_DPI_BIN=/usr/local/bin/marlinspike-dpi
+      - MARLINSPIKE_MALWARE_BIN=/opt/marlinspike-malware/bin/marlinspike-malware
+      - MARLINSPIKE_MALWARE_RULES=/usr/share/marlinspike-malware/rules/packs
+      - MARLINSPIKE_CISA_ENABLED=${MARLINSPIKE_CISA_ENABLED:-true}
+      - MARLINSPIKE_CISA_MODULE=${MARLINSPIKE_CISA_MODULE:-plugins.marlinspike_cisa}
+      - LIVE_CAPTURE_ENABLED=${LIVE_CAPTURE_ENABLED:-false}
+      - LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock
+    depends_on:
+      db:
+        condition: service_healthy
+      ratelimit:
+        condition: service_healthy
+    volumes:
+      - marlinspike-data:/app/data
+      - capd-socket:/var/run/marlinspike-capd
+      - capd-captures:/var/lib/marlinspike/captures:ro
+    networks:
+      - internal
+    mem_limit: 3g
+
+  # Live-capture sidecar (Linux only). Off by default — opt in with:
+  #   docker compose --profile capture up -d
+  # capd needs CAP_NET_RAW + CAP_NET_ADMIN and must run on the host
+  # network namespace so it can see physical NICs. The web app stays
+  # unprivileged on the internal bridge and talks to capd over a
+  # shared unix socket.
+  capd:
+    profiles: ["capture"]
+    build:
+      context: ./marlinspike-capd
+    container_name: marlinspike-capd
+    restart: unless-stopped
+    user: "0:0"   # needs root for CAP_NET_RAW; drops privileges via dumpcap
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    network_mode: host
+    volumes:
+      - capd-socket:/var/run/marlinspike-capd
+      - capd-captures:/var/lib/marlinspike/captures
+    command:
+      - python
+      - -m
+      - capd
+      - serve
+      - --socket=/var/run/marlinspike-capd/marlinspike-capd.sock
+      - --capture-root=/var/lib/marlinspike/captures
+      - --allow-uid=${LIVE_CAPTURE_ALLOW_UID:-0}
+    mem_limit: 256m
+
+  db:
+    image: postgres:16-alpine
+    container_name: marlinspike-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=marlinspike
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=marlinspike
+    volumes:
+      - marlinspike-pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marlinspike"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ratelimit:
+    image: redis:7-alpine
+    container_name: marlinspike-ratelimit
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - internal
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  marlinspike-data:
+  marlinspike-pgdata:
+  capd-socket:
+  capd-captures:
+
+networks:
+  internal:
+    driver: bridge

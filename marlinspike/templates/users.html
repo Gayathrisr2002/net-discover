@@ -1,0 +1,323 @@
+{% extends "base.html" %}
+{% block title %}MarlinSpike — {{ t('users.title') }}{% endblock %}
+
+{% block head %}
+<style nonce="{{ csp_nonce }}">
+/* Modal form field — eliminates repeated inline style stacks */
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.modal-field label {
+  font-size: 0.74em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+.modal-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal-form-row {
+  display: flex;
+  gap: 12px;
+}
+.modal-form-row .modal-field { flex: 1; }
+/* Own-password section */
+.own-pw-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.own-pw-row .modal-field { flex: 1; min-width: 160px; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="ms-content">
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>{{ t('users.management') }}</h2>
+      <button class="btn btn-primary" onclick="USR.showAdd()">{{ t('users.invite') }}</button>
+    </div>
+    <div class="panel-body">
+      <table class="ms-table" id="users-table">
+        <thead>
+          <tr>
+            <th>{{ t('users.column_username') }}</th>
+            <th>{{ t('users.column_role') }}</th>
+            <th>{{ t('users.column_upload_limit') }}</th>
+            <th>{{ t('users.column_created') }}</th>
+            <th>{{ t('common.actions') }}</th>
+          </tr>
+        </thead>
+        <tbody id="users-body">
+          <tr><td colspan="5"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('users.loading') }}</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Add user modal -->
+  <div class="ms-modal-backdrop" id="modal-add-user">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('users.invite') }}</h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-add-user')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <div class="modal-form-grid">
+          <div class="modal-field">
+            <label for="new-username">{{ t('users.column_username') }}</label>
+            <input type="text" id="new-username" class="ms-input" placeholder="{{ t('users.username_placeholder') }}">
+          </div>
+          <div class="modal-field">
+            <label for="new-password">{{ t('login.password') }}</label>
+            <input type="password" id="new-password" class="ms-input" placeholder="{{ t('users.password_placeholder') }}">
+          </div>
+          <div class="modal-form-row">
+            <div class="modal-field">
+              <label for="new-role">{{ t('users.column_role') }}</label>
+              <select id="new-role" class="ms-input">
+                <option value="user">{{ t('users.role_user') }}</option>
+                <option value="admin">{{ t('users.role_admin') }}</option>
+              </select>
+            </div>
+            <div class="modal-field">
+              <label for="new-upload-limit">{{ t('users.column_upload_limit') }}</label>
+              <input type="number" id="new-upload-limit" class="ms-input" min="1" max="10000" value="200">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-add-user')">{{ t('common.cancel') }}</button>
+        <button class="btn btn-success" onclick="USR.createUser()">{{ t('users.create_user') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload limit modal -->
+  <div class="ms-modal-backdrop" id="modal-limits">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('users.column_upload_limit') }} — <span id="limits-user"></span></h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-limits')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <div class="modal-field">
+          <label for="limits-upload">{{ t('users.column_upload_limit') }}</label>
+          <input type="number" id="limits-upload" class="ms-input" min="1" max="10000">
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-limits')">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary" onclick="USR.doLimits()">{{ t('common.save') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change password modal -->
+  <div class="ms-modal-backdrop" id="modal-chpass">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('profile.change_password') }} — <span id="chpass-user"></span></h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-chpass')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <div class="modal-field">
+          <label for="chpass-password">{{ t('profile.new_password') }}</label>
+          <input type="password" id="chpass-password" class="ms-input" placeholder="{{ t('users.new_password_placeholder') }}">
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-chpass')">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary" onclick="USR.doChpass()">{{ t('profile.update') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Own password -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>{{ t('users.change_my_password') }}</h2>
+    </div>
+    <div class="panel-body">
+      <div class="own-pw-row">
+        <div class="modal-field">
+          <label for="my-current">{{ t('profile.current_password') }}</label>
+          <input type="password" id="my-current" class="ms-input">
+        </div>
+        <div class="modal-field">
+          <label for="my-new">{{ t('profile.new_password') }}</label>
+          <input type="password" id="my-new" class="ms-input">
+        </div>
+        <button class="btn btn-primary" onclick="USR.changeMyPassword()">{{ t('profile.update') }}</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+var USR = (function() {
+  'use strict';
+
+  var chpassTarget = null;
+
+  function loadUsers() {
+    fetch('/api/users').then(function(r) { return r.json(); }).then(function(d) {
+      var tbody = document.getElementById('users-body');
+      tbody.innerHTML = '';
+      (d.users || []).forEach(function(u) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="mono">' + esc(u.username) + '</td>'
+          + '<td><span class="badge badge-' + (u.role === 'admin' ? 'running' : 'stopped') + '">' + esc(u.role) + '</span></td>'
+          + '<td class="mono dim">' + esc(u.upload_limit_mb || 200) + ' MB</td>'
+          + '<td class="dim">' + formatDate(u.created_at) + '</td>'
+          + '<td>'
+          + '<button class="btn btn-sm" style="margin-right:6px;" onclick="USR.showLimits(\'' + esc(u.username) + '\',' + (u.upload_limit_mb || 200) + ')">Upload Limit</button>'
+          + '<button class="btn btn-sm" style="margin-right:6px;" onclick="USR.showChpass(\'' + esc(u.username) + '\')">Password</button>'
+          + '<button class="btn btn-sm btn-danger" onclick="USR.deleteUser(\'' + esc(u.username) + '\')">Delete</button>'
+          + '</td>';
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  function showAdd() { msModal.open('modal-add-user'); }
+  function hideAdd() { msModal.close('modal-add-user'); }
+
+  function createUser() {
+    var u = document.getElementById('new-username').value.trim();
+    var p = document.getElementById('new-password').value;
+    var r = document.getElementById('new-role').value;
+    var lim = parseInt(document.getElementById('new-upload-limit').value) || 200;
+    if (!u || !p) { msToast('Fill in all fields', true); return; }
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p, role: r, upload_limit_mb: lim }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast('User created', 'success');
+        hideAdd();
+        loadUsers();
+        document.getElementById('new-username').value = '';
+        document.getElementById('new-password').value = '';
+      } else {
+        msToast(d.error || 'Failed', true);
+      }
+    });
+  }
+
+  function deleteUser(username) {
+    if (!confirm('Delete user ' + username + '?')) return;
+    fetch('/api/users/' + encodeURIComponent(username), { method: 'DELETE' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) { msToast('User deleted', 'success'); loadUsers(); }
+        else msToast(d.error || 'Failed', true);
+      });
+  }
+
+  var limitsTarget = null;
+
+  function showLimits(username, limitMb) {
+    limitsTarget = username;
+    document.getElementById('limits-user').textContent = username;
+    document.getElementById('limits-upload').value = limitMb || 200;
+    msModal.open('modal-limits');
+  }
+  function hideLimits() { msModal.close('modal-limits'); }
+
+  function doLimits() {
+    if (!limitsTarget) return;
+    var mb = parseInt(document.getElementById('limits-upload').value);
+    if (!mb || mb < 1) { msToast('Enter a valid upload limit', true); return; }
+    fetch('/api/users/' + encodeURIComponent(limitsTarget) + '/limits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_limit_mb: mb }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) { msToast('Upload limit updated', 'success'); hideLimits(); loadUsers(); }
+      else msToast(d.error || 'Failed', true);
+    });
+  }
+
+  function showChpass(username) {
+    chpassTarget = username;
+    document.getElementById('chpass-user').textContent = username;
+    document.getElementById('chpass-password').value = '';
+    msModal.open('modal-chpass');
+  }
+  function hideChpass() { msModal.close('modal-chpass'); }
+
+  function doChpass() {
+    var p = document.getElementById('chpass-password').value;
+    if (!p) { msToast('Enter a password', true); return; }
+    fetch('/api/users/' + encodeURIComponent(chpassTarget) + '/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: p }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) { msToast('Password updated', 'success'); hideChpass(); }
+      else msToast(d.error || 'Failed', true);
+    });
+  }
+
+  function changeMyPassword() {
+    var c = document.getElementById('my-current').value;
+    var n = document.getElementById('my-new').value;
+    if (!c || !n) { msToast('Fill in both fields', true); return; }
+    fetch('/api/account/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: c, new_password: n }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast('Password changed', 'success');
+        document.getElementById('my-current').value = '';
+        document.getElementById('my-new').value = '';
+      } else msToast(d.error || 'Failed', true);
+    });
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+  function formatDate(iso) {
+    if (!iso) return '--';
+    try { var d = new Date(iso); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
+    catch(e) { return iso; }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadUsers);
+
+  return {
+    showAdd: showAdd,
+    hideAdd: hideAdd,
+    createUser: createUser,
+    deleteUser: deleteUser,
+    showLimits: showLimits,
+    hideLimits: hideLimits,
+    doLimits: doLimits,
+    showChpass: showChpass,
+    hideChpass: hideChpass,
+    doChpass: doChpass,
+    changeMyPassword: changeMyPassword,
+  };
+})();
+</script>
+{% endblock %}

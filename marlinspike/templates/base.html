@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="{{ locale }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>{% block title %}MarlinSpike{% endblock %}</title>
+<style nonce="{{ csp_nonce }}">
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(/static/fonts/inter-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url(/static/fonts/fira-code-latin.woff2) format('woff2');
+}
+:root {
+  /* ── Surface stack ── */
+  --bg: #0d1720;
+  --bg-deep: #090e18;
+  --bg-surface: #101928;
+  --panel: #14202f;
+  --panel-alt: #101928;
+  --panel-strong: #192434;
+  /* ── Borders ── */
+  --border: #1f3048;
+  --border-dim: #111d30;
+  --border-bright: #2d4560;
+  /* ── Text ── */
+  --text: #cdd8e3;
+  --text-dim: #6e7f96;
+  --text-muted: #344056;
+  /* ── Brand accent (blue) ── */
+  --accent: #5b8af0;
+  --accent-hover: #4a75d4;
+  --accent-dim: rgba(91,138,240,0.08);
+  --accent-glow: rgba(91,138,240,0.18);
+  /* ── Semantic accents ── */
+  --accent-cyan: #2fb5c4;
+  --accent-green: #38a868;
+  --accent-rose: #c75070;
+  --accent-amber: #c8893a;
+  /* ── Severity ── */
+  --sev-critical: #ef4444;
+  --sev-critical-bg: rgba(239,68,68,0.10);
+  --sev-critical-border: rgba(239,68,68,0.28);
+  --sev-high: #f97316;
+  --sev-high-bg: rgba(249,115,22,0.10);
+  --sev-high-border: rgba(249,115,22,0.28);
+  --sev-medium: #f59e0b;
+  --sev-medium-bg: rgba(245,158,11,0.10);
+  --sev-medium-border: rgba(245,158,11,0.28);
+  --sev-low: #3b82f6;
+  --sev-low-bg: rgba(59,130,246,0.10);
+  --sev-low-border: rgba(59,130,246,0.28);
+  --sev-info: #64748b;
+  --sev-info-bg: rgba(100,116,139,0.10);
+  --sev-info-border: rgba(100,116,139,0.25);
+  /* ── Status colours (aliased for clarity) ── */
+  --color-danger: var(--sev-critical);
+  --color-warning: var(--sev-medium);
+  --color-success: #22c55e;
+  /* ── Typography ── */
+  --font-mono: 'Fira Code','Cascadia Code','Consolas','Courier New', monospace;
+  --font-ui: 'Inter','Segoe UI', system-ui, -apple-system, sans-serif;
+  /* ── Spacing scale (4-based) ── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  /* ── Radius ── */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+  --r-pill: 999px;
+  /* ── Transitions ── */
+  --t-fast: 0.12s ease;
+  --t-base: 0.18s ease;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * HP-HMI mode (ISA-101 / ASM Consortium / Hollifield 2008).
+ *
+ * Color is reserved for abnormal-condition signals only. Equipment, normal
+ * traffic, identity chips, lens icons, and Purdue level coding all desaturate
+ * to gray. CRITICAL / HIGH severity colors stay loud; MEDIUM / LOW / INFO
+ * desaturate to gray (they're informational, not actionable).
+ *
+ * Toggled via [data-hmi="on"] on <html>. Persisted in localStorage.
+ * ────────────────────────────────────────────────────────────────────────── */
+html[data-hmi="on"] {
+  /* Brand accents drop to gray — interactive UI uses contrast, not color */
+  --accent: #8294aa;
+  --accent-hover: #a4b5cb;
+  --accent-dim: rgba(130,148,170,0.08);
+  --accent-glow: rgba(130,148,170,0.18);
+  --accent-cyan: #8294aa;
+  --accent-green: #8294aa;
+  --accent-rose: #8294aa;
+  --accent-amber: #8294aa;
+  /* Lower-severity tiers: information, not alarm. Desaturate. */
+  --sev-medium: #8294aa;
+  --sev-medium-bg: rgba(130,148,170,0.08);
+  --sev-medium-border: rgba(130,148,170,0.20);
+  --sev-low: #6e7f96;
+  --sev-low-bg: rgba(110,127,150,0.06);
+  --sev-low-border: rgba(110,127,150,0.18);
+  --sev-info: #4a5568;
+  --sev-info-bg: rgba(74,85,104,0.06);
+  --sev-info-border: rgba(74,85,104,0.18);
+  /* CRITICAL + HIGH stay loud — these are alarm colors. */
+}
+html[data-hmi="on"] .ms-finding-chip,
+html[data-hmi="on"] .ms-chip {
+  background: rgba(255,255,255,0.02);
+  border-color: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+}
+html[data-hmi="on"] .chip-critical,
+html[data-hmi="on"] .chip-high {
+  /* alarm colors retain — only critical/high are "actionable abnormality" */
+}
+html[data-hmi="on"] .chip-medium,
+html[data-hmi="on"] .chip-low,
+html[data-hmi="on"] .chip-info {
+  background: rgba(255,255,255,0.02);
+  border-color: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+}
+/* Lens chips desaturate when not active. The active lens is the only color. */
+html[data-hmi="on"] .ms-lens-btn {
+  color: var(--text-dim);
+  border-color: rgba(255,255,255,0.06);
+}
+html[data-hmi="on"] .ms-lens-btn.active {
+  color: var(--text);
+  border-color: var(--text-dim);
+  background: rgba(255,255,255,0.04);
+}
+/* Severity bars / KPI cards: tone down INFO/LOW/MEDIUM */
+html[data-hmi="on"] [data-sev="INFO"],
+html[data-hmi="on"] [data-sev="LOW"],
+html[data-hmi="on"] [data-sev="MEDIUM"] {
+  filter: saturate(0.2) opacity(0.85);
+}
+/* HP-HMI toggle button styling */
+.ms-hmi-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.74em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: var(--t-fast);
+}
+.ms-hmi-btn:hover {
+  border-color: var(--border-bright);
+  color: var(--text);
+}
+html[data-hmi="on"] .ms-hmi-btn {
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Nav bar ── */
+.ms-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  height: 48px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border-dim);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  /* Subtle top accent line — positions MarlinSpike as a serious tool */
+  box-shadow: inset 0 2px 0 rgba(91,138,240,0.18), 0 1px 0 var(--border-dim);
+}
+.ms-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95em;
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+.ms-nav-brand .brand-text { color: var(--color-danger); }
+.ms-nav-brand .brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background: var(--bg-deep);
+  border: 1.5px solid #ef444488;
+  font-size: 0.62em;
+  font-weight: 800;
+  color: #ef4444;
+  letter-spacing: -0.5px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(239,68,68,0.2);
+  text-shadow: 0 0 6px rgba(239,68,68,0.5);
+  position: relative;
+}
+.ms-nav-brand .brand-icon::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(239,68,68,0.25) 0%, transparent 40%, rgba(91,138,240,0.20) 100%);
+  pointer-events: none;
+}
+.ms-nav-version {
+  font-size: 0.68em;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.ms-nav-links {
+  display: flex;
+  gap: 2px;
+  margin-left: 16px;
+  height: 100%;
+  align-items: stretch;
+}
+.ms-nav-links a {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.85em;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.ms-nav-links a:hover { color: var(--text); }
+.ms-nav-links a.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.ms-nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.85em;
+  color: var(--text-dim);
+}
+.ms-nav-right a {
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.ms-nav-right a:hover { color: var(--text); background: var(--bg-surface); }
+.ms-nav-user {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--text-dim);
+  padding: 3px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+}
+
+/* ── Language picker ── */
+.ms-lang-picker { position: relative; display: inline-block; }
+.ms-lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.ms-lang-btn:hover { color: var(--text); background: var(--bg-surface); border-color: var(--border-dim); }
+.ms-lang-caret { font-size: 0.7em; opacity: 0.7; }
+.ms-lang-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 140px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  padding: 4px;
+  z-index: 200;
+}
+.ms-lang-picker.open .ms-lang-menu { display: block; }
+.ms-lang-item {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.85em;
+  transition: color 0.1s, background 0.1s;
+}
+.ms-lang-item:hover { color: var(--text); background: var(--bg-surface); }
+.ms-lang-item.active { color: var(--accent); }
+
+/* ── Content wrapper ── */
+.ms-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-alt);
+  color: var(--text);
+  font-size: 0.84em;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: border-color var(--t-fast), background var(--t-fast), color var(--t-fast);
+  text-decoration: none;
+  white-space: nowrap;
+  min-height: 32px;
+}
+.btn:hover { border-color: var(--border-bright); background: var(--bg-surface); color: var(--text); }
+.btn-primary { border-color: rgba(91,138,240,0.45); background: rgba(91,138,240,0.10); color: var(--accent); }
+.btn-primary:hover { border-color: var(--accent); background: rgba(91,138,240,0.18); }
+.btn-danger  { border-color: var(--sev-critical-border); color: var(--sev-critical); background: transparent; }
+.btn-danger:hover  { background: var(--sev-critical-bg); border-color: var(--sev-critical); }
+.btn-success { border-color: rgba(34,197,94,0.35); color: var(--color-success); background: transparent; }
+.btn-success:hover { background: rgba(34,197,94,0.10); border-color: var(--color-success); }
+.btn-sm { padding: 4px 10px; font-size: 0.80em; min-height: 28px; }
+.btn-xs { padding: 2px 8px;  font-size: 0.75em; min-height: 24px; }
+
+/* ── Panels ── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--r-lg);
+  margin-bottom: var(--sp-4);
+  overflow: hidden;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-dim);
+  background: linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%);
+}
+.panel-header h2 {
+  font-size: 0.88em;
+  font-weight: 600;
+  letter-spacing: 0.15px;
+  color: var(--text);
+}
+.panel-body { padding: var(--sp-4); }
+
+/* ── Tables ── */
+.ms-table { width: 100%; border-collapse: collapse; font-size: 0.84em; }
+.ms-table thead tr {
+  background: linear-gradient(180deg, rgba(255,255,255,0.012) 0%, transparent 100%);
+}
+.ms-table th {
+  text-align: left;
+  padding: 7px 12px;
+  color: var(--text-muted);
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ms-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-dim);
+  vertical-align: middle;
+}
+.ms-table tr:last-child td { border-bottom: none; }
+.ms-table tbody tr { transition: background var(--t-fast); }
+.ms-table tbody tr:hover td { background: rgba(91,138,240,0.028); }
+.ms-table .mono { font-family: var(--font-mono); font-size: 0.91em; }
+.ms-table .dim { color: var(--text-dim); }
+/* Clickable row affordance */
+.ms-table tbody tr.clickable { cursor: pointer; }
+.ms-table tbody tr.clickable:hover td { background: rgba(91,138,240,0.05); }
+
+/* ── Loading spinner ── */
+@keyframes ms-spin { to { transform: rotate(360deg); } }
+.ms-spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ms-spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+.ms-spinner--sm { width: 14px; height: 14px; border-width: 1.5px; }
+.ms-spinner--lg { width: 28px; height: 28px; border-width: 3px; }
+.ms-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--text-dim);
+  font-size: 0.85em;
+}
+
+/* ── Toast ── */
+.ms-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  z-index: 2000;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  max-width: 420px;
+  line-height: 1.5;
+}
+.ms-toast.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.ms-toast.error { border-left-color: var(--color-danger); }
+.ms-toast.success { border-left-color: var(--color-success); }
+.ms-toast.warning { border-left-color: var(--color-warning); }
+.ms-toast-icon {
+  flex-shrink: 0;
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+.ms-toast-body { flex: 1; }
+
+/* ── Form inputs ── */
+.ms-input {
+  padding: 7px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+}
+.ms-input { transition: border-color 0.15s; }
+.ms-input:focus { border-color: var(--accent); outline: none; }
+.ms-select {
+  padding: 7px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  transition: border-color 0.15s;
+}
+.ms-select:focus { border-color: var(--accent); outline: none; }
+
+/* ── Empty states ── */
+.ms-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.ms-empty-icon {
+  width: 48px; height: 48px;
+  opacity: 0.35;
+  color: var(--text-muted);
+}
+.ms-empty-title {
+  font-size: 0.92em;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ms-empty-sub {
+  font-size: 0.82em;
+  color: var(--text-muted);
+  max-width: 340px;
+  line-height: 1.5;
+}
+.ms-empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: var(--accent);
+  font-size: 0.84em;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ms-empty-action:hover { text-decoration: underline; }
+
+/* ── Modal ── */
+.ms-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5,8,16,0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  animation: ms-fade-in 0.12s ease;
+}
+.ms-modal-backdrop.open { display: flex; }
+@keyframes ms-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.ms-modal {
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03);
+  min-width: 340px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: ms-modal-slide 0.18s ease;
+}
+@keyframes ms-modal-slide {
+  from { transform: translateY(-10px) scale(0.98); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+.ms-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-dim);
+  background: linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%);
+}
+.ms-modal-header h3 {
+  font-size: 0.92em;
+  font-weight: 600;
+  color: var(--text);
+}
+.ms-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 1.1em;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  line-height: 1;
+  transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
+}
+.ms-modal-close:hover { color: var(--text); background: var(--bg-surface); border-color: var(--border); }
+.ms-modal-body { padding: 20px; }
+.ms-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-dim);
+  background: rgba(0,0,0,0.08);
+}
+
+/* ── Status badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-family: var(--font-mono);
+  border: 1px solid transparent;
+}
+.badge-running  { background: rgba(91,138,240,0.12); color: var(--accent);         border-color: rgba(91,138,240,0.25); }
+.badge-completed{ background: rgba(34,197,94,0.10);  color: var(--color-success);  border-color: rgba(34,197,94,0.22); }
+.badge-failed   { background: var(--sev-critical-bg); color: var(--sev-critical);  border-color: var(--sev-critical-border); }
+.badge-stopped  { background: var(--sev-info-bg);    color: var(--text-dim);       border-color: var(--sev-info-border); }
+.badge-interrupted { background: var(--sev-medium-bg); color: var(--color-warning); border-color: var(--sev-medium-border); }
+.badge-pending  { background: var(--sev-info-bg);    color: var(--text-dim);       border-color: var(--sev-info-border); }
+
+/* ── Severity chips — canonical one-line component ── */
+/* Usage: <span class="chip chip-critical">CRITICAL</span> */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  font-size: 0.72em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-family: var(--font-mono);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip-critical { background: var(--sev-critical-bg); color: var(--sev-critical); border-color: var(--sev-critical-border); }
+.chip-high     { background: var(--sev-high-bg);     color: var(--sev-high);     border-color: var(--sev-high-border); }
+.chip-medium   { background: var(--sev-medium-bg);   color: var(--sev-medium);   border-color: var(--sev-medium-border); }
+.chip-low      { background: var(--sev-low-bg);      color: var(--sev-low);      border-color: var(--sev-low-border); }
+.chip-info     { background: var(--sev-info-bg);     color: var(--sev-info);     border-color: var(--sev-info-border); }
+.chip-accent   { background: rgba(91,138,240,0.12);  color: var(--accent);       border-color: rgba(91,138,240,0.28); }
+.chip-cyan     { background: rgba(47,181,196,0.10);  color: var(--accent-cyan);  border-color: rgba(47,181,196,0.25); }
+.chip-success  { background: rgba(34,197,94,0.10);   color: var(--color-success); border-color: rgba(34,197,94,0.22); }
+.chip-muted    { background: var(--sev-info-bg);     color: var(--text-dim);     border-color: var(--sev-info-border); }
+
+/* ── Form field wrapper (canonical — use to unify ad-hoc label+input stacks) ── */
+.ms-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.ms-field label {
+  font-size: 0.74em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+.ms-field .ms-hint {
+  font-size: 0.76em;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.ms-field .ms-hint.ok  { color: var(--color-success); }
+.ms-field .ms-hint.err { color: var(--sev-critical); }
+
+/* ── Status dot (inline pulse indicator) ── */
+.ms-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.ms-dot-live {
+  background: var(--sev-critical);
+  animation: ms-dot-pulse 1.6s ease-in-out infinite;
+}
+.ms-dot-ok   { background: var(--color-success); }
+.ms-dot-warn { background: var(--color-warning); }
+@keyframes ms-dot-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.45); }
+  50%       { opacity: 0.6; box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+}
+
+/* ── Toolbar strip (canonical page-level toolbar) ── */
+.ms-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+/* ── Separator ── */
+.ms-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* ── Info hint tooltip ── */
+.info-hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  font-size: 0.7em;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, serif;
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.info-hint:hover { border-color: var(--accent); color: var(--accent); }
+.info-hint .info-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  z-index: 50;
+  white-space: normal;
+  pointer-events: none;
+}
+.info-hint:hover .info-tip { display: block; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .ms-nav { padding: 0 12px; gap: 8px; }
+  .ms-nav-links { gap: 0; margin-left: 8px; overflow-x: auto; }
+  .ms-nav-links a { padding: 0 8px; font-size: 0.78em; white-space: nowrap; }
+  .ms-nav-right { gap: 6px; font-size: 0.78em; }
+  .ms-nav-version { display: none; }
+  .ms-content { padding: 12px; }
+  .ms-table { font-size: 0.78em; }
+  .ms-table th, .ms-table td { padding: 6px 8px; }
+  .ms-modal { min-width: 0; margin: 12px; }
+}
+@media (max-width: 480px) {
+  .ms-nav-links a { padding: 0 6px; font-size: 0.72em; }
+  .ms-nav-right a:not(:last-child) { display: none; }
+  .panel-header { padding: 10px 12px; }
+  .panel-body { padding: 12px; }
+}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+{% from "_macros.html" import tax_chip, sev_chip with context %}
+
+<nav class="ms-nav">
+  <a href="/dashboard" class="ms-nav-brand">
+    <div class="brand-icon">MS</div>
+    <span class="brand-text">MarlinSpike</span>
+    <span class="ms-nav-version">v{{ app_version }}</span>
+  </a>
+  <div class="ms-nav-links">
+    <a href="/dashboard" class="{% if request.path == '/dashboard' %}active{% endif %}">{{ t('nav.dashboard') }}</a>
+    <a href="/reports" class="{% if request.path == '/reports' %}active{% endif %}">{{ t('nav.reports') }}</a>
+    <a href="/scans" class="{% if request.path == '/scans' %}active{% endif %}">{{ t('nav.scans') }}</a>
+    <a href="/capture" class="{% if request.path == '/capture' %}active{% endif %}">{{ t('nav.live_capture') }}</a>
+    <a href="/projects" class="{% if request.path == '/projects' %}active{% endif %}">{{ t('nav.projects') }}</a>
+    <a href="/iocs" class="{% if request.path == '/iocs' %}active{% endif %}">{{ t('nav.iocs') }}</a>
+    <a href="/capabilities" class="{% if request.path == '/capabilities' %}active{% endif %}">{{ t('nav.capabilities') }}</a>
+    {% if session.get('role') == 'admin' %}
+    <a href="/users" class="{% if request.path == '/users' %}active{% endif %}">{{ t('nav.users') }}</a>
+    <a href="/audit" class="{% if request.path == '/audit' %}active{% endif %}">{{ t('nav.audit') }}</a>
+    <a href="/system" class="{% if request.path == '/system' %}active{% endif %}">{{ t('nav.system') }}</a>
+    {% endif %}
+  </div>
+  <div class="ms-nav-right">
+    <button type="button" class="ms-hmi-btn" id="ms-hmi-btn"
+            title="{{ t('nav.hmi.tooltip') }}"
+            aria-pressed="false">{{ t('nav.hmi.label') }}</button>
+    <div class="ms-lang-picker" id="ms-lang-picker">
+      <button type="button" class="ms-lang-btn" id="ms-lang-btn" aria-haspopup="true" aria-expanded="false" aria-label="{{ t('lang.label') }}">
+        {{ locale_labels[locale] }}
+        <span class="ms-lang-caret">&#9662;</span>
+      </button>
+      <div class="ms-lang-menu" id="ms-lang-menu" role="menu">
+        {% for lc in supported_locales %}
+        <a href="/i18n/set/{{ lc }}?next={{ request.full_path | urlencode }}"
+           role="menuitem"
+           class="ms-lang-item {% if lc == locale %}active{% endif %}">{{ locale_labels[lc] }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <a href="/about">{{ t('nav.about') }}</a>
+    <a href="/profile" class="{% if request.path == '/profile' %}active{% endif %}">{{ session.get('user', '') }}</a>
+    <a href="/logout">{{ t('nav.logout') }}</a>
+  </div>
+</nav>
+
+{% block body %}{% endblock %}
+
+<div class="ms-toast" id="ms-toast">
+  <span class="ms-toast-icon" id="ms-toast-icon"></span>
+  <span class="ms-toast-body" id="ms-toast-body"></span>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+/** CSRF — pick up the per-session token from the meta tag and inject it
+ *  into every non-safe fetch() call automatically.  This monkey-patch
+ *  runs before any page JS so existing call sites need no changes. */
+window.MS_CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+(function() {
+  var origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    var method = (opts.method || 'GET').toUpperCase();
+    if (['GET', 'HEAD', 'OPTIONS'].indexOf(method) === -1 && window.MS_CSRF) {
+      opts.headers = new Headers(opts.headers || {});
+      opts.headers.set('X-CSRF-Token', window.MS_CSRF);
+    }
+    return origFetch.call(this, url, opts);
+  };
+})();
+/** msFetch — explicit named wrapper (same behaviour, useful for call sites
+ *  that want to be self-documenting about CSRF awareness). */
+window.msFetch = function(url, opts) { return window.fetch(url, opts); };
+/** Taxonomy: entity visual specs for client-side chip / graph rendering.
+ *  Keyed by entity_type value (e.g. "asset", "finding").
+ *  Each entry: { entity_type, color_var, node_shape, chip_class,
+ *               i18n_label_key, i18n_plural_key, icon } */
+window.MS_TAXONOMY = {{ taxonomy_entities | tojson }};
+/** Convenience: resolve chip class for a severity string */
+window.msSevChipClass = function(sev) {
+  var MAP = { CRITICAL: 'chip-critical', HIGH: 'chip-high', MEDIUM: 'chip-medium', LOW: 'chip-low', INFO: 'chip-info' };
+  return MAP[(sev || '').toUpperCase()] || 'chip-info';
+};
+/** Render a taxonomy chip HTML string for an entity type.
+ *  msEntityChip('asset') → '<span class="chip chip-cyan" data-entity="asset">Asset</span>'
+ *  msEntityChip('finding', 'HIGH') → uses label_override instead of i18n label */
+window.msEntityChip = function(entityKey, labelOverride) {
+  var spec = window.MS_TAXONOMY[entityKey] || {};
+  var cls = spec.chip_class || 'chip-muted';
+  var lbl = labelOverride || (window.MS_T && window.MS_T[spec.i18n_label_key]) || entityKey;
+  return '<span class="chip ' + cls + '" data-entity="' + entityKey + '">' + lbl + '</span>';
+};
+/** Render a severity chip HTML string.
+ *  msSevChip('CRITICAL') → '<span class="chip chip-critical">CRITICAL</span>' */
+window.msSevChip = function(sev) {
+  return '<span class="chip ' + window.msSevChipClass(sev) + '">' + (sev || '').toUpperCase() + '</span>';
+};
+
+/** HP-HMI mode (ISA-101 / ASM Consortium). Toggle: localStorage key 'ms_hmi'.
+ *  When on, color reserved for CRITICAL/HIGH alarm signals only — equipment,
+ *  normal traffic, identity chips, lens icons, Purdue level coding desaturate.
+ *  Pages that render SVG nodes / ad-hoc colors (e.g. viewer.html) read
+ *  window.msHmiActive() to branch their rendering. */
+window.msHmiActive = function() {
+  return document.documentElement.getAttribute('data-hmi') === 'on';
+};
+window.msSetHmi = function(on) {
+  document.documentElement.setAttribute('data-hmi', on ? 'on' : 'off');
+  try { localStorage.setItem('ms_hmi', on ? '1' : '0'); } catch (e) {}
+  var btn = document.getElementById('ms-hmi-btn');
+  if (btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  document.dispatchEvent(new CustomEvent('ms:hmi-changed', { detail: { active: on } }));
+};
+(function applyHmiOnLoad() {
+  var stored = '0';
+  try { stored = localStorage.getItem('ms_hmi') || '0'; } catch (e) {}
+  document.documentElement.setAttribute('data-hmi', stored === '1' ? 'on' : 'off');
+})();
+document.addEventListener('DOMContentLoaded', function() {
+  var btn = document.getElementById('ms-hmi-btn');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', window.msHmiActive() ? 'true' : 'false');
+  btn.addEventListener('click', function() {
+    window.msSetHmi(!window.msHmiActive());
+  });
+});
+/** i18n: server-rendered string table for client-side rendering.
+ *  Use as MS_T['nav.reports'] || 'fallback'. Add keys here as templates
+ *  surface JS-rendered strings; missing keys fall back to the key itself. */
+window.MS_T = {
+  "common.loading": {{ t('common.loading') | tojson }},
+  "common.refresh": {{ t('common.refresh') | tojson }},
+  "common.cancel": {{ t('common.cancel') | tojson }},
+  "common.save": {{ t('common.save') | tojson }},
+  "common.delete": {{ t('common.delete') | tojson }},
+  "common.confirm": {{ t('common.confirm') | tojson }},
+  "common.close": {{ t('common.close') | tojson }},
+  "common.error": {{ t('common.error') | tojson }},
+  "common.actions": {{ t('common.actions') | tojson }},
+  "common.status": {{ t('common.status') | tojson }},
+  "errors.network": {{ t('errors.network') | tojson }},
+  "errors.upload_failed": {{ t('errors.upload_failed') | tojson }},
+  "errors.scan_failed": {{ t('errors.scan_failed') | tojson }},
+  "dashboard.no_recent_scans": {{ t('dashboard.no_recent_scans') | tojson }},
+  "reports.empty_title": {{ t('reports.empty_title') | tojson }},
+  "reports.empty_sub": {{ t('reports.empty_sub') | tojson }},
+  "reports.empty_action": {{ t('reports.empty_action') | tojson }},
+  "reports.empty_run_a_scan": {{ t('reports.empty_run_a_scan') | tojson }},
+  "reports.filter_all_projects": {{ t('reports.filter_all_projects') | tojson }},
+  "reports.view": {{ t('reports.view') | tojson }},
+  "reports.deleted": {{ t('reports.deleted') | tojson }},
+  "reports.confirm_delete": {{ t('reports.confirm_delete') | tojson }},
+  "reports.compare_limit": {{ t('reports.compare_limit') | tojson }},
+  "common.download": {{ t('common.download') | tojson }},
+  "scans.empty_title": {{ t('scans.empty_title') | tojson }},
+  "scans.empty_sub": {{ t('scans.empty_sub') | tojson }},
+  "scans.empty_action": {{ t('scans.empty_action') | tojson }},
+  "scans.view_report": {{ t('scans.view_report') | tojson }},
+  "scans.retry": {{ t('scans.retry') | tojson }},
+  "scans.details": {{ t('scans.details') | tojson }},
+  "scans.hide": {{ t('scans.hide') | tojson }},
+  "scans.retry_started": {{ t('scans.retry_started') | tojson }},
+  "scans.retry_failed": {{ t('scans.retry_failed') | tojson }},
+  "scans.recovery.reattached": {{ t('scans.recovery.reattached') | tojson }},
+  "scans.recovery.reaped_completed": {{ t('scans.recovery.reaped_completed') | tojson }},
+  "scans.recovery.reaped_failed": {{ t('scans.recovery.reaped_failed') | tojson }},
+  "scans.recovery.reaped_abandoned": {{ t('scans.recovery.reaped_abandoned') | tojson }},
+  "scans.recovery.tip_reattached": {{ t('scans.recovery.tip_reattached') | tojson }},
+  "scans.recovery.tip_reaped_completed": {{ t('scans.recovery.tip_reaped_completed') | tojson }},
+  "scans.recovery.tip_reaped_failed": {{ t('scans.recovery.tip_reaped_failed') | tojson }},
+  "scans.recovery.tip_reaped_abandoned": {{ t('scans.recovery.tip_reaped_abandoned') | tojson }},
+  "projects.overview_empty": {{ t('projects.overview_empty') | tojson }},
+  "profile.username": {{ t('profile.username') | tojson }},
+  "profile.role": {{ t('profile.role') | tojson }},
+  "profile.saved": {{ t('profile.saved') | tojson }},
+  "profile.save_failed": {{ t('profile.save_failed') | tojson }},
+  "profile.load_failed": {{ t('profile.load_failed') | tojson }},
+  "profile.password_changed": {{ t('profile.password_changed') | tojson }},
+  "profile.password_fill_both": {{ t('profile.password_fill_both') | tojson }},
+  "dashboard.opt_select_file": {{ t('dashboard.opt_select_file') | tojson }},
+  "dashboard.opt_no_pcaps": {{ t('dashboard.opt_no_pcaps') | tojson }},
+  "dashboard.opt_failed_to_load": {{ t('dashboard.opt_failed_to_load') | tojson }},
+  "dashboard.loading_sample_library": {{ t('dashboard.loading_sample_library') | tojson }},
+  "dashboard.run_stop": {{ t('dashboard.run_stop') | tojson }},
+  "dashboard.run_detach": {{ t('dashboard.run_detach') | tojson }},
+  "dashboard.run_show_log": {{ t('dashboard.run_show_log') | tojson }},
+  "dashboard.run_hide_log": {{ t('dashboard.run_hide_log') | tojson }},
+  "dashboard.run_attach": {{ t('dashboard.run_attach') | tojson }},
+  "dashboard.run_retry": {{ t('dashboard.run_retry') | tojson }},
+  "dashboard.run_details": {{ t('dashboard.run_details') | tojson }},
+  "dashboard.run_hide": {{ t('dashboard.run_hide') | tojson }},
+  "dashboard.run_delete": {{ t('dashboard.run_delete') | tojson }},
+  "dashboard.no_project_selected": {{ t('dashboard.no_project_selected') | tojson }},
+  "dashboard.no_project": {{ t('dashboard.no_project') | tojson }},
+  "dashboard.no_recent_activity": {{ t('dashboard.no_recent_activity') | tojson }},
+  "dashboard.report_relative": {{ t('dashboard.report_relative') | tojson }},
+  "dashboard.scan_relative": {{ t('dashboard.scan_relative') | tojson }},
+  "dashboard.workspace_projects_one": {{ t('dashboard.workspace_projects_one') | tojson }},
+  "dashboard.workspace_projects_many": {{ t('dashboard.workspace_projects_many') | tojson }},
+  "dashboard.workspace_files_empty": {{ t('dashboard.workspace_files_empty') | tojson }},
+  "dashboard.workspace_files_ready": {{ t('dashboard.workspace_files_ready') | tojson }},
+  "dashboard.workspace_reports_detail": {{ t('dashboard.workspace_reports_detail') | tojson }},
+  "dashboard.workspace_reports_empty": {{ t('dashboard.workspace_reports_empty') | tojson }},
+  "dashboard.workspace_scans_detail": {{ t('dashboard.workspace_scans_detail') | tojson }},
+  "dashboard.workspace_scans_detail_no_time": {{ t('dashboard.workspace_scans_detail_no_time') | tojson }},
+  "dashboard.workspace_scans_empty": {{ t('dashboard.workspace_scans_empty') | tojson }},
+  "dashboard.run_summary_empty": {{ t('dashboard.run_summary_empty') | tojson }},
+  "dashboard.run_summary_one": {{ t('dashboard.run_summary_one') | tojson }},
+  "dashboard.run_summary_many": {{ t('dashboard.run_summary_many') | tojson }},
+  "dashboard.scan_started": {{ t('dashboard.scan_started') | tojson }},
+  "dashboard.scan_stopped": {{ t('dashboard.scan_stopped') | tojson }},
+  "dashboard.scan_start_failed": {{ t('dashboard.scan_start_failed') | tojson }},
+  "dashboard.select_pcap_required": {{ t('dashboard.select_pcap_required') | tojson }},
+  "dashboard.select_sample_required": {{ t('dashboard.select_sample_required') | tojson }},
+  "dashboard.upload_pcap_required": {{ t('dashboard.upload_pcap_required') | tojson }},
+  "dashboard.project_created": {{ t('dashboard.project_created') | tojson }},
+  "dashboard.project_create_failed": {{ t('dashboard.project_create_failed') | tojson }},
+  "dashboard.file_too_large": {{ t('dashboard.file_too_large') | tojson }},
+  "dashboard.attached_to_run": {{ t('dashboard.attached_to_run') | tojson }},
+  "dashboard.create_new_project": {{ t('dashboard.create_new_project') | tojson }},
+  "dashboard.view_all_reports": {{ t('dashboard.view_all_reports') | tojson }},
+  "dashboard.view_all_scans": {{ t('dashboard.view_all_scans') | tojson }},
+  "dashboard.scans_empty_sub": {{ t('dashboard.scans_empty_sub') | tojson }},
+  "dashboard.source_pcap_file": {{ t('dashboard.source_pcap_file') | tojson }},
+  "dashboard.source_tab_library": {{ t('dashboard.source_tab_library') | tojson }},
+  "dashboard.source_tab_upload": {{ t('dashboard.source_tab_upload') | tojson }},
+  "common.failed": {{ t('common.failed') | tojson }},
+  "projects.sidebar_meta_one": {{ t('projects.sidebar_meta_one') | tojson }},
+  "projects.sidebar_meta_many": {{ t('projects.sidebar_meta_many') | tojson }},
+  "projects.option_select_dash": {{ t('projects.option_select_dash') | tojson }},
+  "projects.empty_pcap_title": {{ t('projects.empty_pcap_title') | tojson }},
+  "projects.empty_pcap_sub": {{ t('projects.empty_pcap_sub') | tojson }},
+  "projects.empty_history_title": {{ t('projects.empty_history_title') | tojson }},
+  "projects.empty_history_sub": {{ t('projects.empty_history_sub') | tojson }},
+  "projects.upload_success": {{ t('projects.upload_success') | tojson }},
+  "projects.upload_trim_notice": {{ t('projects.upload_trim_notice') | tojson }},
+  "projects.upload_failed": {{ t('projects.upload_failed') | tojson }},
+  "projects.kpi_assets_split": {{ t('projects.kpi_assets_split') | tojson }},
+  "projects.kpi_findings_split": {{ t('projects.kpi_findings_split') | tojson }},
+  "projects.kpi_attack_mapped": {{ t('projects.kpi_attack_mapped') | tojson }},
+  "projects.kpi_attack_none": {{ t('projects.kpi_attack_none') | tojson }},
+  "projects.findings_meta": {{ t('projects.findings_meta') | tojson }},
+  "projects.assets_meta_header": {{ t('projects.assets_meta_header') | tojson }},
+  "projects.protocols_meta": {{ t('projects.protocols_meta') | tojson }},
+  "projects.attack_meta": {{ t('projects.attack_meta') | tojson }},
+  "projects.context_reports_count": {{ t('projects.context_reports_count') | tojson }},
+  "projects.context_across_span": {{ t('projects.context_across_span') | tojson }},
+  "projects.context_profile": {{ t('projects.context_profile') | tojson }},
+  "projects.span_one_day": {{ t('projects.span_one_day') | tojson }},
+  "projects.span_days": {{ t('projects.span_days') | tojson }},
+  "projects.span_weeks": {{ t('projects.span_weeks') | tojson }},
+  "projects.span_months": {{ t('projects.span_months') | tojson }},
+  "projects.severity_total": {{ t('projects.severity_total') | tojson }},
+  "projects.severity_empty_seg": {{ t('projects.severity_empty_seg') | tojson }},
+  "projects.severity_empty_legend": {{ t('projects.severity_empty_legend') | tojson }},
+  "projects.severity_tooltip_one": {{ t('projects.severity_tooltip_one') | tojson }},
+  "projects.severity_tooltip_many": {{ t('projects.severity_tooltip_many') | tojson }},
+  "projects.findings_empty_table": {{ t('projects.findings_empty_table') | tojson }},
+  "projects.findings_more": {{ t('projects.findings_more') | tojson }},
+  "projects.assets_count_label": {{ t('projects.assets_count_label') | tojson }},
+  "projects.assets_count_filtered": {{ t('projects.assets_count_filtered') | tojson }},
+  "projects.assets_filter_empty": {{ t('projects.assets_filter_empty') | tojson }},
+  "projects.assets_ip_label": {{ t('projects.assets_ip_label') | tojson }},
+  "projects.assets_truncate": {{ t('projects.assets_truncate') | tojson }},
+  "projects.protocols_empty": {{ t('projects.protocols_empty') | tojson }},
+  "projects.protocol_tooltip": {{ t('projects.protocol_tooltip') | tojson }},
+  "projects.profiles_across_project": {{ t('projects.profiles_across_project') | tojson }},
+  "projects.relative_recently": {{ t('projects.relative_recently') | tojson }},
+  "projects.relative_just_now": {{ t('projects.relative_just_now') | tojson }},
+  "projects.relative_min": {{ t('projects.relative_min') | tojson }},
+  "projects.relative_hour": {{ t('projects.relative_hour') | tojson }},
+  "projects.relative_day": {{ t('projects.relative_day') | tojson }},
+  "projects.btn_open": {{ t('projects.btn_open') | tojson }}
+};
+/** t(key, fallback) — JS-side translator. Falls back to fallback or key. */
+window.msT = function(key, fallback) {
+  return (window.MS_T && window.MS_T[key]) || fallback || key;
+};
+/** Language picker open/close */
+(function() {
+  var btn = document.getElementById('ms-lang-btn');
+  var picker = document.getElementById('ms-lang-picker');
+  if (!btn || !picker) return;
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var open = picker.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', function(e) {
+    if (!picker.contains(e.target)) {
+      picker.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      picker.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+})();
+/** Modal system — msModal.open(id), msModal.close(id) */
+var msModal = (function() {
+  function open(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('open');
+    el.addEventListener('click', _backdropClick);
+    document.addEventListener('keydown', _escHandler);
+    /* Focus first input inside modal */
+    setTimeout(function() {
+      var inp = el.querySelector('input:not([type=hidden]),select,textarea');
+      if (inp) inp.focus();
+    }, 50);
+  }
+  function close(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('open');
+    el.removeEventListener('click', _backdropClick);
+    document.removeEventListener('keydown', _escHandler);
+  }
+  function _backdropClick(e) {
+    if (e.target.classList.contains('ms-modal-backdrop')) {
+      e.target.classList.remove('open');
+      e.target.removeEventListener('click', _backdropClick);
+    }
+  }
+  function _escHandler(e) {
+    if (e.key === 'Escape') {
+      var open = document.querySelector('.ms-modal-backdrop.open');
+      if (open) { close(open.id); }
+    }
+  }
+  return { open: open, close: close };
+})();
+function msToast(msg, level) {
+  var t = document.getElementById('ms-toast');
+  var icon = document.getElementById('ms-toast-icon');
+  var body = document.getElementById('ms-toast-body');
+  /* backward compat: msToast('msg', true) still works as error */
+  if (level === true) level = 'error';
+  if (level === false || level === undefined) level = 'info';
+  var icons = { info: '\u2139', success: '\u2713', warning: '\u26A0', error: '\u2717' };
+  var cls = 'ms-toast visible';
+  if (level === 'error') cls += ' error';
+  else if (level === 'success') cls += ' success';
+  else if (level === 'warning') cls += ' warning';
+  icon.textContent = icons[level] || icons.info;
+  body.textContent = msg;
+  t.className = cls;
+  clearTimeout(t._tid);
+  t._tid = setTimeout(function() { t.className = 'ms-toast'; }, 4000);
+}
+/** Generate spinner HTML for inline use: msSpinner() or msSpinner('sm') */
+function msSpinner(size) {
+  var cls = 'ms-spinner';
+  if (size) cls += ' ms-spinner--' + size;
+  return '<div class="' + cls + '"></div>';
+}
+/** Generate a loading placeholder row/div: msLoadingHTML('Loading reports...') */
+function msLoadingHTML(msg, colspan) {
+  if (colspan) return '<tr><td colspan="' + colspan + '"><div class="ms-loading">' + msSpinner() + ' ' + (msg || 'Loading\u2026') + '</div></td></tr>';
+  return '<div class="ms-loading">' + msSpinner() + ' ' + (msg || 'Loading\u2026') + '</div>';
+}
+/** SVG empty-state icons keyed by name */
+var _msEmptyIcons = {
+  report: '<svg class="ms-empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="6" width="28" height="36" rx="3"/><line x1="17" y1="16" x2="31" y2="16"/><line x1="17" y1="22" x2="31" y2="22"/><line x1="17" y1="28" x2="25" y2="28"/></svg>',
+  scan: '<svg class="ms-empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="14"/><path d="M24 14v10l7 7"/></svg>',
+  project: '<svg class="ms-empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14h36v24a3 3 0 01-3 3H9a3 3 0 01-3-3V14z"/><path d="M6 14l4-7h14l4 7"/></svg>',
+  file: '<svg class="ms-empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6h18l8 8v28a2 2 0 01-2 2H12a2 2 0 01-2-2V8a2 2 0 012-2z"/><polyline points="30 6 30 14 38 14"/></svg>',
+  network: '<svg class="ms-empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="12" r="5"/><circle cx="12" cy="36" r="5"/><circle cx="36" cy="36" r="5"/><line x1="24" y1="17" x2="12" y2="31"/><line x1="24" y1="17" x2="36" y2="31"/><line x1="12" y1="36" x2="36" y2="36"/></svg>',
+  user: '<svg class="ms-empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="16" r="8"/><path d="M8 42c0-8.837 7.163-16 16-16s16 7.163 16 16"/></svg>'
+};
+/**
+ * Generate empty-state HTML.
+ * msEmptyHTML({ icon:'report', title:'No reports yet', sub:'Run a scan...', action:'Start scan', href:'/dashboard' }, colspan)
+ */
+function msEmptyHTML(opts, colspan) {
+  var icon = (opts.icon && _msEmptyIcons[opts.icon]) || '';
+  var h = '<div class="ms-empty">' + icon;
+  if (opts.title) h += '<div class="ms-empty-title">' + opts.title + '</div>';
+  if (opts.sub) h += '<div class="ms-empty-sub">' + opts.sub + '</div>';
+  if (opts.action) {
+    if (opts.href) h += '<a class="ms-empty-action" href="' + opts.href + '">' + opts.action + ' &rarr;</a>';
+    else if (opts.onclick) h += '<span class="ms-empty-action" onclick="' + opts.onclick + '">' + opts.action + ' &rarr;</span>';
+  }
+  h += '</div>';
+  if (colspan) return '<tr><td colspan="' + colspan + '">' + h + '</td></tr>';
+  return h;
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

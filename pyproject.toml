@@ -1,0 +1,210 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "marlinspike"
+version = "3.6.0"
+description = "Passive OT/IT network topology mapper and PCAP risk analysis."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Erisforge Ltd." }]
+keywords = ["pcap", "ot", "ics", "network-security", "topology", "mitre-attack"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: Flask",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+]
+dependencies = [
+    "flask>=2.3",
+    "flask-sqlalchemy>=3.0",
+    "flask-limiter>=3.0",
+    "redis>=5.0",
+    "psycopg2-binary>=2.9",
+    "PyYAML>=6.0",
+    "zstandard>=0.21",
+]
+
+[project.optional-dependencies]
+cython = ["Cython>=3.0", "setuptools>=68"]
+test = ["pytest>=7.0", "pytest-cov>=5.0"]
+lint = ["ruff>=0.6.0"]
+typecheck = ["mypy>=1.10", "types-PyYAML", "types-requests"]
+migrations = ["flask-migrate>=4.0", "alembic>=1.13"]
+dev = ["ruff>=0.6.0", "pytest>=7.0", "pytest-cov>=5.0", "mypy>=1.10",
+       "build>=1.0", "twine>=5.0", "flask-migrate>=4.0", "alembic>=1.13"]
+
+[project.scripts]
+# `marlinspike` runs the analysis engine on a pcap; same as `python -m marlinspike`.
+marlinspike = "marlinspike.engine:main"
+# First-run wizard — generates .env with strong secrets, admin password,
+# and sensible production defaults. See marlinspike.setup_wizard.
+marlinspike-setup = "marlinspike.setup_wizard:main"
+# Database migration wrapper around Flask-Migrate / Alembic.
+# Requires marlinspike[migrations].  Usage: marlinspike-db upgrade|downgrade|current|stamp|migrate
+marlinspike-db = "marlinspike.db_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/eris-ot/marlinspike"
+Issues = "https://github.com/eris-ot/marlinspike/issues"
+
+# ── Linting / formatting (ruff) ─────────────────────────────────────────
+# Ruff is checked-in but the formatting sweep across the legacy codebase
+# is deliberately deferred (would create a huge unrelated diff). For now,
+# CI runs `ruff check` (warnings, not errors) so new code starts clean.
+# To run locally: `pip install -e .[lint]` then `ruff check .` or
+# `ruff format --check .`. To apply formatting: `ruff format .`.
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    ".venv",
+    ".smoke",
+    "data",
+    "build",
+    "dist",
+    "release-artifacts",
+    "msengine",
+    "marlinspike-dpi",
+    "marlinspike-capd",
+    "windows",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "S",    # bandit (security)
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",   # line-too-long — let formatter handle
+    "B008",   # function call in default arg
+    "S101",   # assert in tests
+    "S105", "S106", "S107",   # hardcoded password (lots of false positives in tests/docs)
+    "S603", "S607",   # subprocess.run + partial-path executable (we shell to known tools)
+    "S110", "S112",   # try-except-pass (we use it for best-effort cleanup)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# S108: tests use synthetic /tmp placeholder paths as opaque identifiers
+# (never written) — same false-positive class as the S105/6 ignores above.
+"tests/**/*" = ["S101", "S105", "S106", "S108", "S311"]
+"scripts/**/*" = ["S101", "S105", "S106", "S108", "S311"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ── Type checking (mypy) ─────────────────────────────────────────────────
+# Strict on the new modules where annotations are clean. Lax on the
+# legacy giants (app.py, engine.py) — the v3.6+ split will land typed
+# replacements; doing it now would create churn-in-place. CI runs
+# `mypy --config-file pyproject.toml` and fails on the strict set.
+[tool.mypy]
+python_version = "3.10"
+strict_optional = true
+check_untyped_defs = false
+ignore_missing_imports = true
+exclude = [
+    "marlinspike/app\\.py$",
+    "marlinspike/engine\\.py$",
+    "msengine/",
+    "marlinspike-dpi/",
+    "marlinspike-capd/",
+    "windows/",
+    "build/",
+    "dist/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "marlinspike.taxonomy",
+    "marlinspike.run_store",
+    "marlinspike.recovery",
+    "marlinspike.setup_wizard",
+    "marlinspike.emit.ocsf",
+    "marlinspike.emit.navigator",
+    "marlinspike.emit.stix",
+    "marlinspike.emit.sigma",
+]
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+
+# ── Coverage (pytest-cov) ─────────────────────────────────────────────────
+# Coverage gate is asymmetric: 70% on new modules, no floor on legacy.
+# Run via `pytest --cov=marlinspike --cov-report=term-missing
+# --cov-fail-under=...` — CI reports the legacy coverage but only fails
+# on regressions in the new-module set.
+[tool.coverage.run]
+source = ["marlinspike"]
+branch = true
+omit = [
+    "marlinspike/app.py",       # tracked separately; full route coverage is v3.6+
+    "marlinspike/engine.py",    # ditto
+    "marlinspike/__main__.py",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+# The wheel ships the application package plus the top-level ``plugins``
+# namespace so that ``pip install marlinspike`` exposes ``plugins.marlinspike_*``
+# under the import paths used by config defaults. Project assets that are
+# normally edited at runtime (``rules/``, ``presets/``, ``data/``) are NOT
+# packaged — supply them via ``MARLINSPIKE_PROJECT_ROOT`` (or the per-asset env
+# vars) when running from an installed wheel.
+[tool.hatch.build.targets.wheel]
+packages = ["marlinspike", "plugins"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "marlinspike/",
+    "migrations/",
+    "plugins/",
+    "rules/",
+    "presets/",
+    "tests/",
+    "scripts/",
+    "docs/",
+    "requirements.txt",
+    "Dockerfile",
+    "docker-compose.yml",
+    "deploy.sh",
+    "deploy-dev.sh",
+    "setup_cython.py",
+    "README.md",
+    "LICENSE",
+    "releases.md",
+    "UPGRADING.md",
+    "COMPATIBILITY.md",
+    "CONTRIBUTING.md",
+    "INSTALL.md",
+    "RELEASING.md",
+    "SUITE-MANIFEST.yaml",
+]

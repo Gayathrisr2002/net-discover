@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}MarlinSpike — {{ t('scans.title') }}{% endblock %}
+
+{% block head %}
+<style nonce="{{ csp_nonce }}">
+.run-id-copy {
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.run-id-copy:hover { background: var(--bg-surface); }
+.run-id-copy.copied { background: rgba(34,197,94,0.15); }
+.history-error-row td {
+  padding: 0 12px 8px 12px !important;
+  border-bottom: 1px solid var(--border-dim);
+}
+.error-detail {
+  background: var(--bg-deep);
+  border: 1px solid var(--border-dim);
+  border-left: 3px solid var(--color-danger);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Recovery state indicators — built on base .chip vocabulary */
+.recovery-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.69em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+  font-family: var(--font-mono);
+  vertical-align: middle;
+  cursor: default;
+  position: relative;
+  border: 1px solid transparent;
+}
+/* Aligned with base.html token system */
+.recovery-chip-reattached       { background: rgba(91,138,240,0.10);  color: var(--accent);         border-color: rgba(91,138,240,0.28); }
+.recovery-chip-reaped_completed { background: rgba(34,197,94,0.09);   color: var(--color-success);  border-color: rgba(34,197,94,0.22); }
+.recovery-chip-reaped_failed    { background: var(--sev-critical-bg); color: var(--sev-critical);   border-color: var(--sev-critical-border); }
+.recovery-chip-reaped_abandoned { background: var(--sev-medium-bg);   color: var(--sev-medium);     border-color: var(--sev-medium-border); }
+.recovery-chip .recovery-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 244px;
+  padding: 8px 10px;
+  background: var(--panel-strong, var(--panel));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.45;
+  color: var(--text);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  z-index: 50;
+  white-space: normal;
+  pointer-events: none;
+}
+.recovery-chip:hover .recovery-tip { display: block; }
+/* empty states handled by base.html .ms-empty */
+@media (max-width: 768px) {
+  .page-toolbar { flex-wrap: wrap; gap: 8px; }
+  .panel-body { overflow-x: auto; }
+}
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="ms-content">
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>{{ t('scans.history') }}</h2>
+      <div class="page-toolbar">
+        <select id="project-filter" onchange="SH.onProjectChange()">
+          <option value="">{{ t('common.loading') }}</option>
+        </select>
+        <button class="btn btn-sm" onclick="SH.loadHistory()">{{ t('common.refresh') }}</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <table class="ms-table" id="history-table">
+        <thead>
+          <tr>
+            <th>{{ t('scans.column_run') }}</th>
+            <th>{{ t('scans.column_user') }}</th>
+            <th>{{ t('scans.column_command') }}</th>
+            <th>{{ t('scans.column_source') }}</th>
+            <th>{{ t('common.status') }}</th>
+            <th title="{{ t('scans.nodes_edges_hint') }}">{{ t('scans.column_nodes_edges') }}</th>
+            <th>{{ t('scans.column_started') }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="8"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('scans.loading') }}</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+var SH = (function() {
+  'use strict';
+
+  var currentProjectId = null;
+
+  function init() {
+    loadProjects(function() {
+      loadHistory();
+    });
+  }
+
+  function loadProjects(callback) {
+    fetch('/api/projects').then(function(r) { return r.json(); }).then(function(d) {
+      var sel = document.getElementById('project-filter');
+      sel.innerHTML = '<option value="">' + msT('reports.filter_all_projects', 'All Projects') + '</option>';
+      (d.projects || []).forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      });
+      if (callback) callback();
+    }).catch(function() { if (callback) callback(); });
+  }
+
+  function onProjectChange() {
+    var sel = document.getElementById('project-filter');
+    currentProjectId = sel.value ? parseInt(sel.value) : null;
+    loadHistory();
+  }
+
+  function loadHistory() {
+    var url = '/api/history';
+    var params = [];
+    if (currentProjectId) params.push('project_id=' + currentProjectId);
+    if (params.length) url += '?' + params.join('&');
+    fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+      var tbody = document.getElementById('history-body');
+      if (!d.scans || d.scans.length === 0) {
+        tbody.innerHTML = msEmptyHTML({ icon: 'scan', title: msT('scans.empty_title'), sub: msT('scans.empty_sub'), action: msT('scans.empty_action'), href: '/dashboard' }, 8);
+        return;
+      }
+      tbody.innerHTML = '';
+      d.scans.forEach(function(s) {
+        var tr = document.createElement('tr');
+        var actions = '';
+        if (s.status === 'completed' && s.report_filename) {
+          actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
+        } else if ((s.status === 'failed' || s.status === 'interrupted') && s.pcap_source && !s.pcap_source.startsWith('live:')) {
+          actions = '<button class="btn btn-sm" onclick="SH.retryScan(\'' + esc(s.pcap_source) + '\',\'' + esc(s.command) + '\',\'' + esc(s.scan_profile || 'full') + '\')">' + msT('scans.retry', 'Retry') + '</button>';
+        }
+        var hasError = s.error_tail && (s.status === 'failed' || s.status === 'stopped' || s.status === 'interrupted');
+        if (hasError) {
+          actions += ' <button class="btn btn-sm btn-danger" onclick="SH.toggleError(this)" style="font-size:0.75em;padding:2px 6px;">' + msT('scans.details', 'Details') + '</button>';
+        }
+        var nodeEdge = '--';
+        if (s.status === 'completed' && (s.node_count || s.edge_count)) {
+          nodeEdge = (s.node_count || 0) + ' / ' + (s.edge_count || 0);
+        }
+        tr.innerHTML =
+          '<td><span class="mono run-id-copy" title="' + msT('scans.copy_id_hint', 'Click to copy full ID') + '" onclick="SH.copyId(this, \'' + esc(s.run_id) + '\')" style="font-size:0.8em;">' + esc(s.run_id.substring(0, 8)) + '</span></td>'
+          + '<td>' + esc(s.user) + '</td>'
+          + '<td>' + esc(displayCommand(s.command, s.scan_profile)) + '</td>'
+          + '<td class="mono dim" style="font-size:0.8em;max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + esc(s.pcap_source || '--') + '</td>'
+          + '<td><span class="badge badge-' + esc(s.status) + '">' + esc(s.status) + '</span>' + recoveryChip(s.recovery_state) + '</td>'
+          + '<td class="mono dim">' + nodeEdge + '</td>'
+          + '<td class="dim">' + formatDate(s.started_at) + '</td>'
+          + '<td>' + actions + '</td>';
+        tbody.appendChild(tr);
+        if (hasError) {
+          var errTr = document.createElement('tr');
+          errTr.className = 'history-error-row';
+          errTr.style.display = 'none';
+          errTr.innerHTML = '<td colspan="8"><div class="error-detail">' + esc(s.error_tail) + '</div></td>';
+          tbody.appendChild(errTr);
+        }
+      });
+    });
+  }
+
+  function toggleError(btn) {
+    var errorRow = btn.closest('tr').nextElementSibling;
+    if (errorRow && errorRow.classList.contains('history-error-row')) {
+      var showing = errorRow.style.display !== 'none';
+      errorRow.style.display = showing ? 'none' : '';
+      btn.textContent = showing ? msT('scans.details', 'Details') : msT('scans.hide', 'Hide');
+    }
+  }
+
+  function copyId(el, fullId) {
+    navigator.clipboard.writeText(fullId).then(function() {
+      el.classList.add('copied');
+      setTimeout(function() { el.classList.remove('copied'); }, 1200);
+    });
+  }
+
+  function retryScan(pcapSource, command, scanProfile) {
+    var body = { command: command, pcap_file: pcapSource, scan_profile: scanProfile || 'full' };
+    fetch('/api/scans/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast(msT('scans.retry_started', 'Scan retried — check Dashboard for progress'), 'success');
+        loadHistory();
+      } else {
+        msToast(d.error || msT('scans.retry_failed', 'Failed to retry scan'), true);
+      }
+    }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
+  }
+
+  // Helpers
+  function esc(s) {
+    if (s == null) return '';
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+  function recoveryChip(state) {
+    if (!state) return '';
+    var labels = {
+      'reattached':       msT('scans.recovery.reattached',       'reattached'),
+      'reaped_completed': msT('scans.recovery.reaped_completed',  'recovered'),
+      'reaped_failed':    msT('scans.recovery.reaped_failed',     'reaped'),
+      'reaped_abandoned': msT('scans.recovery.reaped_abandoned',  'abandoned')
+    };
+    var tips = {
+      'reattached':       msT('scans.recovery.tip_reattached',       'Engine survived Flask restart; watcher re-attached and run completed normally.'),
+      'reaped_completed': msT('scans.recovery.tip_reaped_completed',  'Engine finished while Flask was down. Report ingested on next boot.'),
+      'reaped_failed':    msT('scans.recovery.tip_reaped_failed',     'Engine crashed mid-scan. No report available; marked failed on recovery.'),
+      'reaped_abandoned': msT('scans.recovery.tip_reaped_abandoned',  'Scan exceeded its timeout deadline and was abandoned on recovery.')
+    };
+    var label = labels[state] || esc(state);
+    var tip   = tips[state]   || '';
+    return '<span class="recovery-chip recovery-chip-' + esc(state) + '">'
+      + label
+      + '<span class="recovery-tip">' + esc(tip) + '</span>'
+      + '</span>';
+  }
+  function displayCommand(command, scanProfile) {
+    return command + ((scanProfile && scanProfile !== 'full') ? ' (' + scanProfile + ')' : '');
+  }
+  function formatSize(bytes) {
+    if (!bytes) return '--';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(2) + ' GB';
+  }
+  function formatDate(iso) {
+    if (!iso) return '--';
+    try {
+      var d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    } catch(e) { return iso; }
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  return {
+    loadHistory: loadHistory,
+    toggleError: toggleError,
+    copyId: copyId,
+    retryScan: retryScan,
+    onProjectChange: onProjectChange,
+  };
+})();
+</script>
+{% endblock %}

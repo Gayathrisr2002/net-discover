@@ -1,0 +1,64 @@
+manifest_version: 1
+suite_mode: bootstrap-monorepo
+suite_repo: marlinspike
+component_repo_model: authoritative-components
+vendoring_strategy: git-subtree
+
+report_contract:
+  status: planned
+  target_version: 1
+
+components:
+  msengine:
+    status: dropped
+    note: |
+      The msengine/ subtree bootstrap and scripts/sync-msengine-bootstrap.sh
+      were removed in v3.5.3. The bootstrap was supposed to seed a future
+      standalone marlinspike-msengine repo but that extraction never
+      happened, the sync script broke when the v3.0 package restructure
+      moved sources into marlinspike/, and the snapshot drifted ~636
+      lines behind the operational engine. Operational source of truth
+      is marlinspike/engine.py. If/when the standalone repo is extracted,
+      pull from marlinspike/engine.py at that point via git filter-repo.
+    operational_source_of_truth: marlinspike/engine.py
+    target_repo: eris-ot/marlinspike-msengine
+
+  workbench:
+    status: extraction_planned
+    target_repo: eris-ot/marlinspike-workbench
+    target_subtree: workbench
+    current_source_paths:
+      - app.py
+      - _auth.py
+      - _config.py
+      - _models.py
+      - auth.py
+      - config.py
+      - models.py
+      - templates/
+      - static/
+      - Dockerfile
+      - docker-compose.yml
+      - deploy.sh
+      - deploy-dev.sh
+
+  plugins:
+    status: planned
+    target_repo: eris-ot/marlinspike-plugins
+    target_subtree: plugins
+    planned_components:
+      - marlinspike-mitre
+      - marlinspike-iec62443
+      - marlinspike-pera
+
+  engines:
+    status: partial
+    target_repo: eris-ot/marlinspike-engines
+    target_subtree: engines
+    current_source_paths:
+      - marlinspike-dpi/
+    planned_components:
+      - marlinspike-dpi
+      - name: marlinspike-malware
+        status: integrated
+        notes: IOC/signature matching engine repo created; Stage 4b integration active

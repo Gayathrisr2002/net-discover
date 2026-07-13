@@ -1,0 +1,1674 @@
+{% extends "base.html" %}
+{% block title %}MarlinSpike — {{ t('dashboard.title') }}{% endblock %}
+
+{% block head %}
+<style nonce="{{ csp_nonce }}">
+.workspace-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px;
+  margin-bottom: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(91,138,240,0.16), transparent 32%),
+    linear-gradient(135deg, rgba(50,184,198,0.08), rgba(91,138,240,0.02) 45%, rgba(239,68,68,0.08));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+.workspace-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent 45%);
+  pointer-events: none;
+}
+.workspace-copy,
+.workspace-actions {
+  position: relative;
+  z-index: 1;
+}
+.workspace-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 760px;
+}
+.workspace-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72em;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+.workspace-eyebrow .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-success);
+  box-shadow: 0 0 10px rgba(34,197,94,0.45);
+}
+.workspace-title {
+  font-size: 1.7em;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.workspace-title span { color: var(--color-danger); }
+.workspace-subtitle {
+  max-width: 68ch;
+  color: var(--text-dim);
+  font-size: 0.96em;
+  line-height: 1.55;
+}
+.workspace-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(11,20,32,0.72);
+  border: 1px solid rgba(91,138,240,0.2);
+  color: var(--text-dim);
+  font-size: 0.8em;
+}
+.context-pill b {
+  color: var(--text);
+  font-weight: 600;
+}
+.workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  min-width: 240px;
+}
+.workspace-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.workspace-kpi {
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent 50%), var(--panel);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  min-width: 0;
+  transition: border-color 0.15s;
+}
+.workspace-kpi:hover { border-color: var(--border); }
+.workspace-kpi-label {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.workspace-kpi-value {
+  margin-top: 8px;
+  font-size: 1.28em;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-kpi-detail {
+  margin-top: 4px;
+  font-size: 0.82em;
+  color: var(--text-dim);
+  line-height: 1.35;
+  min-height: 2.2em;
+}
+.workspace-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.workspace-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.84em;
+  background: var(--panel);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.workspace-link:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(91,138,240,0.06);
+}
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  gap: 16px;
+  align-items: start;
+}
+.workspace-grid > .panel,
+.workspace-grid > #runs-container {
+  min-width: 0;
+}
+.workspace-span-2 {
+  grid-column: 1 / -1;
+}
+.panel-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.panel-subtitle {
+  color: var(--text-dim);
+  font-size: 0.82em;
+  font-weight: 400;
+}
+
+/* Scan controls */
+.scan-controls {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.scan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scan-field label {
+  font-size: 0.75em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.scan-field input,
+.scan-field select {
+  padding: 7px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  min-width: 200px;
+  transition: border-color 0.15s;
+}
+.scan-field input:focus,
+.scan-field select:focus { border-color: var(--accent); outline: none; }
+
+/* Scan source tabs */
+.scan-source-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
+}
+.scan-source-tab {
+  padding: 7px 18px;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.82em;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+.scan-source-tab:hover { color: var(--text); border-bottom-color: var(--text-muted); }
+.scan-source-tab.active {
+  border-color: var(--border);
+  border-bottom-color: var(--panel);
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 600;
+}
+.scan-source-panel { display: none; }
+.scan-source-panel.active { display: flex; }
+
+/* Active run panel */
+.run-panel {
+  display: none;
+  margin-top: 16px;
+}
+.run-panel.active { display: block; }
+
+/* Progress bar */
+.run-progress-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  margin: 10px 0 6px;
+}
+.run-progress-segment {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--panel-alt);
+  border-right: 1px solid var(--border-dim);
+  transition: background 0.3s, color 0.3s;
+  gap: 4px;
+  letter-spacing: 0.2px;
+}
+.run-progress-segment:last-child { border-right: none; }
+.run-progress-segment.pending { color: var(--text-muted); }
+.run-progress-segment.running {
+  background: rgba(91,138,240,0.15);
+  color: var(--accent);
+  animation: progress-pulse 1.5s ease-in-out infinite;
+}
+.run-progress-segment.complete {
+  background: rgba(34,197,94,0.12);
+  color: var(--color-success);
+}
+.run-progress-segment.failed {
+  background: rgba(239,68,68,0.12);
+  color: var(--color-danger);
+}
+.run-progress-segment.stopped {
+  background: rgba(100,116,139,0.12);
+  color: var(--text-dim);
+}
+@keyframes progress-pulse {
+  0%, 100% { background: rgba(91,138,240,0.10); }
+  50% { background: rgba(91,138,240,0.22); }
+}
+.run-progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.run-progress-label { font-weight: 500; }
+.run-elapsed {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--text-muted);
+}
+
+/* Log toggle */
+.run-log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel-alt);
+  color: var(--text-dim);
+  font-size: 0.78em;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  margin-top: 4px;
+}
+.run-log-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+/* Old stage chain (hidden by progress bar) */
+.run-stage-chain { display: none; }
+
+/* Live output */
+.live-output {
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  max-height: 360px;
+  overflow-y: auto;
+  line-height: 1.3;
+  color: var(--text-dim);
+  margin-top: 8px;
+  white-space: pre;
+}
+.live-output.collapsed { display: none; }
+.live-output .line-stage { color: #f59e0b; font-weight: 700; }
+.live-output .line-success { color: #22c55e; }
+.live-output .line-error { color: #ef4444; }
+.live-output .line-info { color: #58a6ff; }
+
+/* Reports table extras */
+.dashboard-table-wrap {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.dashboard-table-wrap .ms-table {
+  min-width: 100%;
+}
+.report-actions { display: flex; gap: 8px; }
+.report-actions a, .report-actions button {
+  font-size: 0.82em;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+.report-actions .view-link { color: var(--accent-cyan); }
+.report-actions .view-link:hover { text-decoration: underline; }
+.report-actions .dl-link { color: var(--accent); text-decoration: none; }
+.report-actions .dl-link:hover { text-decoration: underline; }
+.report-actions .del-btn { color: var(--color-danger); }
+.report-actions .del-btn:hover { text-decoration: underline; }
+
+/* Compare bar */
+.compare-bar {
+  display: none;
+  padding: 8px 16px;
+  background: rgba(91,138,240,0.08);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.88em;
+}
+.compare-bar.active { display: flex; }
+
+/* Upload area */
+.upload-zone {
+  border: 2px dashed rgba(122,138,158,0.45);
+  border-radius: 6px;
+  padding: 14px 20px;
+  text-align: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.upload-zone:hover { border-color: var(--accent); background: rgba(91,138,240,0.03); }
+.upload-zone.dragging { border-color: var(--accent); background: rgba(91,138,240,0.06); }
+#upload-input { display: none; }
+
+/* Copyable run ID */
+.run-id-copy {
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.run-id-copy:hover { background: var(--bg-surface); }
+.run-id-copy.copied { background: rgba(34,197,94,0.15); }
+
+/* Error detail row */
+.history-error-row td {
+  padding: 0 12px 8px 12px !important;
+  border-bottom: 1px solid var(--border-dim);
+}
+.error-detail {
+  background: var(--bg-deep);
+  border: 1px solid var(--border-dim);
+  border-left: 3px solid var(--color-danger);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* Sample Library browser */
+.preset-library { width: 100%; }
+.preset-category {
+  margin-bottom: 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.preset-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 14px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.preset-category-header:hover { background: var(--panel-alt); }
+.preset-category-header h3 {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preset-category-header .cat-count {
+  font-size: 0.82em;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.preset-category-header .cat-chevron {
+  font-size: 0.7em;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+.preset-category.collapsed .cat-chevron { transform: rotate(-90deg); }
+.preset-category.collapsed .preset-grid { display: none; }
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+}
+.preset-card {
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.preset-card:hover { border-color: var(--accent); background: rgba(91,138,240,0.04); }
+.preset-card.selected {
+  border-color: var(--accent);
+  background: rgba(91,138,240,0.1);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.preset-card .pc-name {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+  word-break: break-all;
+}
+.preset-card .pc-meta {
+  font-size: 0.75em;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.preset-card .pc-desc {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.3;
+}
+
+/* empty states handled by base.html .ms-empty */
+
+/* info-hint now in base.html */
+
+@media (max-width: 1120px) {
+  .workspace-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+  .workspace-span-2 {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 820px) {
+  .workspace-hero {
+    flex-direction: column;
+    padding: 18px;
+  }
+  .workspace-actions {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+  .workspace-title {
+    font-size: 1.38em;
+  }
+  .workspace-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .workspace-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="ms-content">
+
+  <section class="workspace-hero">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> {{ t('dashboard.eyebrow') }}</div>
+      <h1 class="workspace-title"><span>{{ t('dashboard.workspace_title_lead') }}</span> {{ t('dashboard.workspace_title_rest') }}</h1>
+      <p class="workspace-subtitle">{{ t('dashboard.workspace_subtitle') }}</p>
+      <div class="workspace-context">
+        <div class="context-pill">{{ t('dashboard.context_project') }} <b id="ws-context-project">{{ t('common.loading') }}</b></div>
+        <div class="context-pill">{{ t('dashboard.context_source') }} <b id="ws-context-source">{{ t('dashboard.source_pcap_file') }}</b></div>
+        <div class="context-pill">{{ t('dashboard.context_activity') }} <b id="ws-context-activity">{{ t('common.loading') }}</b></div>
+      </div>
+    </div>
+    <div class="workspace-actions">
+      <a class="btn btn-primary" href="#scan-workspace">{{ t('dashboard.cta_run_scan') }}</a>
+      <a class="btn" href="#reports-section">{{ t('dashboard.cta_recent_reports') }}</a>
+      <a class="btn" href="#history-section">{{ t('dashboard.cta_scan_history') }}</a>
+      <a class="btn" href="/projects">{{ t('dashboard.cta_projects') }}</a>
+    </div>
+  </section>
+
+  <section class="workspace-kpis" aria-label="Workspace overview">
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('dashboard.kpi_project_focus') }}</div>
+      <div class="workspace-kpi-value" id="ws-project-name">{{ t('common.loading') }}</div>
+      <div class="workspace-kpi-detail" id="ws-project-detail">{{ t('dashboard.kpi_project_focus_detail') }}</div>
+    </div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('dashboard.kpi_capture_inventory') }}</div>
+      <div class="workspace-kpi-value" id="ws-file-count">--</div>
+      <div class="workspace-kpi-detail" id="ws-file-detail">{{ t('dashboard.kpi_capture_inventory_detail') }}</div>
+    </div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('dashboard.kpi_report_outputs') }}</div>
+      <div class="workspace-kpi-value" id="ws-report-count">--</div>
+      <div class="workspace-kpi-detail" id="ws-report-detail">{{ t('dashboard.kpi_report_outputs_detail') }}</div>
+    </div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('dashboard.kpi_recent_scans') }}</div>
+      <div class="workspace-kpi-value" id="ws-scan-count">--</div>
+      <div class="workspace-kpi-detail" id="ws-scan-detail">{{ t('dashboard.kpi_recent_scans_detail') }}</div>
+    </div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('dashboard.kpi_attached_runs') }}</div>
+      <div class="workspace-kpi-value" id="ws-run-count">0</div>
+      <div class="workspace-kpi-detail" id="ws-run-detail">{{ t('dashboard.kpi_attached_runs_detail') }}</div>
+    </div>
+  </section>
+
+  <nav class="workspace-rail" aria-label="Workspace sections">
+    <a class="workspace-link" href="#scan-workspace">{{ t('dashboard.rail_capture_intake') }}</a>
+    <a class="workspace-link" href="#reports-section">{{ t('dashboard.rail_assessment_outputs') }}</a>
+    <a class="workspace-link" href="#history-section">{{ t('dashboard.rail_execution_history') }}</a>
+    <a class="workspace-link" href="/reports">{{ t('dashboard.rail_report_library') }}</a>
+    <a class="workspace-link" href="/scans">{{ t('dashboard.rail_full_ledger') }}</a>
+  </nav>
+
+  <div class="workspace-grid">
+
+  <!-- Scan Controls -->
+  <div class="panel workspace-span-2" id="scan-workspace">
+    <div class="panel-header">
+      <div class="panel-title-wrap">
+        <h2>{{ t('dashboard.scan_workspace') }}</h2>
+        <div class="panel-subtitle">{{ t('dashboard.scan_workspace_subtitle') }}</div>
+      </div>
+      <button class="btn btn-success" id="btn-start" onclick="MS.startScan()">{{ t('dashboard.start_scan') }}</button>
+    </div>
+    <div class="panel-body">
+      <div class="scan-source-tabs">
+        <div class="scan-source-tab active" onclick="MS.setSource('file')">{{ t('dashboard.source_tab_file') }}</div>
+        <div class="scan-source-tab" onclick="MS.setSource('library')">{{ t('dashboard.source_tab_library') }}</div>
+        <div class="scan-source-tab" onclick="MS.setSource('upload')">{{ t('dashboard.source_tab_upload') }}</div>
+      </div>
+
+      <!-- Command selector (shared across file + upload sources) -->
+      <div class="scan-controls" id="scan-command-row" style="margin: 14px 0 12px; gap: 16px;">
+        <div class="scan-field">
+          <label>{{ t('dashboard.field_project') }}</label>
+          <select id="scan-project" onchange="MS.onProjectChange()">
+            <option value="">{{ t('common.loading') }}</option>
+          </select>
+        </div>
+        <div class="scan-field" id="new-project-field" style="display:none;">
+          <label>{{ t('dashboard.field_new_project') }}</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="new-project-name" placeholder="{{ t('dashboard.field_new_project_placeholder') }}" style="min-width:160px;"
+              onkeydown="if(event.key==='Enter')MS.createNewProject();if(event.key==='Escape')MS.cancelNewProject();">
+            <button class="btn btn-primary btn-sm" onclick="MS.createNewProject()" style="white-space:nowrap;">{{ t('dashboard.create') }}</button>
+            <button class="btn btn-sm" onclick="MS.cancelNewProject()">{{ t('dashboard.cancel') }}</button>
+          </div>
+        </div>
+        <div class="scan-field">
+          <label>{{ t('dashboard.field_command') }} <span class="info-hint">i<span class="info-tip">{{ t('dashboard.command_hint') }}</span></span></label>
+          <select id="scan-command">
+            <option value="chain">{{ t('dashboard.cmd_chain') }}</option>
+            <option value="ingest">{{ t('dashboard.cmd_ingest') }}</option>
+            <option value="dissect">{{ t('dashboard.cmd_dissect') }}</option>
+            <option value="topology">{{ t('dashboard.cmd_topology') }}</option>
+            <option value="risk">{{ t('dashboard.cmd_risk') }}</option>
+          </select>
+        </div>
+        <div class="scan-field">
+          <label>{{ t('dashboard.field_profile') }} <span class="info-hint">i<span class="info-tip">{{ t('dashboard.profile_hint') }}</span></span></label>
+          <select id="scan-profile">
+            <option value="fast">{{ t('dashboard.profile_fast') }}</option>
+            <option value="full">{{ t('dashboard.profile_full') }}</option>
+          </select>
+        </div>
+        <div class="scan-field">
+          <label for="capture-filter">{{ t('dashboard.field_bpf') }} <span class="info-hint">i<span class="info-tip">{{ t('dashboard.bpf_hint') }} <code style="font-size:0.9em;color:var(--accent);">host 10.0.0.1 and port 502</code></span></span></label>
+          <input type="text" id="capture-filter" placeholder="{{ t('dashboard.bpf_placeholder') }}">
+        </div>
+        <div class="scan-field">
+          <label>&nbsp;</label>
+          <label for="skip-ephemeral" style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;padding:7px 0;font-size:0.9em;text-transform:none;font-weight:normal;color:var(--text);">
+            <input type="checkbox" id="skip-ephemeral" style="width:auto;min-width:auto;margin:0;" checked>
+            {{ t('dashboard.skip_ephemeral') }}
+            <span class="info-hint">i<span class="info-tip">{{ t('dashboard.skip_ephemeral_hint') }}</span></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- File select -->
+      <div class="scan-source-panel active" id="src-file">
+        <div class="scan-controls" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div class="scan-field">
+            <label>{{ t('dashboard.field_select_pcap') }}</label>
+            <select id="pcap-select">
+              <option value="">{{ t('common.loading') }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sample Library -->
+      <div class="scan-source-panel" id="src-library" style="flex-direction:column;">
+        <div class="preset-library" id="preset-library">
+          <div style="text-align:center;padding:16px;color:var(--text-dim);">{{ t('dashboard.loading_sample_library') }}</div>
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div class="scan-source-panel" id="src-upload">
+        <div style="width:100%;">
+          <div class="upload-zone" id="upload-zone" onclick="document.getElementById('upload-input').click()">
+            <span style="font-size:1.1em;margin-right:6px;">&#128193;</span>
+            {{ t('dashboard.upload_drop_hint') }}
+            <span style="font-size:0.82em;color:var(--text-muted);margin-left:8px;">{{ t('dashboard.upload_max', mb=200) }}</span>
+          </div>
+          <input type="file" id="upload-input" accept=".pcap,.pcapng,.cap">
+          <div id="upload-status" style="margin-top:8px;font-size:0.85em;color:var(--text-dim);"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Active Runs (dynamically populated) -->
+  <div id="runs-container" class="workspace-span-2"></div>
+
+  <!-- Reports -->
+  <div class="panel" id="reports-section">
+    <div class="panel-header">
+      <div class="panel-title-wrap">
+        <h2>{{ t('dashboard.recent_reports') }}</h2>
+        <div class="panel-subtitle">{{ t('dashboard.recent_reports_subtitle') }}</div>
+      </div>
+      <button class="btn btn-sm" onclick="MS.loadReports()">{{ t('common.refresh') }}</button>
+    </div>
+    <div class="panel-body">
+      <div class="compare-bar" id="compare-bar">
+        <span>{{ t('reports.baseline') }}: <b id="compare-a">—</b> {{ t('reports.vs') }} <b id="compare-b">—</b></span>
+        <button class="btn btn-primary btn-sm" onclick="MS.compareDiff()">{{ t('reports.view_drift') }}</button>
+        <button class="btn btn-sm" onclick="MS.clearCompare()">{{ t('reports.clear') }}</button>
+      </div>
+      <div class="dashboard-table-wrap">
+        <table class="ms-table" id="reports-table">
+          <thead>
+            <tr>
+              <th style="width:30px;"></th>
+              <th>{{ t('reports.column_filename') }}</th>
+              <th>{{ t('common.size') }}</th>
+              <th>{{ t('reports.column_modified') }}</th>
+              <th>{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody id="reports-body">
+            <tr><td colspan="5"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('reports.loading') }}</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scan History -->
+  <div class="panel" id="history-section">
+    <div class="panel-header">
+      <div class="panel-title-wrap">
+        <h2>{{ t('dashboard.recent_scans') }}</h2>
+        <div class="panel-subtitle">{{ t('dashboard.recent_scans_subtitle') }}</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="dashboard-table-wrap">
+        <table class="ms-table" id="history-table">
+          <thead>
+            <tr>
+              <th>{{ t('scans.column_run') }}</th>
+              <th>{{ t('scans.column_user') }}</th>
+              <th>{{ t('scans.column_command') }}</th>
+              <th>{{ t('scans.column_source') }}</th>
+              <th>{{ t('common.status') }}</th>
+              <th title="{{ t('scans.nodes_edges_hint') }}">{{ t('scans.column_nodes_edges') }}</th>
+              <th>{{ t('scans.column_started') }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr><td colspan="8"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('scans.loading') }}</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+var IS_ADMIN = {{ (session.get('role') == 'admin')|tojson }};
+var MS = (function() {
+  'use strict';
+
+  // Track multiple attached runs: { runId: { cursor, pollTimer } }
+  var attachedRuns = {};
+  var source = 'file';
+  var uploadedFile = null;
+  var compareA = null, compareB = null;
+  var currentProjectId = null;
+  var workspaceState = {
+    projectName: msT('common.loading', 'Loading…'),
+    projectCount: 0,
+    fileCount: 0,
+    reportCount: 0,
+    reportModified: '',
+    scanCount: 0,
+    latestScanStatus: '',
+    latestScanTime: '',
+    sourceLabel: msT('dashboard.source_pcap_file', 'PCAP File')
+  };
+
+  function init() {
+    renderWorkspaceState();
+    loadProjects(function() {
+      loadReports();
+      loadHistory();
+      checkActiveRuns();
+      loadFiles();
+    });
+    setupUpload();
+    renderRunSummary();
+  }
+
+  function setWorkspaceState(patch) {
+    Object.keys(patch || {}).forEach(function(key) {
+      workspaceState[key] = patch[key];
+    });
+    renderWorkspaceState();
+  }
+
+  function renderWorkspaceState() {
+    setText('ws-project-name', workspaceState.projectName || msT('dashboard.no_project_selected', 'No project selected'));
+    var projCount = workspaceState.projectCount || 0;
+    setText(
+      'ws-project-detail',
+      projCount === 1
+        ? msT('dashboard.workspace_projects_one', '1 project available in this workspace.')
+        : msT('dashboard.workspace_projects_many', '{n} projects available in this workspace.').replace('{n}', projCount)
+    );
+    setText('ws-file-count', String(workspaceState.fileCount || 0));
+    setText(
+      'ws-file-detail',
+      (workspaceState.fileCount || 0) === 0
+        ? msT('dashboard.workspace_files_empty', 'No PCAPs loaded for the selected project yet.')
+        : msT('dashboard.workspace_files_ready', 'PCAPs ready for intake in the active project.')
+    );
+    setText('ws-report-count', String(workspaceState.reportCount || 0));
+    setText(
+      'ws-report-detail',
+      workspaceState.reportModified
+        ? msT('dashboard.workspace_reports_detail', 'Latest output updated {when}. Open the viewer when you are ready to work it.').replace('{when}', formatRelativeTime(workspaceState.reportModified))
+        : msT('dashboard.workspace_reports_empty', 'No reports generated for the selected project yet.')
+    );
+    setText('ws-scan-count', String(workspaceState.scanCount || 0));
+    setText(
+      'ws-scan-detail',
+      workspaceState.latestScanStatus
+        ? (workspaceState.latestScanTime
+            ? msT('dashboard.workspace_scans_detail', 'Latest run is {status} from {when}.').replace('{status}', workspaceState.latestScanStatus.toLowerCase()).replace('{when}', formatRelativeTime(workspaceState.latestScanTime))
+            : msT('dashboard.workspace_scans_detail_no_time', 'Latest run is {status}.').replace('{status}', workspaceState.latestScanStatus.toLowerCase()))
+        : msT('dashboard.workspace_scans_empty', 'No recent scan activity loaded yet.')
+    );
+    setText('ws-context-project', workspaceState.projectName || msT('dashboard.no_project', 'No project'));
+    setText('ws-context-source', workspaceState.sourceLabel || msT('dashboard.source_pcap_file', 'PCAP File'));
+    setText(
+      'ws-context-activity',
+      workspaceState.reportModified
+        ? msT('dashboard.report_relative', 'Report {when}').replace('{when}', formatRelativeTime(workspaceState.reportModified))
+        : (workspaceState.latestScanTime
+            ? msT('dashboard.scan_relative', 'Scan {when}').replace('{when}', formatRelativeTime(workspaceState.latestScanTime))
+            : msT('dashboard.no_recent_activity', 'No recent activity'))
+    );
+  }
+
+  function renderRunSummary() {
+    var count = Object.keys(attachedRuns).length;
+    setText('ws-run-count', String(count));
+    setText(
+      'ws-run-detail',
+      count === 0
+        ? msT('dashboard.run_summary_empty', 'No active run panels attached.')
+        : (count === 1
+            ? msT('dashboard.run_summary_one', '1 live run currently attached for follow-through.')
+            : msT('dashboard.run_summary_many', '{n} live runs currently attached for follow-through.').replace('{n}', count))
+    );
+  }
+
+  function setText(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  // ── Projects ──
+  function loadProjects(callback) {
+    fetch('/api/projects').then(function(r) { return r.json(); }).then(function(d) {
+      var sel = document.getElementById('scan-project');
+      sel.innerHTML = '';
+      (d.projects || []).forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name + ' (' + p.pcap_count + ' PCAPs)';
+        sel.appendChild(opt);
+      });
+      // Add sentinel
+      var sentinel = document.createElement('option');
+      sentinel.value = '__new__';
+      sentinel.textContent = msT('dashboard.create_new_project', '+ Create new project…');
+      sel.appendChild(sentinel);
+      // Select first (Default)
+      if (d.projects && d.projects.length > 0) {
+        sel.value = d.projects[0].id;
+        currentProjectId = d.projects[0].id;
+      }
+      setWorkspaceState({
+        projectCount: (d.projects || []).length,
+        projectName: getSelectedProjectName()
+      });
+      if (callback) callback();
+    }).catch(function() {
+      if (callback) callback();
+    });
+  }
+
+  function onProjectChange() {
+    var sel = document.getElementById('scan-project');
+    if (sel.value === '__new__') {
+      document.getElementById('new-project-field').style.display = '';
+      document.getElementById('new-project-name').focus();
+      return;
+    }
+    document.getElementById('new-project-field').style.display = 'none';
+    currentProjectId = parseInt(sel.value) || null;
+    setWorkspaceState({ projectName: getSelectedProjectName() });
+    loadFiles();
+    loadReports();
+    loadHistory();
+  }
+
+  function createNewProject() {
+    var name = document.getElementById('new-project-name').value.trim();
+    if (!name) return;
+    fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        document.getElementById('new-project-field').style.display = 'none';
+        document.getElementById('new-project-name').value = '';
+        currentProjectId = d.id;
+        loadProjects(function() {
+          document.getElementById('scan-project').value = d.id;
+          setWorkspaceState({ projectName: getSelectedProjectName() });
+          loadFiles();
+          loadReports();
+          loadHistory();
+        });
+        msToast(msT('dashboard.project_created', 'Project created'), 'success');
+      } else {
+        msToast(d.error || msT('dashboard.project_create_failed', 'Failed to create project'), true);
+      }
+    });
+  }
+
+  function cancelNewProject() {
+    document.getElementById('new-project-field').style.display = 'none';
+    var sel = document.getElementById('scan-project');
+    if (currentProjectId) sel.value = currentProjectId;
+    else if (sel.options.length > 1) { sel.selectedIndex = 0; currentProjectId = parseInt(sel.value) || null; }
+  }
+
+  // ── Source tabs ──
+  var sourceTabMap = { 'file': 'pcap file', 'library': 'sample library', 'upload': 'upload', 'live': 'live' };
+  function setSource(s) {
+    source = s;
+    document.querySelectorAll('.scan-source-tab').forEach(function(t) {
+      t.classList.toggle('active', t.textContent.toLowerCase().includes(sourceTabMap[s] || s));
+    });
+    document.querySelectorAll('.scan-source-panel').forEach(function(p) { p.classList.remove('active'); });
+    var panel = document.getElementById('src-' + s);
+    if (panel) panel.classList.add('active');
+    setWorkspaceState({ sourceLabel: formatSourceLabel(s) });
+    // Lazy-load presets on first open
+    if (s === 'library' && !presetsLoaded) loadPresets();
+  }
+
+  // ── Upload ──
+  function setupUpload() {
+    var zone = document.getElementById('upload-zone');
+    var input = document.getElementById('upload-input');
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragging'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragging'); });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      zone.classList.remove('dragging');
+      if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', function() {
+      if (input.files.length) doUpload(input.files[0]);
+    });
+  }
+
+  function doUpload(file) {
+    // Client-side size check
+    if (file.size > 200 * 1024 * 1024) {
+      msToast(msT('dashboard.file_too_large', 'File too large (max {max} MB)').replace('{max}', 200), true);
+      return;
+    }
+    var status = document.getElementById('upload-status');
+    status.textContent = 'Uploading ' + file.name + '...';
+    var fd = new FormData();
+    fd.append('file', file);
+    if (currentProjectId) fd.append('project_id', currentProjectId);
+    fetch('/api/upload', { method: 'POST', body: fd })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          uploadedFile = d.filename;
+          var msg = 'Uploaded: <b>' + esc(d.filename) + '</b> (' + formatSize(d.size) + ') — ready to scan';
+          if (d.trimmed) {
+            msg += ' <span style="color:var(--color-warning);">(trimmed to ' + formatSize(d.trimmed_size) + ', original ' + formatSize(d.original_size) + ')</span>';
+          }
+          status.innerHTML = msg;
+          // Refresh file list and auto-select the uploaded file, switch to file tab
+          loadFiles(d.filename);
+          setSource('file');
+        } else {
+          status.innerHTML = '<span style="color:var(--color-danger)">Upload failed: ' + esc(d.error) + '</span>';
+        }
+      })
+      .catch(function(e) { status.textContent = 'Upload error: ' + e.message; });
+  }
+
+  // ── Sample Library ──
+  var presetsLoaded = false;
+  var selectedPreset = null; // "category/filename.pcap"
+
+  // Category display names and icons
+  var categoryMeta = {
+    'ics-ot':           { label: 'ICS / OT Protocols', icon: '\u2699' },
+    'it-reference':     { label: 'IT Reference',       icon: '\u26A1' },
+    'digital-bond-s4':  { label: 'Digital Bond S4 ICS Testbed', icon: '\uD83C\uDFED' },
+    'ctf':              { label: 'CTF Exercise',        icon: '\uD83D\uDEA9' },
+  };
+
+  // Protocol descriptions
+  var presetDesc = {
+    'S7comm.pcap': 'Siemens S7 PLC communication',
+    'Modbus.pcap': 'Modbus/TCP function codes',
+    'ENIP.pcap': 'Allen-Bradley EtherNet/IP + CIP',
+    'DNP3.pcap': 'Distributed Network Protocol',
+    'OPCUA-Binary.pcap': 'OPC-UA binary sessions',
+    'BACnet.pcap': 'Building automation (BACnet/IP)',
+    'BACnet_device_control.pcap': 'BACnet device commands',
+    'PROFINET.pcap': 'Siemens industrial ethernet',
+    'ETHERCAT.pcap': 'Real-time EtherCAT fieldbus',
+    'BSAP.pcap': 'Bristol/Emerson BSAP',
+    'HARTIP.pcap': 'HART-IP process control',
+    'OmronFINS.pcap': 'Omron PLC FINS protocol',
+    'Synchrophasor.pcap': 'IEEE C37.118 power grid',
+    'GENISYS.pcap': 'Genisys SCADA protocol',
+    'ROCPlus.pcap': 'Emerson ROC Plus',
+    'C1222.pcap': 'ANSI C12.22 smart meter',
+    'DNS.pcap': 'DNS queries and responses',
+    'SSH.pcap': 'Encrypted remote access',
+    'MQTT.pcap': 'IoT pub/sub messaging',
+    'Telnet.pcap': 'Cleartext terminal sessions',
+    'MicroLogix56.pcap': 'Allen-Bradley MicroLogix PLC',
+    'Modicon.pcap': 'Schneider Modicon PLC',
+    'BACnet_Host.pcap': 'BACnet host traffic',
+    'BACnet_FIU.pcap': 'BACnet field interface unit',
+    'malcolm-micro-ctf.pcap': 'Mixed ICS/IT traffic CTF',
+  };
+
+  function loadPresets() {
+    fetch('/api/files').then(function(r) { return r.json(); }).then(function(d) {
+      var container = document.getElementById('preset-library');
+      if (!d.presets || d.presets.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-dim);">No sample PCAPs available.</div>';
+        presetsLoaded = true;
+        return;
+      }
+      container.innerHTML = '';
+      d.presets.forEach(function(cat) {
+        var meta = categoryMeta[cat.category] || { label: cat.category, icon: '' };
+
+        var catDiv = document.createElement('div');
+        catDiv.className = 'preset-category';
+
+        // Header
+        var header = document.createElement('div');
+        header.className = 'preset-category-header';
+        header.innerHTML = '<h3>' + esc(meta.icon) + ' ' + esc(meta.label)
+          + ' <span class="cat-count">(' + cat.files.length + ')</span></h3>'
+          + '<span class="cat-chevron">\u25BC</span>';
+        header.onclick = function() { catDiv.classList.toggle('collapsed'); };
+        catDiv.appendChild(header);
+
+        // Grid of cards
+        var grid = document.createElement('div');
+        grid.className = 'preset-grid';
+        cat.files.forEach(function(f) {
+          var card = document.createElement('div');
+          card.className = 'preset-card';
+          card.dataset.path = f.path;
+          var desc = presetDesc[f.name] || '';
+          card.innerHTML = '<div class="pc-name">' + esc(f.name.replace('.pcap', '')) + '</div>'
+            + '<div class="pc-meta">' + formatSize(f.size) + '</div>'
+            + (desc ? '<div class="pc-desc">' + esc(desc) + '</div>' : '');
+          card.onclick = function() { selectPreset(f.path, card); };
+          grid.appendChild(card);
+        });
+        catDiv.appendChild(grid);
+        container.appendChild(catDiv);
+      });
+      presetsLoaded = true;
+    });
+  }
+
+  function selectPreset(path, cardEl) {
+    // Deselect previous
+    document.querySelectorAll('.preset-card.selected').forEach(function(c) { c.classList.remove('selected'); });
+    if (selectedPreset === path) {
+      selectedPreset = null;
+      return;
+    }
+    selectedPreset = path;
+    if (cardEl) cardEl.classList.add('selected');
+  }
+
+  // ── File browser ──
+  function loadFiles(autoSelect) {
+    var url = '/api/files';
+    if (currentProjectId) url += '?project_id=' + currentProjectId;
+    fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+      var sel = document.getElementById('pcap-select');
+      sel.innerHTML = '<option value="">-- Select a file --</option>';
+      (d.files || []).forEach(function(f) {
+        var opt = document.createElement('option');
+        opt.value = f.name;
+        opt.textContent = f.name + ' (' + formatSize(f.size) + ')';
+        if (autoSelect && f.name === autoSelect) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      if (!d.files || d.files.length === 0) {
+        sel.innerHTML = '<option value="">-- No uploaded PCAPs --</option>';
+      }
+      setWorkspaceState({ fileCount: (d.files || []).length });
+    }).catch(function() {
+      var sel = document.getElementById('pcap-select');
+      sel.innerHTML = '<option value="">-- Failed to load files --</option>';
+    });
+  }
+
+  // ── Start scan ──
+  function startScan() {
+    var body = {
+      command: document.getElementById('scan-command').value,
+      scan_profile: document.getElementById('scan-profile').value
+    };
+    if (currentProjectId) body.project_id = currentProjectId;
+    if (document.getElementById('skip-ephemeral').checked) body.skip_ephemeral = true;
+    var captureFilter = document.getElementById('capture-filter').value.trim();
+    if (captureFilter) body.capture_filter = captureFilter;
+    if (source === 'file') {
+      body.pcap_file = document.getElementById('pcap-select').value;
+      if (!body.pcap_file) { msToast(msT('dashboard.select_pcap_required', 'Select a PCAP file'), true); return; }
+    } else if (source === 'library') {
+      if (!selectedPreset) { msToast(msT('dashboard.select_sample_required', 'Select a sample PCAP from the library'), true); return; }
+      body.pcap_file = 'preset:' + selectedPreset;
+    } else if (source === 'upload') {
+      if (!uploadedFile) { msToast(msT('dashboard.upload_pcap_required', 'Upload a PCAP file first'), true); return; }
+      body.pcap_file = uploadedFile;
+    }
+
+    fetch('/api/scans/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        attachRun(d.run_id);
+        msToast(msT('dashboard.scan_started', 'Scan started'), 'success');
+      } else {
+        msToast(d.error || msT('dashboard.scan_start_failed', 'Failed to start scan'), true);
+      }
+    }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
+  }
+
+  function stopScan(runId) {
+    if (!runId) return;
+    fetch('/api/runs/' + runId + '/stop', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function() { msToast(msT('dashboard.scan_stopped', 'Scan stopped'), 'warning'); loadHistory(); });
+  }
+
+  function detachRun(runId) {
+    var state = attachedRuns[runId];
+    if (state && state.pollTimer) clearInterval(state.pollTimer);
+    delete attachedRuns[runId];
+    var panel = document.getElementById('run-panel-' + runId);
+    if (panel) panel.remove();
+    renderRunSummary();
+  }
+
+  function attachRun(runId) {
+    if (attachedRuns[runId]) return; // already attached
+    attachedRuns[runId] = { cursor: 0, pollTimer: null };
+    createRunPanel(runId);
+    startPolling(runId);
+    renderRunSummary();
+    msToast(msT('dashboard.attached_to_run', 'Attached to run {id}').replace('{id}', runId.substring(0, 8)));
+  }
+
+  function createRunPanel(runId) {
+    var container = document.getElementById('runs-container');
+    var panel = document.createElement('div');
+    panel.className = 'panel run-panel active';
+    panel.id = 'run-panel-' + runId;
+    var state = attachedRuns[runId];
+    if (state) state.startedAt = Date.now();
+    panel.innerHTML =
+      '<div class="panel-header">'
+      + '<h2>Scan <span class="mono" style="font-size:0.8em;color:var(--text-dim);">' + esc(runId.substring(0, 8)) + '</span></h2>'
+      + '<div style="display:flex;gap:8px;align-items:center;">'
+      + '<span class="badge badge-running" id="run-badge-' + runId + '">RUNNING</span>'
+      + '<button class="btn btn-danger btn-sm" id="run-stop-' + runId + '" onclick="MS.stopScan(\'' + esc(runId) + '\')">' + msT('dashboard.run_stop', 'Stop') + '</button>'
+      + '<button class="btn btn-sm" onclick="MS.detachRun(\'' + esc(runId) + '\')" title="' + msT('dashboard.run_detach', 'Detach') + '">&#10005;</button>'
+      + '</div></div>'
+      + '<div class="panel-body">'
+      + '<div class="run-progress-bar" id="run-bar-' + runId + '"></div>'
+      + '<div class="run-progress-info">'
+      + '<span class="run-progress-label" id="run-label-' + runId + '">Starting...</span>'
+      + '<span class="run-elapsed" id="run-elapsed-' + runId + '">0:00</span>'
+      + '</div>'
+      + (IS_ADMIN ? '<button class="run-log-toggle" id="run-log-toggle-' + runId + '" onclick="MS.toggleLog(\'' + esc(runId) + '\')">' + msT('dashboard.run_show_log', 'Show log') + '</button>' : '')
+      + '<div class="live-output collapsed" id="run-output-' + runId + '"></div>'
+      + '<div style="margin-top:8px;font-size:0.82em;color:var(--text-dim);" id="run-info-' + runId + '"></div>'
+      + '<div style="margin-top:8px;">'
+      + '<a href="#" id="run-report-link-' + runId + '" style="display:none;color:var(--accent);font-size:0.88em;margin-right:12px;" target="_blank">Open Report Workbench</a>'
+      + '<a href="/api/runs/' + runId + '/live" id="run-live-link-' + runId + '" style="color:var(--accent-cyan);font-size:0.88em;" target="_blank">Open Live Topology Viewer</a>'
+      + '</div></div>';
+    container.appendChild(panel);
+  }
+
+  // ── Polling ──
+  function checkActiveRuns() {
+    fetch('/api/runs').then(function(r) { return r.json(); }).then(function(d) {
+      if (d.active && d.active.length > 0) {
+        d.active.forEach(function(run) {
+          attachRun(run.run_id);
+        });
+      }
+      renderRunSummary();
+    });
+  }
+
+  function startPolling(runId) {
+    var state = attachedRuns[runId];
+    if (!state) return;
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    pollRun(runId);
+    state.pollTimer = setInterval(function() { pollRun(runId); }, 2000);
+  }
+
+  function pollRun(runId) {
+    var state = attachedRuns[runId];
+    if (!state) return;
+
+    // Status
+    fetch('/api/runs/' + runId + '/status')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) return;
+        updateRunPanel(runId, d);
+        if (d.status === 'running') {
+          loadReports();
+        } else if (d.status !== 'pending') {
+          if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+          setTimeout(function() { fetchOutput(runId); loadReports(); loadHistory(); }, 500);
+        }
+      });
+
+    // Output
+    fetchOutput(runId);
+  }
+
+  function fetchOutput(runId) {
+    var state = attachedRuns[runId];
+    if (!state) return;
+    fetch('/api/runs/' + runId + '/output?from=' + state.cursor)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) return;
+        state.cursor = d.next_from;
+        var el = document.getElementById('run-output-' + runId);
+        if (!el) return;
+        d.lines.forEach(function(line) {
+          var div = document.createElement('div');
+          if (/^\s*STAGE\s+\d/.test(line)) div.className = 'line-stage';
+          else if (/\[\+\]|success|complete/i.test(line)) div.className = 'line-success';
+          else if (/\[!\]|error|fail/i.test(line)) div.className = 'line-error';
+          else if (/\[\*\]|info/i.test(line)) div.className = 'line-info';
+          div.textContent = line;
+          el.appendChild(div);
+        });
+        if (d.lines.length > 0) el.scrollTop = el.scrollHeight;
+      });
+  }
+
+  function updateRunPanel(runId, d) {
+    var badge = document.getElementById('run-badge-' + runId);
+    if (badge) {
+      badge.textContent = d.status.toUpperCase();
+      badge.className = 'badge badge-' + d.status;
+    }
+
+    // Progress bar segments
+    var barEl = document.getElementById('run-bar-' + runId);
+    if (barEl && d.stages) {
+      var html = '';
+      d.stages.forEach(function(s) {
+        var icon = '';
+        if (s.state === 'complete') icon = '\u2713 ';
+        else if (s.state === 'running') icon = '\u25CF ';
+        else if (s.state === 'failed') icon = '\u2717 ';
+        else if (s.state === 'stopped') icon = '\u25A0 ';
+        html += '<div class="run-progress-segment ' + s.state + '">' + icon + esc(s.name) + '</div>';
+      });
+      barEl.innerHTML = html;
+    }
+
+    // Stage label
+    var labelEl = document.getElementById('run-label-' + runId);
+    if (labelEl) {
+      if (d.status === 'completed') {
+        labelEl.textContent = 'Complete';
+        labelEl.style.color = 'var(--color-success)';
+      } else if (d.status === 'failed') {
+        var failedStage = '';
+        (d.stages || []).forEach(function(s) { if (s.state === 'failed') failedStage = s.name; });
+        labelEl.textContent = failedStage ? 'Failed at ' + failedStage : 'Failed';
+        labelEl.style.color = 'var(--color-danger)';
+      } else if (d.status === 'stopped') {
+        labelEl.textContent = 'Stopped';
+        labelEl.style.color = 'var(--text-dim)';
+      } else if (d.stage_name) {
+        labelEl.textContent = d.stage_name + '...';
+        labelEl.style.color = '';
+      }
+    }
+
+    // Elapsed timer
+    var elapsedEl = document.getElementById('run-elapsed-' + runId);
+    if (elapsedEl) {
+      var start = d.started_at ? new Date(d.started_at).getTime() : 0;
+      var end = d.finished_at ? new Date(d.finished_at).getTime() : Date.now();
+      if (start) {
+        var secs = Math.floor((end - start) / 1000);
+        var mins = Math.floor(secs / 60);
+        var s = secs % 60;
+        elapsedEl.textContent = mins + ':' + (s < 10 ? '0' : '') + s;
+      }
+    }
+
+    var infoEl = document.getElementById('run-info-' + runId);
+    if (infoEl) {
+      infoEl.textContent = d.output_lines + ' lines | ' + d.command + ' | ' + (d.started_at || '');
+    }
+
+    var stopBtn = document.getElementById('run-stop-' + runId);
+    if (stopBtn && d.status !== 'running' && d.status !== 'pending') {
+      stopBtn.style.display = 'none';
+    }
+
+    var reportLink = document.getElementById('run-report-link-' + runId);
+    if (reportLink) {
+      if (d.status === 'completed' && d.report_filename) {
+        var href = '/api/reports/' + encodeURIComponent(d.report_filename) + '/viewer';
+        if (d.project_id) href += '?project_id=' + d.project_id;
+        reportLink.href = href;
+        reportLink.style.display = '';
+      } else {
+        reportLink.style.display = 'none';
+      }
+    }
+  }
+
+  // ── Reports ──
+  function loadReports() {
+    var url = '/api/reports?limit=10';
+    if (currentProjectId) url += '&project_id=' + currentProjectId;
+    fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+      var tbody = document.getElementById('reports-body');
+      setWorkspaceState({
+        reportCount: d.total || (d.reports || []).length || 0,
+        reportModified: (d.reports && d.reports.length) ? d.reports[0].modified : ''
+      });
+      if (!d.reports || d.reports.length === 0) {
+        tbody.innerHTML = msEmptyHTML({ icon: 'report', title: msT('reports.empty_title', 'No reports yet'), sub: msT('reports.empty_sub', 'Upload a PCAP and run a scan to generate your first report.') }, 5);
+        return;
+      }
+      tbody.innerHTML = '';
+      d.reports.forEach(function(r) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td><input type="checkbox" class="compare-cb" data-fn="' + esc(r.filename) + '" onchange="MS.toggleCompare(this)"></td>'
+          + '<td class="mono">' + window.msEntityChip('report') + ' ' + esc(r.filename) + '</td>'
+          + '<td class="dim">' + formatSize(r.size) + '</td>'
+          + '<td class="dim">' + formatDate(r.modified) + '</td>'
+          + '<td class="report-actions">'
+          + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer' + (currentProjectId ? '?project_id=' + currentProjectId : '') + '" target="_blank">' + msT('reports.view', 'View') + '</a>'
+          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + (currentProjectId ? '?project_id=' + currentProjectId : '') + '">' + msT('common.download', 'Download') + '</a>'
+          + '<button class="del-btn" onclick="MS.deleteReport(\'' + esc(r.filename) + '\')">' + msT('common.delete', 'Delete') + '</button>'
+          + '</td>';
+        tbody.appendChild(tr);
+      });
+      if (d.total > 10) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="5" style="text-align:center;padding:12px;"><a href="/reports" style="color:var(--accent);font-size:0.88em;font-weight:500;">' + msT('dashboard.view_all_reports', 'View all reports').replace('{n}', d.total) + ' &rarr;</a></td>';
+        tbody.appendChild(tr);
+      }
+    });
+  }
+
+  function deleteReport(filename) {
+    var prompt = msT('reports.confirm_delete', 'Delete {filename}?').replace('{filename}', filename);
+    if (!confirm(prompt)) return;
+    var url = '/api/reports/' + encodeURIComponent(filename);
+    if (currentProjectId) url += '?project_id=' + currentProjectId;
+    fetch(url, { method: 'DELETE' })
+      .then(function(r) { return r.json(); })
+      .then(function() { loadReports(); msToast(msT('reports.deleted', 'Report deleted'), 'success'); });
+  }
+
+  // ── Compare ──
+  function toggleCompare(cb) {
+    var fn = cb.dataset.fn;
+    if (cb.checked) {
+      if (!compareA) compareA = fn;
+      else if (!compareB) compareB = fn;
+      else {
+        cb.checked = false;
+        msToast(msT('reports.compare_limit', 'Select only 2 reports for baseline and drift review'), true);
+        return;
+      }
+    } else {
+      if (compareA === fn) compareA = null;
+      if (compareB === fn) compareB = null;
+    }
+    updateCompareBar();
+  }
+
+  function updateCompareBar() {
+    var bar = document.getElementById('compare-bar');
+    if (compareA && compareB) {
+      bar.classList.add('active');
+      document.getElementById('compare-a').textContent = compareA;
+      document.getElementById('compare-b').textContent = compareB;
+    } else {
+      bar.classList.remove('active');
+    }
+  }
+
+  function compareDiff() {
+    if (!compareA || !compareB) return;
+    var url = '/api/reports/diff?a=' + encodeURIComponent(compareA) + '&b=' + encodeURIComponent(compareB);
+    if (currentProjectId) url += '&project_id=' + currentProjectId;
+    window.open(url, '_blank');
+  }
+
+  function clearCompare() {
+    compareA = null;
+    compareB = null;
+    document.querySelectorAll('.compare-cb').forEach(function(c) { c.checked = false; });
+    updateCompareBar();
+  }
+
+  // ── History ──
+  function loadHistory() {
+    var url = '/api/history?limit=10';
+    if (currentProjectId) url += '&project_id=' + currentProjectId;
+    fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+      var tbody = document.getElementById('history-body');
+      setWorkspaceState({
+        scanCount: d.total || (d.scans || []).length || 0,
+        latestScanStatus: (d.scans && d.scans.length) ? d.scans[0].status : '',
+        latestScanTime: (d.scans && d.scans.length) ? d.scans[0].started_at : ''
+      });
+      if (!d.scans || d.scans.length === 0) {
+        tbody.innerHTML = msEmptyHTML({ icon: 'scan', title: msT('scans.empty_title', 'No scan history yet'), sub: msT('dashboard.scans_empty_sub', 'Start a scan from the workspace above.') }, 8);
+        return;
+      }
+      tbody.innerHTML = '';
+      d.scans.forEach(function(s) {
+        var tr = document.createElement('tr');
+        // Actions column
+        var actions = '';
+        if (s.status === 'running') {
+          actions = '<button class="btn btn-sm btn-success" onclick="MS.attachRun(\'' + esc(s.run_id) + '\')">' + msT('dashboard.run_attach', 'Attach') + '</button>';
+        } else if (s.status === 'completed' && s.report_filename) {
+          actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
+        } else if ((s.status === 'failed' || s.status === 'interrupted') && s.pcap_source && !s.pcap_source.startsWith('live:')) {
+          actions = '<button class="btn btn-sm" onclick="MS.retryScan(\'' + esc(s.pcap_source) + '\',\'' + esc(s.command) + '\',\'' + esc(s.scan_profile || 'full') + '\')">' + msT('dashboard.run_retry', 'Retry') + '</button>';
+        }
+        // Error expand toggle
+        var hasError = s.error_tail && (s.status === 'failed' || s.status === 'stopped' || s.status === 'interrupted');
+        if (hasError) {
+          actions += ' <button class="btn btn-sm btn-danger" onclick="MS.toggleError(this)" style="font-size:0.75em;padding:2px 6px;">' + msT('dashboard.run_details', 'Details') + '</button>';
+        }
+        // Nodes/Edges display
+        var nodeEdge = '--';
+        if (s.status === 'completed' && (s.node_count || s.edge_count)) {
+          nodeEdge = (s.node_count || 0) + ' / ' + (s.edge_count || 0);
+        }
+        tr.innerHTML =
+          '<td><span class="mono run-id-copy" title="' + msT('scans.copy_id_hint', 'Click to copy full ID') + '" onclick="MS.copyId(this, \'' + esc(s.run_id) + '\')" style="font-size:0.8em;">' + esc(s.run_id.substring(0, 8)) + '</span></td>'
+          + '<td>' + esc(s.user) + '</td>'
+          + '<td>' + esc(displayCommand(s.command, s.scan_profile)) + '</td>'
+          + '<td class="mono dim" style="font-size:0.8em;max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + esc(s.pcap_source || '--') + '</td>'
+          + '<td><span class="badge badge-' + esc(s.status) + '">' + esc(s.status) + '</span></td>'
+          + '<td class="mono dim">' + nodeEdge + '</td>'
+          + '<td class="dim">' + formatDate(s.started_at) + '</td>'
+          + '<td>' + actions + '</td>';
+        tbody.appendChild(tr);
+        // Error detail row (hidden by default)
+        if (hasError) {
+          var errTr = document.createElement('tr');
+          errTr.className = 'history-error-row';
+          errTr.style.display = 'none';
+          errTr.innerHTML = '<td colspan="8"><div class="error-detail">' + esc(s.error_tail) + '</div></td>';
+          tbody.appendChild(errTr);
+        }
+      });
+      if (d.scans.length >= 10) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="8" style="text-align:center;padding:12px;"><a href="/scans" style="color:var(--accent);font-size:0.88em;font-weight:500;">' + msT('dashboard.view_all_scans', 'View all scans') + ' &rarr;</a></td>';
+        tbody.appendChild(tr);
+      }
+    });
+  }
+
+  function toggleError(btn) {
+    var errorRow = btn.closest('tr').nextElementSibling;
+    if (errorRow && errorRow.classList.contains('history-error-row')) {
+      var showing = errorRow.style.display !== 'none';
+      errorRow.style.display = showing ? 'none' : '';
+      btn.textContent = showing ? msT('dashboard.run_details', 'Details') : msT('dashboard.run_hide', 'Hide');
+    }
+  }
+
+  function copyId(el, fullId) {
+    navigator.clipboard.writeText(fullId).then(function() {
+      el.classList.add('copied');
+      setTimeout(function() { el.classList.remove('copied'); }, 1200);
+    });
+  }
+
+  function toggleLog(runId) {
+    var output = document.getElementById('run-output-' + runId);
+    var btn = document.getElementById('run-log-toggle-' + runId);
+    if (!output || !btn) return;
+    var collapsed = output.classList.toggle('collapsed');
+    btn.textContent = collapsed ? msT('dashboard.run_show_log', 'Show log') : msT('dashboard.run_hide_log', 'Hide log');
+    if (!collapsed) output.scrollTop = output.scrollHeight;
+  }
+
+  function retryScan(pcapSource, command, scanProfile) {
+    var body = { command: command, pcap_file: pcapSource, scan_profile: scanProfile || 'full' };
+    if (currentProjectId) body.project_id = currentProjectId;
+    fetch('/api/scans/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        attachRun(d.run_id);
+        msToast(msT('scans.retry_started', 'Scan retried'), 'success');
+      } else {
+        msToast(d.error || msT('scans.retry_failed', 'Failed to retry scan'), true);
+      }
+    }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
+  }
+
+  // ── Helpers ──
+  function esc(s) {
+    if (s == null) return '';
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+  function displayCommand(command, scanProfile) {
+    return command + ((scanProfile && scanProfile !== 'full') ? ' (' + scanProfile + ')' : '');
+  }
+
+  function formatSize(bytes) {
+    if (!bytes) return '--';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(2) + ' GB';
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '--';
+    try {
+      var d = new Date(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    } catch(e) { return iso; }
+  }
+
+  function formatRelativeTime(iso) {
+    if (!iso) return 'recently';
+    try {
+      var deltaMs = Date.now() - new Date(iso).getTime();
+      if (!isFinite(deltaMs)) return 'recently';
+      var mins = Math.max(0, Math.floor(deltaMs / 60000));
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      var hours = Math.floor(mins / 60);
+      if (hours < 24) return hours + 'h ago';
+      var days = Math.floor(hours / 24);
+      return days + 'd ago';
+    } catch (e) {
+      return 'recently';
+    }
+  }
+
+  function getSelectedProjectName() {
+    var sel = document.getElementById('scan-project');
+    var fallback = msT('dashboard.no_project_selected', 'No project selected');
+    if (!sel || sel.selectedIndex < 0) return fallback;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.textContent) return fallback;
+    return opt.textContent.replace(/\s+\(\d+\s+PCAPs?\)\s*$/, '');
+  }
+
+  function formatSourceLabel(src) {
+    if (src === 'library') return msT('dashboard.source_tab_library', 'Sample Library');
+    if (src === 'upload') return msT('dashboard.source_tab_upload', 'Upload');
+    return msT('dashboard.source_pcap_file', 'PCAP File');
+  }
+
+  // ── Init ──
+  document.addEventListener('DOMContentLoaded', init);
+
+  return {
+    startScan: startScan,
+    stopScan: stopScan,
+    attachRun: attachRun,
+    detachRun: detachRun,
+    setSource: setSource,
+    loadReports: loadReports,
+    loadFiles: loadFiles,
+    loadPresets: loadPresets,
+    deleteReport: deleteReport,
+    toggleCompare: toggleCompare,
+    compareDiff: compareDiff,
+    clearCompare: clearCompare,
+    toggleError: toggleError,
+    copyId: copyId,
+    retryScan: retryScan,
+    toggleLog: toggleLog,
+    onProjectChange: onProjectChange,
+    createNewProject: createNewProject,
+    cancelNewProject: cancelNewProject,
+  };
+})();
+</script>
+{% endblock %}
