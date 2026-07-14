@@ -4406,14 +4406,32 @@ def create_app():
 
     # ── Run status/output/stop/list ──────────────────────────
 
+    def _run_owned_by_current_user(run_user_id) -> bool:
+        """Return True if the current session user may view/act on a run.
+
+        Access is granted to the run's owner (the user who started it) or
+        to an admin. Callers should treat "not owned" the same as "not
+        found" (404, not 403) so run IDs can't be used to probe ownership.
+        """
+        uid = session.get("user_id")
+        if uid is None:
+            return False
+        if session.get("role") == "admin":
+            return True
+        return run_user_id == uid
+
     @app.route("/api/runs")
     @login_required
     def api_runs_list():
+        uid = session.get("user_id")
+        is_admin = session.get("role") == "admin"
         with _runs_lock:
             _cleanup_runs()
             active = []
             recent = []
             for run_id, run in _run_registry.items():
+                if not is_admin and run.get("user_id") != uid:
+                    continue
                 entry = {
                     "run_id": run_id,
                     "command": run["command"],
@@ -4438,6 +4456,8 @@ def create_app():
     def api_run_status(run_id):
         with _runs_lock:
             run = _run_registry.get(run_id)
+        if run and not _run_owned_by_current_user(run.get("user_id")):
+            return jsonify({"error": "Run not found"}), 404
         # Fall back to ScanHistory when the run isn't in the in-memory
         # registry — typically after Flask restart where the engine was
         # re-attached but the live state is gone.
@@ -4445,6 +4465,8 @@ def create_app():
             from marlinspike import run_store as _run_store
             durable = _run_store.get(run_id)
             if not durable:
+                return jsonify({"error": "Run not found"}), 404
+            if not _run_owned_by_current_user(durable.get("user_id")):
                 return jsonify({"error": "Run not found"}), 404
             return jsonify({
                 "run_id": run_id,
@@ -4491,7 +4513,7 @@ def create_app():
     def api_run_output(run_id):
         with _runs_lock:
             run = _run_registry.get(run_id)
-        if not run:
+        if not run or not _run_owned_by_current_user(run.get("user_id")):
             return jsonify({"error": "Run not found"}), 404
         from_idx = request.args.get("from", None, type=int)
         if from_idx is None:
@@ -4518,7 +4540,7 @@ def create_app():
     def api_run_stop(run_id):
         with _runs_lock:
             run = _run_registry.get(run_id)
-        if not run:
+        if not run or not _run_owned_by_current_user(run.get("user_id")):
             return jsonify({"error": "Run not found"}), 404
         run["stop_requested"] = True
         proc = run.get("process")
@@ -4540,7 +4562,7 @@ def create_app():
     def api_run_topology(run_id):
         with _runs_lock:
             run = _run_registry.get(run_id)
-        if not run:
+        if not run or not _run_owned_by_current_user(run.get("user_id")):
             return jsonify({"error": "Run not found"}), 404
         report_path = run.get("report_path", "")
         if not os.path.isfile(report_path):
@@ -4581,12 +4603,16 @@ def create_app():
     def api_run_live_viewer(run_id):
         with _runs_lock:
             run = _run_registry.get(run_id)
+        if run and not _run_owned_by_current_user(run.get("user_id")):
+            return "Run not found", 404
         if not run:
             # Fall back to durable store — covers re-attached / reaped runs
             # whose in-memory state was lost across a Flask restart.
             from marlinspike import run_store as _run_store
             durable = _run_store.get(run_id)
             if not durable:
+                return "Run not found", 404
+            if not _run_owned_by_current_user(durable.get("user_id")):
                 return "Run not found", 404
             return render_template(
                 "scan_progress.html",
