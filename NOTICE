@@ -9,7 +9,7 @@ Original work:
   https://github.com/eris-ot/marlinspike
 
 Modifications in this fork:
-  Copyright (C) 2026 Gayathri S R (https://github.com/Gayathrisr2002)
+  Copyright (C) 2026 Gayathrisr2002 (https://github.com/Gayathrisr2002)
   Bug-fix and security-hardening changes. See TRACEABILITY_MATRIX.md and
   IMPACT_ANALYSIS.md for the itemised list of changes and the tests that
   cover them.

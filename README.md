@@ -80,10 +80,16 @@ git clone https://github.com/Gayathrisr2002/net-discover.git
 cd net-discover
 ```
 
-2. Copy the example environment file and set strong secrets.
+2. Copy the example environment file, then **edit `.env`** and set strong values
+   for at least `DB_PASSWORD`, `SECRET_KEY`, and `ADMIN_PASSWORD` (the example
+   ships these blank on purpose — the app will not start securely until they are set).
 
 ```bash
 cp .env.example .env
+# then edit .env, e.g.:
+#   DB_PASSWORD=<a strong random password>
+#   SECRET_KEY=<long random string — generate with: openssl rand -hex 32>
+#   ADMIN_PASSWORD=<your first admin login password, 12+ chars>
 ```
 
 3. Build and start the stack.
