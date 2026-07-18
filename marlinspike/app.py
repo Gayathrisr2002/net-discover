@@ -2630,6 +2630,18 @@ def create_app():
         )
 
     app.config["SQLALCHEMY_DATABASE_URI"] = config.DATABASE_URL or "sqlite:///:memory:"
+    if not config.DATABASE_URL:
+        # Reached only with MARLINSPIKE_ALLOW_NO_DATABASE_URL=true (the test
+        # escape hatch). Warn loudly — a lingering env var + a real server start
+        # would otherwise silently run on an ephemeral in-memory SQLite DB whose
+        # data is lost on restart and is NOT shared across workers (#55).
+        log.warning(
+            "DATABASE_URL is not set — falling back to an EPHEMERAL in-memory SQLite "
+            "database (MARLINSPIKE_ALLOW_NO_DATABASE_URL=true). All data is lost on "
+            "restart and is NOT shared across workers. This is for tests only — DO "
+            "NOT run the server this way. Set DATABASE_URL to a file (sqlite:///./data/dev.db) "
+            "or a Postgres URL."
+        )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config.update(
         SESSION_COOKIE_SECURE=config.SESSION_COOKIE_SECURE,

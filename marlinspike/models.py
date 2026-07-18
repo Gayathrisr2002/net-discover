@@ -114,6 +114,14 @@ class ScanHistory(db.Model):
     timeout_at = db.Column(db.DateTime)          # hard deadline for abandonment reaping
     recovery_state = db.Column(db.String(20))   # NULL / reattached / reaped_*
 
+    # Composite index on (status, user_id): the recovery reaper queries
+    # status="running" on every boot and the db-mode concurrency check queries
+    # (status, user_id) on every scan-start. The leading status column also
+    # serves the status-only reaper query. See migration 0003 (#68).
+    __table_args__ = (
+        db.Index("ix_scan_history_status_user", "status", "user_id"),
+    )
+
     project = db.relationship("Project", backref="scans")
 
 

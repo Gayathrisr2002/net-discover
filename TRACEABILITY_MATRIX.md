@@ -70,11 +70,18 @@ assigned in the order worked (the exact original numbering isn't recoverable wit
 | 32 | Generic `/api/upload` project resolution owner-only | MEDIUM | **Fixed** | `tests/test_upload_shared_role.py` (2 tests; RED pre-fix — shared editor 404'd, GREEN post-fix; non-member denied) | `marlinspike/app.py` (`_handle_upload`) | The generic upload path resolved the target project with an owner-only `filter_by(id, user_id=self)` (the project-scoped `/api/projects/<pid>/upload` was already correct). Now uses `_get_project_for_user(pid, min_role="editor")` — a shared editor's upload reaches the project (and, via #6, lands in the owner's dir). Full suite 454 passed / 7 skipped. |
 | 35 | Orphaned files on disk when a non-creator deletes a project | MEDIUM | **Fixed** | `tests/test_project_delete_cleanup.py` (RED pre-fix — owner-role member's delete left the creator's files on disk, GREEN post-fix) | `marlinspike/app.py` (`api_projects_delete`) | Delete built upload/report paths from `session['user_id']` (the deleter), but files live under `proj.user_id`; a non-creator `owner`-role member deleting rmtree'd the wrong (empty) dir → real files orphaned forever. Now uses the owner uid and dissociates all project scans (not just the deleter's). Full suite 455 passed / 7 skipped. |
 
-### Remaining MEDIUM + LOW (#26–33, #35–42, #47–70)
+### Recovery / concurrency plumbing (#54–56, #68 cluster)
 
-Not yet worked. Grouped by theme in `IMPACT_ANALYSIS.md`: remaining project-sharing correctness
-(orphaned files on disk, uploads landing in the wrong directory), recovery/concurrency plumbing,
-extension-contract gaps, capture-sidecar races, and assorted LOW items.
+| # | Finding | Severity | Status | Regression Test | Fix Location | Notes |
+|---|---|---|---|---|---|---|
+| 55 | Silent in-memory-DB fallback | MEDIUM | **Fixed** | `tests/test_inmemory_db_warning.py` (2 tests; RED pre-fix — only a `log.debug`, GREEN post-fix; no warning when a real DB URL is set) | `marlinspike/app.py` (`create_app`) | Falling back to `sqlite:///:memory:` (only reachable via the test escape hatch `MARLINSPIKE_ALLOW_NO_DATABASE_URL=true`) now logs a prominent WARNING that data is ephemeral and not shared across workers — so a lingering env var + a real server start is no longer silent. Full suite 459 passed / 7 skipped. |
+| 68 | Missing index on `scan_history.status` | LOW | **Fixed** | `tests/test_scan_history_index.py` (2 tests; RED pre-fix — no index, GREEN post-fix) + `test_alembic_migrations.py` (chain upgrades) | `marlinspike/models.py` (`ScanHistory.__table_args__`) + `migrations/versions/0003_scan_history_status_index.py` | Composite `(status, user_id)` index: leading `status` serves the reaper's per-boot `status="running"` scan, full index serves the db-mode per-user concurrency count. Model change covers fresh installs; migration 0003 covers existing DBs. Full suite 457 passed / 7 skipped. |
+
+### Remaining MEDIUM + LOW (#26–31, #33, #36–42, #47–67, #69–70)
+
+Not yet worked. Grouped by theme in `IMPACT_ANALYSIS.md`: remaining recovery/concurrency plumbing
+(stale `engine_pid`, silent in-memory-DB fallback), extension-contract gaps, capture-sidecar races,
+and assorted LOW items.
 
 ## Process notes
 
