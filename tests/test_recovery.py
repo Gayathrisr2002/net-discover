@@ -213,11 +213,16 @@ def test_reap_live_pid_with_correct_argv_reattaches(app, app_ctx, user, tmp_path
     """Live PID + matching argv → re-attach watcher (don't mark failed)."""
     # Spawn a long-lived subprocess whose argv we control, so we can
     # save a matching argv and have the live cmdline pid_argv_matches.
+    # The distinctive token is a *whole argv element* (as it is for the real
+    # engine, e.g. `-m marlinspike`), so exact-element matching identifies it
+    # — a substring inside the -c code string would (correctly) not match now.
     distinctive = "marlinspike-recovery-test-token"
+    code = "import time, sys; print(sys.argv[1]); time.sleep(60)"
     long_running = subprocess.Popen([
         sys.executable,
         "-c",
-        f"import time; print('{distinctive}'); time.sleep(60)",
+        code,
+        distinctive,
     ])
     try:
         run_store.record_start(
@@ -231,7 +236,7 @@ def test_reap_live_pid_with_correct_argv_reattaches(app, app_ctx, user, tmp_path
             pcap_path=str(tmp_path / "x.pcap"),
             report_path=str(tmp_path / "r.json"),
             engine_pid=long_running.pid,
-            engine_argv=[sys.executable, "-c", distinctive],
+            engine_argv=[sys.executable, "-c", code, distinctive],
         )
         # Stub _spawn_watcher so we don't leak threads
         spawned = []

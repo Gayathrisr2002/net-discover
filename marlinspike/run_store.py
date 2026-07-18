@@ -141,6 +141,80 @@ def get_active_for_recovery() -> list[ScanHistory]:
     return ScanHistory.query.filter_by(status="running").all()
 
 
+def claim_for_recovery(run_id: str) -> bool:
+    """Atomically reserve a running scan so exactly one worker reconciles it.
+
+    The production-recommended deployment is gunicorn ``-w N``; ``create_app()``
+    (and therefore ``recovery.reap_orphan_runs``) runs once per worker at boot,
+    concurrently. Without coordination every worker independently reconciles the
+    same ``running`` rows — N redundant watcher threads per live orphan and N
+    ``record_finish`` calls (duplicate finalization) per dead one, on every
+    routine restart.
+
+    This performs a single conditional UPDATE
+    (``status='running' AND recovery_state IS NULL`` → ``'claimed'``). The
+    database serializes concurrent UPDATEs, so exactly one worker's statement
+    matches the row and returns rowcount 1 — that worker owns the run. Returns
+    True for the winner, False for everyone else (and on any error, so a failed
+    claim never escalates to a double-reconcile).
+    """
+    try:
+        claimed = (
+            db.session.query(ScanHistory)
+            .filter_by(run_id=run_id, status="running", recovery_state=None)
+            .update({ScanHistory.recovery_state: "claimed"}, synchronize_session=False)
+        )
+        db.session.commit()
+        return claimed == 1
+    except Exception:
+        db.session.rollback()
+        log.warning("claim_for_recovery failed for run_id=%s", run_id, exc_info=True)
+        return False
+
+
+def mark_finalizing(run_id: str) -> None:
+    """Flag a still-running scan as being finalized by a live worker.
+
+    ``app._finalize_run`` runs enrichment in the Flask worker *after* the engine
+    subprocess exits but *before* the row is marked terminal. During that window
+    a concurrently-booting worker's reaper would otherwise see the row as an
+    orphan (running + dead engine_pid + complete report) and race the live
+    finalize. Marking ``recovery_state='finalizing'`` lets the reaper defer to
+    the live worker. Best-effort — a failure here just leaves the pre-existing
+    race, it must not break finalization. See Finding #25.
+    """
+    try:
+        db.session.query(ScanHistory).filter_by(run_id=run_id, status="running").update(
+            {ScanHistory.recovery_state: "finalizing"}, synchronize_session=False
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        log.debug("mark_finalizing failed for run_id=%s", run_id, exc_info=True)
+
+
+def reclaim_finalizing(run_id: str) -> bool:
+    """Atomically reclaim a stale ``finalizing`` run whose worker crashed.
+
+    The counterpart to ``mark_finalizing``: if a run is still ``running`` and
+    ``finalizing`` well past its deadline, the worker that was finalizing it
+    died mid-enrichment. Exactly one reaper reclaims it (``finalizing`` →
+    ``claimed``) and reconciles it. Returns True for the winner.
+    """
+    try:
+        claimed = (
+            db.session.query(ScanHistory)
+            .filter_by(run_id=run_id, status="running", recovery_state="finalizing")
+            .update({ScanHistory.recovery_state: "claimed"}, synchronize_session=False)
+        )
+        db.session.commit()
+        return claimed == 1
+    except Exception:
+        db.session.rollback()
+        log.warning("reclaim_finalizing failed for run_id=%s", run_id, exc_info=True)
+        return False
+
+
 def get_active_count(user_id: int | None = None) -> int:
     """Cross-process active-scan count for the concurrency check.
 

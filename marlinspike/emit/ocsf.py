@@ -95,6 +95,19 @@ def _to_unix_ms(iso: str | None) -> int | None:
         return None
 
 
+def _report_time_ms(report: dict) -> int:
+    """Resolve the OCSF ``time`` for a report — always an int.
+
+    ``time`` is a REQUIRED attribute on Detection Finding (2004). When the
+    report carries no parseable timestamp, fall back to emit time rather than
+    None (which ``_prune`` would drop, yielding an invalid record). See #43.
+    """
+    ts = _to_unix_ms(report.get("timestamp_end") or report.get("timestamp_start"))
+    if ts is not None:
+        return ts
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
 def _metadata() -> dict:
     """OCSF metadata block — schema version + producing product."""
     # Lazy import to avoid circulars when running without the full app
@@ -149,7 +162,7 @@ def _prune(obj: Any) -> Any:
 def render_risk_finding(finding: dict, report: dict, capture_id: str | None = None) -> dict:
     """Map a MarlinSpike risk_finding onto OCSF Detection Finding (2004)."""
     sev_id, sev_label = _severity(finding.get("severity"))
-    timestamp = _to_unix_ms(report.get("timestamp_end") or report.get("timestamp_start"))
+    timestamp = _report_time_ms(report)
     return {
         "class_uid": CLASS_DETECTION_FINDING,
         "class_name": "Detection Finding",
@@ -187,7 +200,7 @@ def render_risk_finding(finding: dict, report: dict, capture_id: str | None = No
 def render_c2_indicator(indicator: dict, report: dict, capture_id: str | None = None) -> dict:
     """Map a c2_indicators[] entry onto OCSF Detection Finding (2004)."""
     sev_id, sev_label = _severity(indicator.get("severity"))
-    timestamp = _to_unix_ms(report.get("timestamp_end") or report.get("timestamp_start"))
+    timestamp = _report_time_ms(report)
     indicator_type = indicator.get("type", "C2_INDICATOR")
     src = indicator.get("src") or indicator.get("src_ip") or ""
     dst = indicator.get("dst") or indicator.get("dst_ip") or ""
@@ -238,9 +251,7 @@ def render_malware_finding(finding: dict, report: dict, capture_id: str | None =
     normalise to the OCSF severity enum.
     """
     sev_id, sev_label = _severity(finding.get("severity"))
-    timestamp = _to_unix_ms(finding.get("timestamp")) or _to_unix_ms(
-        report.get("timestamp_end") or report.get("timestamp_start")
-    )
+    timestamp = _to_unix_ms(finding.get("timestamp")) or _report_time_ms(report)
     confidence = finding.get("confidence")
     return {
         "class_uid": CLASS_DETECTION_FINDING,
@@ -316,7 +327,7 @@ def render_mitre_classification(
         sev_id, sev_label = 3, "Medium"
     else:
         sev_id, sev_label = 2, "Low"
-    timestamp = _to_unix_ms(report.get("timestamp_end") or report.get("timestamp_start"))
+    timestamp = _report_time_ms(report)
     technique_id = classification.get("technique_id", "")
     return {
         "class_uid": CLASS_DETECTION_FINDING,

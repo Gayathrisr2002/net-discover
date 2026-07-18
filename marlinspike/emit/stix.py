@@ -25,11 +25,15 @@ CLI::
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+
+_MAC_RE = re.compile(r"^[0-9a-fA-F]{2}([:-][0-9a-fA-F]{2}){5}$")
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -135,10 +139,19 @@ def _indicator_pattern_for_finding(finding: dict) -> str:
         return f"[artifact:hashes.'SHA-256' = '{finding.get('category','UNKNOWN').lower()}']"
     parts = []
     for node in nodes[:32]:  # cap to keep patterns sane
-        if ":" in node and len(node) <= 17:
-            # MAC-ish
+        # Classify by parsing, not by a ":"-and-length heuristic that mistook
+        # short IPv6 (fe80::1) for a MAC and long IPv6 for IPv4 (Finding #46).
+        try:
+            ip = ipaddress.ip_address(node)
+            obj_type = "ipv6-addr" if ip.version == 6 else "ipv4-addr"
+            parts.append(f"{obj_type}:value = '{node}'")
+            continue
+        except ValueError:
+            pass
+        if _MAC_RE.match(node):
             parts.append(f"mac-addr:value = '{node}'")
         else:
+            # Non-IP, non-MAC (e.g. hostname) — keep the prior ipv4-addr fallback.
             parts.append(f"ipv4-addr:value = '{node}'")
     if len(parts) == 1:
         return f"[{parts[0]}]"

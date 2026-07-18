@@ -208,14 +208,25 @@ def _scan_report(report: dict, entries: list[dict]) -> list[dict]:
                         _record(f"conversation.{field} (oui)", mac)
 
         elif ioc_type == "domain":
+            # A leading "*." means "this base domain and any subdomain". Match
+            # plain domains as exact-or-subdomain too — a loose substring match
+            # both misses wildcards (the literal "*." is never in a real query)
+            # and false-positives on lookalikes ("notevil.com" vs "evil.com").
+            base = norm[2:] if norm.startswith("*.") else norm
+
+            def _domain_matches(candidate: str) -> bool:
+                c = candidate.lower().strip().rstrip(".")
+                return bool(base) and (c == base or c.endswith("." + base))
+
             for conv in conversations:
                 dns_queries = conv.get("dns_queries") or []
                 for q in dns_queries:
-                    if isinstance(q, str) and norm in q.lower():
-                        _record("conversation.dns_queries", q)
+                    if isinstance(q, str):
+                        if _domain_matches(q):
+                            _record("conversation.dns_queries", q)
                     elif isinstance(q, dict):
                         for qs in _iter_strings(q):
-                            if norm in qs.lower():
+                            if _domain_matches(qs):
                                 _record("conversation.dns_queries", qs)
                                 break
 

@@ -172,22 +172,59 @@ var USR = (function() {
 
   var chpassTarget = null;
 
+  // Build a table cell. When `text` is given it is set via textContent (never
+  // parsed as HTML). `cls` is an optional className.
+  function cell(text, cls) {
+    var td = document.createElement('td');
+    if (cls) td.className = cls;
+    if (text !== undefined && text !== null) td.textContent = String(text);
+    return td;
+  }
+
+  // Build an action button whose click handler closes over the raw username.
+  // Never interpolate user-controlled values into markup or inline handlers —
+  // that was the stored-XSS vector (usernames with quotes escaped the onclick
+  // JS-string, since esc() escapes <>& but not quotes). See Finding #1.
+  function actionBtn(label, cls, handler) {
+    var b = document.createElement('button');
+    b.className = cls;
+    b.textContent = label;
+    b.addEventListener('click', handler);
+    return b;
+  }
+
   function loadUsers() {
     fetch('/api/users').then(function(r) { return r.json(); }).then(function(d) {
       var tbody = document.getElementById('users-body');
       tbody.innerHTML = '';
       (d.users || []).forEach(function(u) {
+        var username = u.username;
+        var limit = u.upload_limit_mb || 200;
         var tr = document.createElement('tr');
-        tr.innerHTML =
-          '<td class="mono">' + esc(u.username) + '</td>'
-          + '<td><span class="badge badge-' + (u.role === 'admin' ? 'running' : 'stopped') + '">' + esc(u.role) + '</span></td>'
-          + '<td class="mono dim">' + esc(u.upload_limit_mb || 200) + ' MB</td>'
-          + '<td class="dim">' + formatDate(u.created_at) + '</td>'
-          + '<td>'
-          + '<button class="btn btn-sm" style="margin-right:6px;" onclick="USR.showLimits(\'' + esc(u.username) + '\',' + (u.upload_limit_mb || 200) + ')">Upload Limit</button>'
-          + '<button class="btn btn-sm" style="margin-right:6px;" onclick="USR.showChpass(\'' + esc(u.username) + '\')">Password</button>'
-          + '<button class="btn btn-sm btn-danger" onclick="USR.deleteUser(\'' + esc(u.username) + '\')">Delete</button>'
-          + '</td>';
+
+        tr.appendChild(cell(username, 'mono'));
+
+        var roleTd = document.createElement('td');
+        var badge = document.createElement('span');
+        badge.className = 'badge badge-' + (u.role === 'admin' ? 'running' : 'stopped');
+        badge.textContent = u.role;
+        roleTd.appendChild(badge);
+        tr.appendChild(roleTd);
+
+        tr.appendChild(cell(limit + ' MB', 'mono dim'));
+        tr.appendChild(cell(formatDate(u.created_at), 'dim'));
+
+        var actionsTd = document.createElement('td');
+        var limitsBtn = actionBtn('Upload Limit', 'btn btn-sm', function() { showLimits(username, limit); });
+        limitsBtn.style.marginRight = '6px';
+        var pwBtn = actionBtn('Password', 'btn btn-sm', function() { showChpass(username); });
+        pwBtn.style.marginRight = '6px';
+        var delBtn = actionBtn('Delete', 'btn btn-sm btn-danger', function() { deleteUser(username); });
+        actionsTd.appendChild(limitsBtn);
+        actionsTd.appendChild(pwBtn);
+        actionsTd.appendChild(delBtn);
+        tr.appendChild(actionsTd);
+
         tbody.appendChild(tr);
       });
     });
@@ -291,12 +328,6 @@ var USR = (function() {
     });
   }
 
-  function esc(s) {
-    if (!s) return '';
-    var d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-  }
   function formatDate(iso) {
     if (!iso) return '--';
     try { var d = new Date(iso); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }

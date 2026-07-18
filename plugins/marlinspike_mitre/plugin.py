@@ -177,6 +177,17 @@ def _build_context(report: dict) -> dict:
     finding_counts, finding_matches = _build_observation_index(findings, "category", "finding")
     indicator_counts, indicator_matches = _build_observation_index(indicators, "type", "indicator")
 
+    # Severities present across risk findings — backs the `when.severity` gate
+    # (Finding #20). Without this the documented severity filter was ignored and
+    # rules over-matched.
+    severity_counts: Counter = Counter()
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        sev = str(finding.get("severity") or "").strip().upper()
+        if sev:
+            severity_counts[sev] += 1
+
     return {
         "report": report,
         "nodes": nodes,
@@ -188,6 +199,7 @@ def _build_context(report: dict) -> dict:
         "finding_matches": finding_matches,
         "indicator_counts": indicator_counts,
         "indicator_matches": indicator_matches,
+        "severity_counts": severity_counts,
         "node_count": len(nodes),
         "edge_count": len(edges),
         "has_capture": isinstance(report.get("capture_info"), dict),
@@ -213,6 +225,13 @@ def _primitive_matches(when: dict, ctx: dict) -> bool:
 
     indicator_types = [str(value).upper() for value in _listify(when.get("indicator_types")) if str(value).strip()]
     if indicator_types and not any(ctx["indicator_counts"].get(indicator_type, 0) for indicator_type in indicator_types):
+        return False
+
+    # `severity` gate (Finding #20): match only when the report contains at least
+    # one risk finding at one of the listed severities. Membership check,
+    # consistent with the other primitives (see docs/extensibility-contracts.md).
+    severities = [str(value).upper() for value in _listify(when.get("severity")) if str(value).strip()]
+    if severities and not any(ctx["severity_counts"].get(severity, 0) for severity in severities):
         return False
 
     return True

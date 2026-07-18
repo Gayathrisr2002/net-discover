@@ -81,7 +81,8 @@ def test_attack_tags():
     finding = {"attack_techniques": ["T0815", "T1071.004"]}
     tags = sigma._attack_tags(finding)
     assert "attack.t0815" in tags
-    assert "attack.t1071_004" in tags
+    # SigmaHQ keeps the dot for sub-techniques (Finding #45) — was t1071_004.
+    assert "attack.t1071.004" in tags
 
 
 def test_stable_uuid_reproducible():

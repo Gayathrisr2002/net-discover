@@ -173,6 +173,24 @@ class CapdServer:
         async with self._sessions_lock:
             if session_id in self._sessions and self._sessions[session_id].is_running():
                 return {"ok": False, "error": f"session {session_id} already running"}
+            # Interface-level lock (Finding #21), matching docs/live-capture.md:
+            #   * a named NIC hosts only one running capture at a time;
+            #   * `any` captures every interface, so it conflicts with — and is
+            #     blocked by — any other running capture, and vice versa.
+            # Checked inside the lock so it's atomic against concurrent starts.
+            running = [
+                (other_id, other)
+                for other_id, other in self._sessions.items()
+                if other_id != session_id and other.is_running()
+            ]
+            for other_id, other in running:
+                other_iface = getattr(other.cfg, "interface", None)
+                if interface == "any" or other_iface == "any" or other_iface == interface:
+                    conflict = "any" if (interface == "any" or other_iface == "any") else interface
+                    return {
+                        "ok": False,
+                        "error": f"interface {conflict} is already being captured by session {other_id}",
+                    }
             try:
                 sup = CaptureSupervisor(cfg)
                 sup.start()

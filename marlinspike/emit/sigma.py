@@ -109,10 +109,15 @@ def _severity_for(finding: dict) -> str:
 
 
 def _attack_tags(finding: dict) -> list[str]:
-    """Build Sigma ``tags`` from any attack_techniques attached to the finding."""
+    """Build Sigma ``tags`` from any attack_techniques attached to the finding.
+
+    SigmaHQ's ATT&CK taxonomy keeps the dot for sub-techniques
+    (``attack.t1071.001``); the previous underscore form (``attack.t1071_001``)
+    is not a recognised tag (Finding #45).
+    """
     tags = []
     for tid in finding.get("attack_techniques") or []:
-        tags.append(f"attack.{tid.lower().replace('.', '_')}")
+        tags.append(f"attack.{str(tid).lower()}")
     return tags
 
 
@@ -202,9 +207,14 @@ def _base_rule(finding: dict, capture_id: str) -> dict:
     }
 
 
-def _rule_cross_purdue(finding: dict, capture_id: str) -> dict:
-    rule = _base_rule(finding, capture_id)
+def _rule_cross_purdue(finding: dict, capture_id: str) -> dict | None:
     nodes = [str(n) for n in (finding.get("affected_nodes") or []) if n]
+    # No nodes → an empty ``|in: []`` selector, which is invalid Sigma and
+    # matches nothing. A cross-Purdue rule is meaningless without its endpoints,
+    # so skip it entirely (Finding #44).
+    if not nodes:
+        return None
+    rule = _base_rule(finding, capture_id)
     rule["logsource"] = {"product": "zeek", "service": "conn"}
     rule["detection"] = {
         "selection": {
@@ -270,13 +280,18 @@ def _rule_modbus_write_anon(finding: dict, capture_id: str) -> dict:
     rule = _base_rule(finding, capture_id)
     nodes = [str(n) for n in (finding.get("affected_nodes") or []) if n]
     rule["logsource"] = {"product": "zeek", "service": "modbus"}
-    rule["detection"] = {
+    detection = {
         "selection": {
             "func|contains": ["WRITE", "FORCE"],
         },
-        "filter_known": {"id.orig_h|in": nodes} if nodes else {"id.orig_h|in": []},
-        "condition": "selection and not filter_known",
+        "condition": "selection",
     }
+    # Only add the allowlist filter when we actually have known pollers — an
+    # empty ``id.orig_h|in: []`` filter (and "not <empty>") is invalid Sigma (#44).
+    if nodes:
+        detection["filter_known"] = {"id.orig_h|in": nodes}
+        detection["condition"] = "selection and not filter_known"
+    rule["detection"] = detection
     rule["falsepositives"] = ["operator HMI traffic from an allowlisted poller"]
     return rule
 
@@ -346,6 +361,8 @@ def render_rules(report: dict, capture_id: str | None = None) -> list[tuple[str,
         if builder is None:
             continue
         rule = builder(finding, capture_id)
+        if rule is None:  # builder declined (e.g. no nodes → would be an empty selector)
+            continue
         if rule["id"] in seen_ids:
             continue
         seen_ids.add(rule["id"])

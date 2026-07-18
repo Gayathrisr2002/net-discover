@@ -297,13 +297,22 @@ def _compute_beacon_score_from_timestamps(timestamps):
 
 
 def _compute_dns_entropy_from_queries(query_names):
-    """Average Shannon entropy of subdomain labels."""
+    """Average absolute + length-normalized Shannon entropy of subdomain labels.
+
+    Returns ``(avg_abs, avg_ratio)``. ``avg_abs`` is the classic average Shannon
+    entropy (bits). ``avg_ratio`` is ``H / log2(L)`` averaged over labels — a
+    length-independent [0,1] "how random for its length" measure. The absolute
+    entropy of a length-L label is capped at ``log2(L)``, so short random labels
+    (an 8-char base32 chunk maxes at 3.0 bits) can never reach the 3.5/4.0
+    absolute thresholds no matter how random; the ratio catches them (#13).
+    """
     import math
 
     if not query_names:
-        return 0.0
+        return 0.0, 0.0
 
     entropies = []
+    ratios = []
     for qname in query_names:
         parts = qname.rstrip(".").split(".")
         if len(parts) <= 2:
@@ -314,13 +323,24 @@ def _compute_dns_entropy_from_queries(query_names):
         freq = {}
         for char in subdomain.lower():
             freq[char] = freq.get(char, 0) + 1
+        n = len(subdomain)
         entropy = -sum(
-            (count / len(subdomain)) * math.log2(count / len(subdomain))
+            (count / n) * math.log2(count / n)
             for count in freq.values()
         )
         entropies.append(entropy)
+        max_entropy = math.log2(n) if n > 1 else 0.0
+        ratios.append(entropy / max_entropy if max_entropy > 0 else 0.0)
 
-    return sum(entropies) / len(entropies) if entropies else 0.0
+    if not entropies:
+        return 0.0, 0.0
+    return (sum(entropies) / len(entropies), sum(ratios) / len(ratios))
+
+
+def _compute_dns_entropy_ratio_from_queries(query_names):
+    """Length-normalized average entropy ratio only — see
+    :func:`_compute_dns_entropy_from_queries`."""
+    return _compute_dns_entropy_from_queries(query_names)[1]
 
 
 def _extract_bronze_family(event: dict):
@@ -850,7 +870,7 @@ def _build_conversations_from_bronze(output: dict) -> list:
 
         beacon_score, beacon_interval, beacon_jitter = _compute_beacon_score_from_timestamps(aggregate["timestamps"])
         dns_queries = sorted(aggregate["dns_queries"])
-        dns_entropy = _compute_dns_entropy_from_queries(dns_queries)
+        dns_entropy, dns_entropy_ratio = _compute_dns_entropy_from_queries(dns_queries)
 
         conversations.append(
             Conversation(
@@ -888,6 +908,7 @@ def _build_conversations_from_bronze(output: dict) -> list:
                 dns_queries=dns_queries[:200],
                 dns_query_types=sorted(aggregate["dns_query_types"]),
                 dns_entropy=dns_entropy,
+                dns_entropy_ratio=dns_entropy_ratio,
                 l2_discovery=aggregate["l2_discovery"],
                 operations_seen=aggregate["operations_seen"],
                 protocol_attributes=_finalize_bronze_attributes(aggregate["protocol_attributes"]),
@@ -981,8 +1002,13 @@ def _build_l2_anomalies_from_bronze(output: dict) -> list:
     return records
 
 
-def _run_marlinspike_dpi(binary_path: str, pcap_path: str, capture_id: str) -> dict:
-    """Run the external marlinspike-dpi CLI and return its Bronze JSON."""
+def _run_marlinspike_dpi(binary_path: str, pcap_path: str, capture_id: str, chunk_size: int = 0) -> dict:
+    """Run the external marlinspike-dpi CLI and return its Bronze JSON.
+
+    ``chunk_size`` (> 0) is forwarded as ``--chunk-size`` so a memory-bounded
+    scan is honoured under the Rust engine too — previously the flag was dropped
+    here and only the Python fallback respected it (Finding #17).
+    """
     resolved = shutil.which(binary_path) or binary_path
     if not resolved or not os.path.exists(resolved):
         raise FileNotFoundError(f"marlinspike-dpi binary not found: {binary_path}")
@@ -1000,6 +1026,8 @@ def _run_marlinspike_dpi(binary_path: str, pcap_path: str, capture_id: str) -> d
         output_path,
         "--pretty",
     ]
+    if chunk_size and chunk_size > 0:
+        cmd.extend(["--chunk-size", str(chunk_size)])
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -1062,7 +1090,10 @@ def _dissect_with_selected_engine(pcap_path: str, args, capture_id: str):
             print("[*] marlinspike-dpi not found — falling back to built-in parser")
         else:
             try:
-                dpi_output = _run_marlinspike_dpi(binary_path, pcap_path, capture_id)
+                dpi_output = _run_marlinspike_dpi(
+                    binary_path, pcap_path, capture_id,
+                    chunk_size=getattr(args, "chunk_size", 0) or 0,
+                )
                 conversations = _build_conversations_from_bronze(dpi_output)
                 port_summary = _build_port_summary_from_conversations(conversations)
                 l2_anomalies = _build_l2_anomalies_from_bronze(dpi_output)
@@ -1306,6 +1337,17 @@ WELL_KNOWN_PORTS = {
     9100:  ("Printer", "IT"),
 }
 
+# Well-known services that are *inherently periodic* by protocol design, so a
+# high beacon score against a public host on these ports is expected benign
+# traffic, not C2 (Finding #12). Kept deliberately narrow: NTP/DNS/mDNS only —
+# real C2 channels like 443 must NOT be here. DNS tunnelling is still caught by
+# the entropy-based DNS-exfil detector, independent of this exemption.
+BENIGN_PERIODIC_PORTS = frozenset({
+    53,     # DNS
+    5353,   # mDNS
+    123,    # NTP
+})
+
 EPHEMERAL_PORT_MIN = 49152
 
 # Tshark protocol name → display name mapping for OT/ICS classification.
@@ -1378,7 +1420,10 @@ ICS_OUI_DB = {
     # Rockwell / Allen-Bradley
     "00:00:bc": {"vendor": "Allen-Bradley", "product_lines": ["ControlLogix", "CompactLogix"]},
     "b4:e1:02": {"vendor": "Allen-Bradley", "product_lines": ["Stratix", "ArmorBlock"]},
-    "00:50:56": {"vendor": "Rockwell Automation", "product_lines": ["EtherNet/IP"]},
+    # NOTE: 00:50:56 is VMware, Inc.'s virtual-NIC OUI, NOT Rockwell — it must
+    # not be overlaid here or every VMware VM (HMI/EWS/historian) is fingerprinted
+    # as OT hardware and given inflated attack priority. The IEEE oui.json entry
+    # (VMware) is correct; leave it to resolve there. See Finding #15.
 
     # Schneider Electric
     "00:80:f4": {"vendor": "Schneider Electric", "product_lines": ["Modicon", "Quantum"]},
@@ -1541,6 +1586,7 @@ class Conversation:
     dns_queries: list = field(default_factory=list)
     dns_query_types: list = field(default_factory=list)
     dns_entropy: float = 0.0
+    dns_entropy_ratio: float = 0.0  # length-normalized H/log2(L), in [0,1] (Finding #13)
     operations_seen: list = field(default_factory=list)
     protocol_attributes: dict = field(default_factory=dict)
     protocol_object_refs: list = field(default_factory=list)
@@ -2401,7 +2447,7 @@ class OTProtocolDissector:
             # Compute beacon score from timestamps
             b_score, b_interval, b_jitter = self._compute_beacon_score(d["timestamps"])
             # Compute DNS entropy
-            d_entropy = self._compute_dns_entropy(d["dns_queries"])
+            d_entropy, d_entropy_ratio = self._compute_dns_entropy(d["dns_queries"])
             # Pick most common src_port as representative
             src_port_list = list(d["src_ports"])
             rep_src_port = src_port_list[0] if len(src_port_list) == 1 else 0
@@ -2463,6 +2509,7 @@ class OTProtocolDissector:
                 dns_queries=list(d["dns_queries"])[:200],
                 dns_query_types=list(d["dns_query_types"]),
                 dns_entropy=d_entropy,
+                dns_entropy_ratio=d_entropy_ratio,
                 l2_discovery=d["l2_discovery"],
             )
             self.conversations.append(conversation)
@@ -2538,25 +2585,12 @@ class OTProtocolDissector:
 
     @staticmethod
     def _compute_dns_entropy(query_names):
-        """Average Shannon entropy of subdomain labels — high entropy = possible encoding."""
-        import math
-        if not query_names:
-            return 0.0
-        entropies = []
-        for qname in query_names:
-            parts = qname.rstrip('.').split('.')
-            if len(parts) <= 2:
-                continue  # no subdomain
-            subdomain = '.'.join(parts[:-2])
-            if len(subdomain) < 4:
-                continue
-            freq = {}
-            for c in subdomain.lower():
-                freq[c] = freq.get(c, 0) + 1
-            entropy = -sum((count/len(subdomain)) * math.log2(count/len(subdomain))
-                           for count in freq.values())
-            entropies.append(entropy)
-        return sum(entropies) / len(entropies) if entropies else 0.0
+        """Average absolute + length-normalized entropy of subdomain labels.
+
+        Returns ``(avg_abs, avg_ratio)`` — see the module-level
+        ``_compute_dns_entropy_from_queries`` for why the length-normalized
+        ratio is needed (Finding #13)."""
+        return _compute_dns_entropy_from_queries(query_names)
 
     def _build_port_summary(self):
         """Build port usage summary from all conversations."""
@@ -3983,9 +4017,20 @@ class TopologyBuilder:
 
     @staticmethod
     def _ip_in_subnet(ip: str, subnet: str) -> bool:
-        """Check if IP is in subnet (simple prefix match)."""
-        # Simplified — production would use ipaddress module
-        return ip.startswith(subnet.split("/")[0].rsplit(".", 1)[0])
+        """Check if *ip* is inside CIDR *subnet* (e.g. ``10.5.0.0/16``).
+
+        Uses the stdlib ``ipaddress`` module for correct prefix-length-aware
+        membership. A bare address is treated as a /32 (or /128) host. Invalid
+        input returns False rather than raising. The previous string-prefix
+        implementation ignored the CIDR length entirely — a /16 matched only the
+        third octet and /25 was wrong — silently misclassifying Purdue zones for
+        any ``--subnet-map`` override (Finding #14).
+        """
+        try:
+            network = ipaddress.ip_network(subnet, strict=False)
+            return ipaddress.ip_address(ip) in network
+        except ValueError:
+            return False
 
 
 # ---------------------------------------------------------------------------
@@ -4474,7 +4519,9 @@ class RiskSurface:
             is_known_port = conv.port in WELL_KNOWN_PORTS
 
             # ── A. Beaconing Detection ──
-            if conv.beacon_score > 0.5:
+            # Skip services that are periodic by design (NTP/DNS/mDNS) — their
+            # regular cadence otherwise scores as C2 beaconing (Finding #12).
+            if conv.beacon_score > 0.5 and conv.port not in BENIGN_PERIODIC_PORTS:
                 if dst_public:
                     severity = "CRITICAL" if conv.beacon_score > 0.7 else "HIGH"
                     indicator = {
@@ -4546,8 +4593,11 @@ class RiskSurface:
                     unique_count = len(subdomains)
                     sample_queries = list(conv.dns_queries)[:5]
 
-                    # Critical: high entropy + high fanout
-                    if conv.dns_entropy > 4.0 and unique_count > 50:
+                    # Critical: high entropy + high fanout. Absolute entropy is
+                    # length-capped (log2(L)), so short random labels can't reach
+                    # 4.0 — accept a near-max length-normalized ratio too (#13).
+                    # The >50-unique-subdomain gate keeps benign traffic out.
+                    if (conv.dns_entropy > 4.0 or conv.dns_entropy_ratio > 0.85) and unique_count > 50:
                         indicator = {
                             "type": "C2_DNS_EXFIL",
                             "severity": "CRITICAL",
@@ -4573,8 +4623,9 @@ class RiskSurface:
                         ))
                         print(f"  [CRITICAL] DNS exfil: {src_key} -> {base} ({unique_count} subdomains, entropy {conv.dns_entropy:.2f})")
 
-                    # High: moderate entropy + high volume
-                    elif conv.dns_entropy > 3.5 and (conv.packet_count > 500 or conv.bytes_total > 102400):
+                    # High: moderate entropy + high volume (ratio path catches
+                    # short-label tunnels the absolute threshold can't reach, #13).
+                    elif (conv.dns_entropy > 3.5 or conv.dns_entropy_ratio > 0.80) and (conv.packet_count > 500 or conv.bytes_total > 102400):
                         indicator = {
                             "type": "C2_DNS_TUNNEL_SUSPECT",
                             "severity": "HIGH",
@@ -5740,6 +5791,29 @@ def run_chain_from_conversations(args):
     report.risk_findings = risk_report["findings"]
     report.attack_targets = risk_report["attack_targets"]
     report.c2_indicators = risk_report.get("c2_indicators", [])
+
+    # ── Stage 4b: Malware IOC Matching ────────────────────────────
+    # Mirror run_chain: the chunked / large-PCAP pipeline reaches topology+risk
+    # via this function, and without this block every large-PCAP report would
+    # silently lack malware/IOC findings (Finding #16). Events are derived from
+    # the merged conversations, exactly as run_chain does when no Bronze seed
+    # events are available.
+    capture_id_for_malware = (
+        os.path.splitext(os.path.basename(
+            getattr(args, "pcap", "") or getattr(args, "conversations", "") or ""
+        ))[0]
+        or "capture"
+    )
+    malware_result = _run_malware_stage(
+        conversations,
+        capture_id_for_malware,
+        skip=getattr(args, "fast", False),
+    )
+    if malware_result["malware_findings"]:
+        report.malware_findings = malware_result["malware_findings"]
+        report.c2_indicators.extend(malware_result["c2_indicators"])
+        report.risk_findings.extend(malware_result["risk_findings"])
+
     _save_intermediate(report, args.output, "Risk Surface Report")
 
     report.timestamp_end = datetime.now(timezone.utc).isoformat()

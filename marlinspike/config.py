@@ -95,6 +95,15 @@ PRESETS_BAKED_DIR = os.environ.get(
 PCAP_MAX_SIZE = int(os.environ.get("PCAP_MAX_SIZE", 5 * 1024 * 1024 * 1024))  # 5 GB
 PCAP_PROCESS_SIZE = int(os.environ.get("PCAP_PROCESS_SIZE", 5 * 1024 * 1024 * 1024))  # 5 GB (chunked pipeline handles large files)
 
+# Hard framework-level cap on request body size. Werkzeug rejects any larger
+# request with 413 *before* the view spools it — so an oversized/lying body
+# can't exhaust memory or disk on any endpoint (the per-view streaming check is
+# a second line of defence, not the only one). Must be >= the largest legitimate
+# PCAP upload; slack added for multipart form overhead. See Finding #11.
+MAX_CONTENT_LENGTH = int(
+    os.environ.get("MARLINSPIKE_MAX_CONTENT_LENGTH", PCAP_MAX_SIZE + 16 * 1024 * 1024)
+)
+
 # Database — no default. The previous v3.5.1 default
 # ``postgresql://marlinspike:marlinspike@localhost:5432/marlinspike`` was
 # a predictable credential that attackers who know the project could try

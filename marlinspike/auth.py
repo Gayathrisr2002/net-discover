@@ -2,6 +2,8 @@
 
 import hashlib
 import logging
+import os
+import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -146,6 +148,60 @@ def create_reset_token(user, ip_address=None):
                   actor_user_id=user.id, actor_username=user.username,
                   ip_address=ip_address)
     return raw_token
+
+
+# ── Reset token delivery ──────────────────────────────────────────────────────
+#
+# The reset token is never returned in the HTTP response (that was an
+# unauthenticated account takeover, fixed in v3.5.2). Instead it is delivered
+# via a configured side channel. Wrappers (cloudmarlin, etc.) may register an
+# alternate delivery via ``set_reset_token_delivery``.
+
+_reset_token_delivery_hook = None
+
+
+def set_reset_token_delivery(func):
+    """Register a custom delivery callable ``(user, token, mode) -> None``.
+
+    Pass ``None`` to clear the override and fall back to the built-in
+    file / log delivery.
+    """
+    global _reset_token_delivery_hook
+    _reset_token_delivery_hook = func
+
+
+def deliver_reset_token(user, token, delivery):
+    """Deliver ``token`` for ``user`` via the configured side channel.
+
+    ``delivery`` is ``MARLINSPIKE_RESET_TOKEN_DELIVERY``:
+      * ``"file"`` — written to ``${DATA_DIR}/instance/reset-tokens/<user>-<ts>.txt``
+        (0600, owner-only); the operator delivers it out-of-band.
+      * ``"log"``  — emitted to the server log only.
+    A registered override hook (``set_reset_token_delivery``) takes precedence.
+    Never returns the token to the caller.
+    """
+    if _reset_token_delivery_hook is not None:
+        _reset_token_delivery_hook(user, token, delivery)
+        return
+
+    if delivery == "file":
+        from marlinspike import config
+
+        token_dir = os.path.join(config.DATA_DIR, "instance", "reset-tokens")
+        os.makedirs(token_dir, mode=0o700, exist_ok=True)
+        # Sanitise the username so it can never traverse out of token_dir.
+        safe_user = re.sub(r"[^A-Za-z0-9._-]", "_", user.username) or "user"
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        path = os.path.join(token_dir, f"{safe_user}-{ts}.txt")
+        # O_EXCL so we never clobber, 0600 so only the owner can read it.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(token + "\n")
+        log.info("Reset token for %s written to %s (deliver out-of-band)", user.username, path)
+    elif delivery == "log":
+        log.warning("Password reset token for user=%s: %s", user.username, token)
+    else:
+        raise ValueError(f"Unknown reset token delivery mode: {delivery!r}")
 
 
 def validate_reset_token(raw_token):

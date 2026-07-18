@@ -35,7 +35,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from marlinspike import config, run_store
+from marlinspike import config, enrich, run_store
 from marlinspike.models import ScanHistory
 
 log = logging.getLogger("marlinspike.recovery")
@@ -117,23 +117,28 @@ def _live_argv_matches(actual: list[str], expected: list[str]) -> bool:
     """True if the live argv is plausibly the same process we started.
 
     Looks for at least one *distinctive* token from ``expected`` (non-empty,
-    non-flag) appearing in ``actual``. For our engine that's typically
-    ``marlinspike`` or a PCAP path.
+    non-flag) appearing as a **whole argv element** of ``actual``. For our engine
+    that's typically ``marlinspike``, a subcommand, or a PCAP path.
+
+    Matching whole elements (not substrings of the joined command line) is the
+    PID-reuse defense proper (Finding #23): a substring test would treat any
+    unrelated process whose path merely *contains* ``marlinspike``
+    (``/opt/marlinspike-tools/daemon``) as our engine.
 
     Why not also require interpreter basename to match? On macOS, Python
     is launched via a framework wrapper whose basename (``Python``) doesn't
     match ``sys.executable``'s basename (``python3.14``) — the cmdline ps
     reports differs from the path we'd save in argv. The distinctive-token
-    check alone is sufficient PID-reuse defense: a shell that landed on
-    the recycled PID won't have ``marlinspike`` in its argv.
+    check alone is sufficient: a shell that landed on the recycled PID won't
+    have ``marlinspike`` (or the PCAP path) as one of its argv elements.
     """
     if not actual or not expected:
         return False
-    actual_blob = " ".join(actual)
+    actual_elements = set(actual)
     for token in expected[1:]:
         if not token or token.startswith("-"):
             continue
-        if token in actual_blob:
+        if token in actual_elements:
             return True
     return False
 
@@ -160,7 +165,15 @@ def report_complete(report_path: str | None) -> bool:
 
 
 def _ingest_completed_report(rec: ScanHistory) -> None:
-    """Pull node/edge counts from the finished report and mark completed."""
+    """Pull node/edge counts from the finished report, run enrichment, mark completed.
+
+    A report recovered after a Flask restart must get the same MITRE/ARP/APT/CISA
+    enrichment a normal ``app._finalize_run`` would apply — otherwise the
+    recovered report silently lacks all ATT&CK/IOC context (Finding #9).
+    ``enrich.run_all`` is standalone (no Flask/DB) and produces the sidecar
+    artifacts the viewer merges at load time. If enrichment cannot run at all,
+    the report is still ingested (no data loss) but the run is flagged degraded.
+    """
     node_count = 0
     edge_count = 0
     try:
@@ -171,12 +184,24 @@ def _ingest_completed_report(rec: ScanHistory) -> None:
         edge_count = len(topo.get("edges", []))
     except Exception:
         log.debug("recovery: report parse failed for %s", rec.run_id, exc_info=True)
+
+    degraded_reason = None
+    if rec.command == "chain" and rec.report_path and os.path.isfile(rec.report_path):
+        try:
+            produced = enrich.run_all(rec.report_path)
+            log.info("recovery: enrichment produced %d sidecar(s) for run %s",
+                     len(produced), rec.run_id)
+        except Exception as exc:
+            degraded_reason = f"enrichment incomplete during recovery: {exc}"
+            log.warning("recovery: enrichment failed for run %s: %s", rec.run_id, exc)
+
     run_store.record_finish(
         rec.run_id,
         status="completed",
         node_count=node_count,
         edge_count=edge_count,
-        recovery_state="reaped_completed",
+        error_tail=degraded_reason,
+        recovery_state="reaped_completed_degraded" if degraded_reason else "reaped_completed",
     )
     log.info(
         "recovery: ingested completed report for run %s (nodes=%d, edges=%d)",
@@ -207,6 +232,7 @@ def reap_orphan_runs(app) -> dict:
         "reaped_completed": 0,
         "reaped_failed": 0,
         "reaped_abandoned": 0,
+        "skipped_claimed": 0,  # owned by a concurrent worker (multi-worker boot)
     }
 
     with app.app_context():
@@ -221,38 +247,54 @@ def reap_orphan_runs(app) -> dict:
         now = datetime.now(timezone.utc)
 
         for rec in active:
+            # Is this run past its deadline? (Computed early — also gates whether
+            # a stale 'finalizing' run may be reclaimed below.)
+            past_deadline = False
+            if rec.timeout_at:
+                _deadline = rec.timeout_at
+                if _deadline.tzinfo is None:
+                    _deadline = _deadline.replace(tzinfo=timezone.utc)
+                past_deadline = now > _deadline
+
+            # Multi-worker safety: only the worker that atomically wins the
+            # claim reconciles this run. Every other concurrent worker at boot
+            # skips it, so we never spawn duplicate watchers or double-finalize.
+            # See run_store.claim_for_recovery and Finding #24.
+            reclaimed_finalizing = False
+            if not run_store.claim_for_recovery(rec.run_id):
+                # The claim only matches recovery_state IS NULL. A non-NULL state
+                # means either a peer reaper already owns it, or a live worker is
+                # finalizing it (recovery_state='finalizing', Finding #25). Defer
+                # to a live finalize — unless the run is past its deadline, in
+                # which case that worker crashed mid-enrichment: reclaim it.
+                if past_deadline and run_store.reclaim_finalizing(rec.run_id):
+                    reclaimed_finalizing = True
+                    log.info("recovery: reclaimed crashed mid-finalize run %s", rec.run_id)
+                else:
+                    counters["skipped_claimed"] += 1
+                    log.debug("recovery: run %s owned by another worker; skipping", rec.run_id)
+                    continue
+
             try:
                 argv = json.loads(rec.engine_argv) if rec.engine_argv else None
             except json.JSONDecodeError:
                 argv = None
 
-            # Past deadline → abandoned.
-            if rec.timeout_at:
-                deadline = rec.timeout_at
-                if deadline.tzinfo is None:
-                    deadline = deadline.replace(tzinfo=timezone.utc)
-                if now > deadline:
-                    run_store.record_finish(
-                        rec.run_id,
-                        status="failed",
-                        error_tail=(
-                            f"abandoned — scan exceeded {config.MARLINSPIKE_SCAN_TIMEOUT_S}s "
-                            f"deadline before Flask restart could observe completion"
-                        ),
-                        recovery_state="reaped_abandoned",
-                    )
-                    counters["reaped_abandoned"] += 1
-                    log.info("recovery: reaped abandoned run %s (past deadline)", rec.run_id)
-                    continue
-
+            # Liveness and report-completeness are checked BEFORE the deadline
+            # verdict (Finding #22): a run past its deadline must NOT be failed
+            # if the engine is still alive (slow-but-healthy) or has already
+            # written a complete report. The deadline is only grounds for
+            # abandonment once we've ruled both of those out.
             alive = (
-                rec.engine_pid is not None
+                not reclaimed_finalizing
+                and rec.engine_pid is not None
                 and pid_alive(rec.engine_pid)
                 and pid_argv_matches(rec.engine_pid, argv)
             )
 
             if alive:
-                # Orphan still running — spawn watcher.
+                # Orphan still running — spawn watcher (even if past deadline: a
+                # live engine making progress is not abandoned).
                 _spawn_watcher(app, rec.run_id, rec.engine_pid, rec.report_path)
                 counters["reattached"] += 1
                 log.info(
@@ -262,13 +304,31 @@ def reap_orphan_runs(app) -> dict:
                 )
                 continue
 
-            # PID dead. Did it write a report before it died?
+            # Engine dead (or a reclaimed mid-finalize). Did it write a complete
+            # report before it died? If so, ingest it as completed regardless of
+            # the deadline — a good report is never discarded.
             if report_complete(rec.report_path):
                 _ingest_completed_report(rec)
                 counters["reaped_completed"] += 1
                 continue
 
-            # PID dead, no report → engine crashed or host rebooted.
+            # Engine dead, no complete report. Now the deadline decides between
+            # "abandoned" (overran its time budget) and "crashed".
+            if past_deadline and not reclaimed_finalizing:
+                run_store.record_finish(
+                    rec.run_id,
+                    status="failed",
+                    error_tail=(
+                        f"abandoned — scan exceeded {config.MARLINSPIKE_SCAN_TIMEOUT_S}s "
+                        f"deadline before Flask restart could observe completion"
+                    ),
+                    recovery_state="reaped_abandoned",
+                )
+                counters["reaped_abandoned"] += 1
+                log.info("recovery: reaped abandoned run %s (past deadline, dead, no report)", rec.run_id)
+                continue
+
+            # PID dead, no report, within deadline → engine crashed or host rebooted.
             run_store.record_finish(
                 rec.run_id,
                 status="failed",

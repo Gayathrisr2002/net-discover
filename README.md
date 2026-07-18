@@ -1,6 +1,16 @@
-# MarlinSpike
+# MarlinSpike (net-discover)
 
-Current release: `3.5.5`
+> **This repository is a derivative work.** `net-discover` is an independent fork of
+> [MarlinSpike](https://github.com/eris-ot/marlinspike) by **Erisforge Ltd.**,
+> redistributed under the **GNU AGPL v3** (see [`LICENSE`](LICENSE)) with bug-fix and
+> security-hardening modifications by [@Gayathrisr2002](https://github.com/Gayathrisr2002).
+> The **MarlinSpike name and original code are © Erisforge Ltd.**; this fork is **not
+> affiliated with or endorsed by** them. Per the AGPL, the full change log lives in
+> [`TRACEABILITY_MATRIX.md`](TRACEABILITY_MATRIX.md) and [`IMPACT_ANALYSIS.md`](IMPACT_ANALYSIS.md).
+> If you run this as a network service, the AGPL requires you to offer users the complete
+> corresponding source (this repository satisfies that).
+
+Current release: `3.5.5` (derived from upstream MarlinSpike; see traceability matrix for fork changes)
 
 MarlinSpike is a ground-up passive OT/ICS network analysis platform built in the tradition of GrassMarlin-style topology mapping, but wrapped in a multi-user web workbench designed for real engagements. It analyzes PCAP and PCAPNG captures, builds a topology graph, infers Purdue levels, fingerprints vendors, and surfaces responder-grade risk indicators such as cross-zone communication, cleartext services, beaconing, suspicious external communications, and DNS exfiltration, then exports everything as portable JSON report artifacts that travel with the team.
 
@@ -12,7 +22,7 @@ MarlinSpike is a ground-up passive OT/ICS network analysis platform built in the
 
 **2.45M packets (1.7 GB) -> 2,449 nodes, 2,662 edges, 75 findings in 58 seconds.**
 
-Repository: [github.com/eris-ot/marlinspike](https://github.com/eris-ot/marlinspike)
+This fork: [github.com/Gayathrisr2002/net-discover](https://github.com/Gayathrisr2002/net-discover) · Upstream: [github.com/eris-ot/marlinspike](https://github.com/eris-ot/marlinspike)
 
 ## What MarlinSpike Is
 
@@ -66,8 +76,8 @@ Interactive browser features can improve speed and convenience, but the core tri
 1. Clone the repository and enter the project directory.
 
 ```bash
-git clone https://github.com/eris-ot/marlinspike.git
-cd marlinspike
+git clone https://github.com/Gayathrisr2002/net-discover.git
+cd net-discover
 ```
 
 2. Copy the example environment file and set strong secrets.

@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 import yaml
 from flask import (
     Flask,
+    abort,
     g,
     jsonify,
     redirect,
@@ -947,6 +948,48 @@ def _resolve_concurrency(user_id):
     return len(_get_active_runs()), MAX_CONCURRENT_SCANS
 
 
+def _reserve_scan_slot(user_id, run_id, command):
+    """Atomically enforce the concurrency limit AND reserve a slot.
+
+    The limit check and the slot reservation happen in a single ``_runs_lock``
+    critical section, so a reservation counts against the very next check —
+    closing the TOCTOU window where two near-simultaneous requests both passed
+    the check before either registered its run (Finding #8). On success a
+    ``pending`` placeholder is inserted into ``_run_registry`` (counted as active
+    by ``_get_active_runs``); the caller overwrites it with the full run_state
+    once the engine is launched, or calls ``_release_scan_slot`` on failure.
+
+    Returns ``(True, None)`` on success, or ``(False, (limit, active_run_ids))``
+    when the limit is reached.
+    """
+    with _runs_lock:
+        _cleanup_runs()
+        active_count, scan_limit = _resolve_concurrency(user_id)
+        if active_count >= scan_limit:
+            return False, (scan_limit, [r[0] for r in _get_active_runs()])
+        _run_registry[run_id] = {
+            "status": "pending",
+            "user_id": user_id,
+            "command": command,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None,
+            "output": [],
+            "stages": [],
+        }
+        return True, None
+
+
+def _release_scan_slot(run_id):
+    """Release a still-``pending`` reservation made by ``_reserve_scan_slot``.
+
+    Only drops the placeholder — never a run that has already advanced to a
+    live/terminal state (so a late failure path can't evict a real run)."""
+    with _runs_lock:
+        run = _run_registry.get(run_id)
+        if run is not None and run.get("status") == "pending":
+            _run_registry.pop(run_id, None)
+
+
 def _scan_artifacts(run_state):
     """Scan reports dir for artifact files produced by this run."""
     command = run_state["command"]
@@ -1151,6 +1194,19 @@ def _finalize_scan_history(app, run_id, run_state, report_path):
                 if run_state["status"] in ("failed", "stopped"):
                     tail = run_state["output"][-10:]
                     rec.error_tail = "\n".join(tail) if tail else None
+                elif run_state.get("enrichment_degraded"):
+                    # Completed but enrichment silently failed (Finding #10) —
+                    # persist the reason so the degraded signal outlives the
+                    # in-memory output buffer and reaches the scans list / status.
+                    rec.error_tail = run_state.get("degraded_reason") or (
+                        "enrichment incomplete: "
+                        + ", ".join(run_state.get("enrichment_failures") or [])
+                    )
+                # This run was finalized live (not via recovery); clear the
+                # transient 'finalizing' marker set at enrichment start (#25) so
+                # the terminal row doesn't read as recovery-touched.
+                if rec.recovery_state == "finalizing":
+                    rec.recovery_state = None
                 if os.path.isfile(report_path):
                     try:
                         with open(report_path) as rf:
@@ -1173,6 +1229,20 @@ def _finalize_run(app, run_id, run_state, report_path):
         run_state["status"] = "stopped"
         _mark_active_stage(run_state, "stopped")
     elif run_state.get("return_code", 1) == 0:
+        # Claim this run as being finalized so a concurrently-booting worker's
+        # reaper defers to us rather than racing this enrichment pass (#25).
+        try:
+            with app.app_context():
+                from marlinspike import run_store as _run_store
+                _run_store.mark_finalizing(run_id)
+        except Exception:
+            log.debug("mark_finalizing failed for %s", run_id, exc_info=True)
+        # Track enabled enrichment plugins that failed to produce their artifact
+        # (exception, or the report file went missing). A run whose enrichment
+        # silently failed must NOT look identical to a fully-enriched one — see
+        # Finding #10. We keep status "completed" (the primary report is valid)
+        # but flag the run degraded so the signal survives in the UI + DB.
+        enrichment_failures: list[str] = []
         if config.MARLINSPIKE_MITRE_ENABLED and run_state.get("command") == "chain":
             plugin_stage_num = len(run_state["stages"])
             _set_run_stage(run_state, plugin_stage_num, "MITRE ATT&CK")
@@ -1189,8 +1259,10 @@ def _finalize_run(app, run_id, run_state, report_path):
                         )
                 except Exception as exc:
                     run_state["output"].append(f"[!] marlinspike-mitre skipped: {exc}")
+                    enrichment_failures.append("marlinspike-mitre")
             else:
                 run_state["output"].append("[!] marlinspike-mitre skipped: report file missing")
+                enrichment_failures.append("marlinspike-mitre")
             for stage in run_state["stages"]:
                 if stage["number"] == plugin_stage_num and stage["state"] == "running":
                     stage["state"] = "complete"
@@ -1211,8 +1283,10 @@ def _finalize_run(app, run_id, run_state, report_path):
                         )
                 except Exception as exc:
                     run_state["output"].append(f"[!] marlinspike-arp skipped: {exc}")
+                    enrichment_failures.append("marlinspike-arp")
             else:
                 run_state["output"].append("[!] marlinspike-arp skipped: report file missing")
+                enrichment_failures.append("marlinspike-arp")
             for stage in run_state["stages"]:
                 if stage["number"] == arp_stage_num and stage["state"] == "running":
                     stage["state"] = "complete"
@@ -1233,8 +1307,10 @@ def _finalize_run(app, run_id, run_state, report_path):
                         )
                 except Exception as exc:
                     run_state["output"].append(f"[!] marlinspike-apt skipped: {exc}")
+                    enrichment_failures.append("marlinspike-apt")
             else:
                 run_state["output"].append("[!] marlinspike-apt skipped: report file missing")
+                enrichment_failures.append("marlinspike-apt")
             for stage in run_state["stages"]:
                 if stage["number"] == apt_stage_num and stage["state"] == "running":
                     stage["state"] = "complete"
@@ -1255,13 +1331,22 @@ def _finalize_run(app, run_id, run_state, report_path):
                         )
                 except Exception as exc:
                     run_state["output"].append(f"[!] marlinspike-cisa skipped: {exc}")
+                    enrichment_failures.append("marlinspike-cisa")
             else:
                 run_state["output"].append("[!] marlinspike-cisa skipped: report file missing")
+                enrichment_failures.append("marlinspike-cisa")
             for stage in run_state["stages"]:
                 if stage["number"] == cisa_stage_num and stage["state"] == "running":
                     stage["state"] = "complete"
 
         run_state["status"] = "completed"
+        if enrichment_failures:
+            run_state["enrichment_degraded"] = True
+            run_state["enrichment_failures"] = enrichment_failures
+            run_state["degraded_reason"] = (
+                "enrichment incomplete — plugin(s) failed: " + ", ".join(enrichment_failures)
+            )
+            run_state["output"].append(f"[!] {run_state['degraded_reason']}")
         for stage in run_state["stages"]:
             if stage["state"] in ("running", "complete"):
                 stage["state"] = "complete"
@@ -2551,6 +2636,9 @@ def create_app():
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
         PERMANENT_SESSION_LIFETIME=86400,
+        # Framework-level hard cap on request body size (Finding #11): Werkzeug
+        # rejects a larger request with 413 before the view spools it.
+        MAX_CONTENT_LENGTH=config.MAX_CONTENT_LENGTH,
     )
 
     # Rate limiter. Production deployments should use a shared backend so
@@ -2683,21 +2771,32 @@ def create_app():
             db.session.commit()
         return proj
 
-    def user_uploads_dir(project_id=None):
-        uid = str(session["user_id"])
+    def _owner_uid_for_project(project_id):
+        """Resolve the project OWNER's uid for on-disk path building.
+
+        Files live under ``<uid>/<project_id>`` keyed by the project *owner*, so
+        a shared member must resolve to the owner's uid — not their own — to find
+        the project's reports/uploads (Finding #6). Access is verified via
+        ``_get_project_for_user``; a project the caller can't access is treated
+        as not-found (404) rather than silently resolving to an empty own-uid dir.
+        """
         if project_id is None:
             default = _ensure_default_project(session["user_id"])
-            project_id = default.id
-        d = os.path.join(config.UPLOADS_DIR, uid, str(project_id))
+            return session["user_id"], default.id
+        proj = _get_project_for_user(project_id)
+        if proj is None:
+            abort(404)
+        return proj.user_id, project_id
+
+    def user_uploads_dir(project_id=None):
+        owner_uid, project_id = _owner_uid_for_project(project_id)
+        d = os.path.join(config.UPLOADS_DIR, str(owner_uid), str(project_id))
         os.makedirs(d, exist_ok=True)
         return d
 
     def user_reports_dir(project_id=None):
-        uid = str(session["user_id"])
-        if project_id is None:
-            default = _ensure_default_project(session["user_id"])
-            project_id = default.id
-        d = os.path.join(config.REPORTS_DIR, uid, str(project_id))
+        owner_uid, project_id = _owner_uid_for_project(project_id)
+        d = os.path.join(config.REPORTS_DIR, str(owner_uid), str(project_id))
         os.makedirs(d, exist_ok=True)
         return d
 
@@ -3571,6 +3670,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/aggregate")
     @login_required
+    @limiter.limit("20 per minute")  # expensive: reads every report in the project (#5)
     def api_project_aggregate(pid):
         proj = _get_project_for_user(pid)
         if not proj:
@@ -3635,6 +3735,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/ocsf")
     @login_required
+    @limiter.limit("20 per minute")  # project-wide export: reads every report (#5)
     def api_project_ocsf(pid):
         """Concatenate every report's OCSF NDJSON in the project into one stream.
 
@@ -3679,6 +3780,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/navigator")
     @login_required
+    @limiter.limit("20 per minute")  # project-wide export: reads every report (#5)
     def api_project_navigator(pid):
         """Merge per-domain Navigator layers across every report in the project.
 
@@ -3757,6 +3859,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/stix")
     @login_required
+    @limiter.limit("20 per minute")  # project-wide export: reads every report (#5)
     def api_project_stix(pid):
         """Merge every report's STIX bundle into one project-level bundle.
 
@@ -3804,6 +3907,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/sigma")
     @login_required
+    @limiter.limit("20 per minute")  # project-wide export: reads every report (#5)
     def api_project_sigma(pid):
         """Concatenate every report's Sigma rules into one multi-document YAML stream.
 
@@ -3990,15 +4094,18 @@ def create_app():
         scan_profile = _normalize_scan_profile(body.get("scan_profile", body.get("profile", "full")))
         project_id = body.get("project_id")
 
-        # Resolve project
+        # Resolve project. Honour the shared-member role model (Finding #7):
+        # editors and owners may start scans; viewers are read-only. The old
+        # owner-only filter rejected a shared editor as "project not found".
         if project_id is not None:
             try:
                 project_id = int(project_id)
-                proj = Project.query.filter_by(id=project_id, user_id=session["user_id"]).first()
-                if not proj:
-                    return jsonify({"ok": False, "error": "Project not found"}), 404
             except (ValueError, TypeError):
                 project_id = None
+            else:
+                proj = _get_project_for_user(project_id, min_role="editor")
+                if not proj:
+                    return jsonify({"ok": False, "error": "Project not found"}), 404
 
         if project_id is None:
             default = _ensure_default_project(session["user_id"])
@@ -4033,22 +4140,22 @@ def create_app():
             if not os.path.isfile(pcap_path):
                 return jsonify({"ok": False, "error": "File not found"}), 404
 
-        with _runs_lock:
-            active_count, scan_limit = _resolve_concurrency(session.get("user_id"))
-            if active_count >= scan_limit:
-                # The active_run_ids list still reflects the GLOBAL set so the
-                # admin diagnostic surface is unchanged.
-                return jsonify({
-                    "ok": False,
-                    "error": f"Maximum {scan_limit} concurrent scans reached",
-                    "active_run_ids": [r[0] for r in _get_active_runs()],
-                }), 409
-            _cleanup_runs()
-
         if not pcap_path:
             return jsonify({"ok": False, "error": "PCAP file required"}), 400
 
         run_id = str(uuid.uuid4())
+
+        # Atomically enforce the concurrency limit and reserve the slot in one
+        # critical section — closes the TOCTOU window between the check and run
+        # registration (Finding #8). Released below if start-up fails.
+        reserved, limit_info = _reserve_scan_slot(session.get("user_id"), run_id, command)
+        if not reserved:
+            scan_limit, active_run_ids = limit_info
+            return jsonify({
+                "ok": False,
+                "error": f"Maximum {scan_limit} concurrent scans reached",
+                "active_run_ids": active_run_ids,
+            }), 409
         # Prefix report with original PCAP filename (sanitised)
         pcap_stem = os.path.splitext(os.path.basename(pcap_path))[0]
         pcap_stem = re.sub(r'[^a-zA-Z0-9._-]', '_', pcap_stem)[:60]
@@ -4123,6 +4230,7 @@ def create_app():
                 )
             except Exception as e:
                 log.error("Failed to start scan: %s", e)
+                _release_scan_slot(run_id)  # free the reserved concurrency slot
                 return jsonify({"ok": False, "error": "Failed to start scan"}), 500
 
         # Compute PCAP hash
@@ -4444,6 +4552,7 @@ def create_app():
                     "finished_at": run["finished_at"],
                     "output_lines": len(run["output"]),
                     "report_filename": run["report_filename"],
+                    "enrichment_degraded": bool(run.get("enrichment_degraded")),
                 }
                 if run["status"] in ("pending", "running"):
                     active.append(entry)
@@ -4506,6 +4615,8 @@ def create_app():
             "report_filename": run["report_filename"],
             "project_id": run.get("project_id"),
             "artifacts_produced": artifacts,
+            "enrichment_degraded": bool(run.get("enrichment_degraded")),
+            "enrichment_failures": run.get("enrichment_failures") or [],
         })
 
     @app.route("/api/runs/<run_id>/output")
@@ -4766,6 +4877,7 @@ def create_app():
 
     @app.route("/api/reports/<filename>/ocsf")
     @login_required
+    @limiter.limit("30 per minute")  # per-report emit/render (#5)
     def api_report_ocsf(filename):
         """Stream the OCSF NDJSON sibling next to the report (or generate
         on-the-fly for the application-layer slice if the sibling file
@@ -4804,6 +4916,7 @@ def create_app():
 
     @app.route("/api/reports/<filename>/navigator")
     @login_required
+    @limiter.limit("30 per minute")  # per-report emit/render (#5)
     def api_report_navigator(filename):
         """Return a MITRE ATT&CK Navigator v4.5 layer for one domain.
         Query string: ?domain=ics-attack|enterprise-attack (default ics)."""
@@ -4845,6 +4958,7 @@ def create_app():
 
     @app.route("/api/reports/<filename>/stix")
     @login_required
+    @limiter.limit("30 per minute")  # per-report emit/render (#5)
     def api_report_stix(filename):
         """Stream the STIX 2.1 bundle sibling, or generate on-the-fly."""
         safe_name = os.path.basename(filename)
@@ -4879,6 +4993,7 @@ def create_app():
 
     @app.route("/api/reports/<filename>/sigma")
     @login_required
+    @limiter.limit("30 per minute")  # per-report emit/render (#5)
     def api_report_sigma(filename):
         """Stream the Sigma YAML sibling, or generate on-the-fly."""
         safe_name = os.path.basename(filename)
@@ -5416,9 +5531,17 @@ def create_app():
     _SAFE_NAME_RE = re.compile(r'^[a-zA-Z0-9._-]+$')
 
     def _safe_preset_name(name):
-        """Validate and sanitise a preset name (category or filename)."""
+        """Validate and sanitise a preset name (category or filename).
+
+        ``os.path.basename("..")`` is ``".."`` and ``.`` is allowed by the
+        charset regex, so a bare ``"."``/``".."`` would otherwise pass and let
+        ``os.path.join(PRESETS_DIR, name)`` escape to the parent (the data dir).
+        Reject any name that is composed solely of dots.
+        """
         name = os.path.basename(name).strip()
         if not name or not _SAFE_NAME_RE.match(name):
+            return None
+        if name.strip(".") == "":  # ".", "..", "..." — all resolve to a dir traversal
             return None
         return name
 
@@ -6029,6 +6152,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/iocs/<int:list_id>/scan", methods=["POST"])
     @login_required
+    @limiter.limit("20 per minute")  # expensive: scans every report in the project (#5)
     def api_ioc_list_scan(pid, list_id):
         proj, lst = _get_ioc_list_or_404(pid, list_id)
         if proj is None:
