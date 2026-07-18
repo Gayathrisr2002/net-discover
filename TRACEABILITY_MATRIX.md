@@ -62,10 +62,19 @@ assigned in the order worked (the exact original numbering isn't recoverable wit
 | 45 | Sigma ATT&CK tag wrong format (`attack.t1071_001`) | MEDIUM | **Fixed** | `tests/test_emit_format_fixes.py::test_sigma_attack_tag_uses_dotted_subtechnique` + updated `test_sigma_emit.py::test_attack_tags` (encoded the bug) | `marlinspike/emit/sigma.py` (`_attack_tags`) | Keep SigmaHQ's dotted sub-technique convention `attack.t1071.001` (was underscore, an unrecognised tag). |
 | 46 | STIX IPv6 mis-typed as `mac-addr`/`ipv4-addr` | MEDIUM | **Fixed** | `tests/test_emit_format_fixes.py` (3 STIX tests; RED pre-fix on short + long IPv6) | `marlinspike/emit/stix.py` (`_indicator_pattern_for_finding`) | Classify via `ipaddress` (+ MAC regex) instead of `":" in node and len<=17`: IPv6 → `ipv6-addr`, MAC → `mac-addr`, IPv4 → `ipv4-addr`. |
 
-### Remaining MEDIUM + LOW (#26–42, #47–70)
+### Project-sharing correctness (#29/#32/#34/#35 cluster)
 
-Not yet worked. Grouped by theme in `IMPACT_ANALYSIS.md`: project-sharing correctness, recovery/
-concurrency plumbing, extension-contract gaps, capture-sidecar races, and assorted LOW items.
+| # | Finding | Severity | Status | Regression Test | Fix Location | Notes |
+|---|---|---|---|---|---|---|
+| 34 | Aggregate dedup splits one device into two assets | MEDIUM | **Fixed** | `tests/test_aggregate_asset_dedup.py` (3 tests; RED pre-fix — MAC-in-one-report + IP-only-in-another became 2 assets, GREEN post-fix; order-independent + distinct-devices-stay-separate) | `marlinspike/aggregate.py` (`_resolve_asset_key`, pass-1 IP→MAC map) | Project Overview keys assets by MAC-else-IP; an IP-only sighting (report where the MAC wasn't captured) now resolves to the device's known MAC key via a project-wide IP→MAC map, so it stays one asset. Full suite 452 passed / 7 skipped. |
+| 32 | Generic `/api/upload` project resolution owner-only | MEDIUM | **Fixed** | `tests/test_upload_shared_role.py` (2 tests; RED pre-fix — shared editor 404'd, GREEN post-fix; non-member denied) | `marlinspike/app.py` (`_handle_upload`) | The generic upload path resolved the target project with an owner-only `filter_by(id, user_id=self)` (the project-scoped `/api/projects/<pid>/upload` was already correct). Now uses `_get_project_for_user(pid, min_role="editor")` — a shared editor's upload reaches the project (and, via #6, lands in the owner's dir). Full suite 454 passed / 7 skipped. |
+| 35 | Orphaned files on disk when a non-creator deletes a project | MEDIUM | **Fixed** | `tests/test_project_delete_cleanup.py` (RED pre-fix — owner-role member's delete left the creator's files on disk, GREEN post-fix) | `marlinspike/app.py` (`api_projects_delete`) | Delete built upload/report paths from `session['user_id']` (the deleter), but files live under `proj.user_id`; a non-creator `owner`-role member deleting rmtree'd the wrong (empty) dir → real files orphaned forever. Now uses the owner uid and dissociates all project scans (not just the deleter's). Full suite 455 passed / 7 skipped. |
+
+### Remaining MEDIUM + LOW (#26–33, #35–42, #47–70)
+
+Not yet worked. Grouped by theme in `IMPACT_ANALYSIS.md`: remaining project-sharing correctness
+(orphaned files on disk, uploads landing in the wrong directory), recovery/concurrency plumbing,
+extension-contract gaps, capture-sidecar races, and assorted LOW items.
 
 ## Process notes
 

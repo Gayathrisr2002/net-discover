@@ -45,6 +45,26 @@ def _asset_key(node: dict) -> tuple[str, str] | None:
     return None
 
 
+def _resolve_asset_key(node: dict, ip_to_mac: dict[str, str]) -> tuple[str, str] | None:
+    """Like ``_asset_key`` but resolves an IP-only node to its MAC key when that
+    IP is associated with a MAC anywhere in the project.
+
+    A device captured with its MAC in one report and IP-only in another (MAC not
+    seen) would otherwise become two aggregate assets — a MAC-keyed one and an
+    IP-keyed one. Mapping the IP to the known MAC keeps it a single asset.
+    """
+    mac = (node.get("mac") or "").strip().lower()
+    if mac:
+        return mac, "mac"
+    ip = (node.get("ip") or "").strip()
+    if ip:
+        mapped = ip_to_mac.get(ip)
+        if mapped:
+            return mapped, "mac"
+        return ip, "ip"
+    return None
+
+
 def _finding_key(finding: dict) -> tuple:
     cat = str(finding.get("category") or "").strip().upper()
     nodes = tuple(sorted(str(n) for n in (finding.get("affected_nodes") or [])))
@@ -64,6 +84,26 @@ def aggregate_reports(
     used for first/last seen attribution and the scan-profile breakdown.
     """
     report_meta = report_meta or {}
+    report_paths = list(report_paths)
+
+    # Pass 1: build an IP→MAC map across ALL reports, so an IP-only sighting of a
+    # device (a report where its MAC wasn't captured) resolves to the same MAC
+    # key as reports that did capture it — otherwise one device splits into a
+    # MAC-keyed asset and an IP-keyed asset (project-sharing dedup bug). First
+    # MAC seen for an IP wins (stable across DHCP renewals).
+    ip_to_mac: dict[str, str] = {}
+    for path in report_paths:
+        try:
+            report = loader(path)
+        except Exception:
+            continue
+        if not isinstance(report, dict):
+            continue
+        for node in report.get("nodes") or []:
+            mac = (node.get("mac") or "").strip().lower()
+            ip = (node.get("ip") or "").strip()
+            if mac and ip and ip not in ip_to_mac:
+                ip_to_mac[ip] = mac
 
     assets: dict[str, dict] = {}
     findings: dict[tuple, dict] = {}
@@ -111,7 +151,7 @@ def aggregate_reports(
 
         seen_asset_keys_in_report: set[str] = set()
         for node in report.get("nodes") or []:
-            keyed = _asset_key(node)
+            keyed = _resolve_asset_key(node, ip_to_mac)
             if not keyed:
                 continue
             key, key_type = keyed

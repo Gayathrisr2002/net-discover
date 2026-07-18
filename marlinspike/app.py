@@ -3271,19 +3271,21 @@ def create_app():
         if proj.name == "Default":
             return jsonify({"ok": False, "error": "Cannot delete the Default project"}), 400
 
-        # Delete files on disk
-        uid = str(session["user_id"])
-        up_dir = os.path.join(config.UPLOADS_DIR, uid, str(pid))
-        rp_dir = os.path.join(config.REPORTS_DIR, uid, str(pid))
+        # Delete files on disk. Files live under the project OWNER's uid, not
+        # the deleter's — a non-creator member with the `owner` role can delete,
+        # and using session["user_id"] would rmtree the wrong (empty) dir and
+        # orphan the real files. Use proj.user_id.
+        owner_uid = str(proj.user_id)
+        up_dir = os.path.join(config.UPLOADS_DIR, owner_uid, str(pid))
+        rp_dir = os.path.join(config.REPORTS_DIR, owner_uid, str(pid))
         if os.path.isdir(up_dir):
             shutil.rmtree(up_dir, ignore_errors=True)
         if os.path.isdir(rp_dir):
             shutil.rmtree(rp_dir, ignore_errors=True)
 
-        # SET NULL on scans (handled by FK ondelete, but be explicit)
-        ScanHistory.query.filter_by(project_id=pid, user_id=session["user_id"]).update(
-            {"project_id": None}
-        )
+        # Dissociate every scan of this project (not just the deleter's).
+        # FK ondelete=SET NULL also covers this; being explicit for clarity.
+        ScanHistory.query.filter_by(project_id=pid).update({"project_id": None})
         db.session.delete(proj)
         db.session.commit()
         return jsonify({"ok": True})
@@ -3996,17 +3998,20 @@ def create_app():
 
         safe_name = os.path.basename(f.filename)
 
-        # Resolve project
+        # Resolve project. Honour the shared-member role model (editors/owners
+        # may upload; viewers may not) — was owner-only, which rejected a shared
+        # editor's upload to a shared project as "not found".
         if project_id is None:
             project_id_str = request.form.get("project_id", "")
             if project_id_str:
                 try:
                     project_id = int(project_id_str)
-                    proj = Project.query.filter_by(id=project_id, user_id=session["user_id"]).first()
-                    if not proj:
-                        return jsonify({"ok": False, "error": "Project not found"}), 404
                 except (ValueError, TypeError):
                     project_id = None
+                else:
+                    proj = _get_project_for_user(project_id, min_role="editor")
+                    if not proj:
+                        return jsonify({"ok": False, "error": "Project not found"}), 404
 
         if project_id is None:
             default = _ensure_default_project(session["user_id"])
