@@ -713,7 +713,15 @@
       sel.disabled = false;
       maybeEnableStart();
     }).catch(function(e){
-      sel.innerHTML = '<option value="">' + esc(e.message || String(e)) + '</option>';
+      // Live capture being off (503 "live capture disabled") is an expected,
+      // configured state — show a clean label instead of dumping the raw API
+      // error blob into the dropdown. The banner above explains how to enable it.
+      var msg = String((e && e.message) || e || '');
+      var clean = (/disabled/i.test(msg) || msg.indexOf('503') === 0)
+        ? T.disabled
+        : 'Could not load interfaces';
+      sel.innerHTML = '<option value="">' + esc(clean) + '</option>';
+      sel.disabled = true;
     });
   }
 

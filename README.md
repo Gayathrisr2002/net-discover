@@ -104,6 +104,39 @@ On first boot, MarlinSpike creates an admin user. If `ADMIN_PASSWORD` is empty, 
 
 See [INSTALL.md](INSTALL.md) for a generic deployment walkthrough.
 
+## Troubleshooting
+
+**Docker build fails with `Could not find protoc` / protobuf errors.**
+Make sure you're on the latest commit (`git pull`) — the Dockerfile installs
+`protobuf-compiler` + `libprotobuf-dev` in the Rust builder stages, which the
+`marlinspike-dpi` build needs. If you changed the Dockerfile or pulled an
+update, rebuild clean: `docker compose build --no-cache`.
+
+**I'm logged in, but creating a project / uploading a PCAP / adding a user does
+nothing or fails.**
+This is almost always the session cookie. `SESSION_COOKIE_SECURE` defaults to
+`true`, and browsers will not send a "secure" cookie over plain `http://` on any
+host *other than* `localhost`. So if you open the app by IP or hostname over
+HTTP, you appear logged in but every write silently fails auth. Fix one of:
+- serve it over **HTTPS** (recommended — put it behind a TLS reverse proxy), or
+- for a plain-HTTP/dev deployment, set `SESSION_COOKIE_SECURE=false` in `.env`
+  and restart (`docker compose up -d`).
+To confirm the cause: open browser DevTools → Network, trigger the action, and
+check the failing request's status (a `403`/`401` points at this).
+
+**The Live Capture page shows "live capture disabled" / a 503.**
+That's expected — live capture is **opt-in and Linux-only**. Enable it with
+`LIVE_CAPTURE_ENABLED=true` in `.env` and start the stack *with the capture
+profile*: `docker compose --profile capture up -d --build`. It needs a SPAN
+port/tap and elevated capture privileges. See
+[INSTALL.md](INSTALL.md#live-capture-optional-linux-only).
+
+**Can't log in as admin.** Set `ADMIN_PASSWORD` in `.env` before first boot, or
+read the auto-generated password from the logs: `docker compose logs app | grep -i admin`.
+
+**Odd behaviour after pulling updates.** Rebuild without cache so image layers
+pick up code and dependency changes: `docker compose build --no-cache && docker compose up -d`.
+
 ## Documentation
 
 The full docs index is at **[docs/README.md](docs/README.md)** — it
