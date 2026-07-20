@@ -131,6 +131,14 @@ profile*: `docker compose --profile capture up -d --build`. It needs a SPAN
 port/tap and elevated capture privileges. See
 [INSTALL.md](INSTALL.md#live-capture-optional-linux-only).
 
+**App crash-loops with `could not translate host name` / can't reach the UI.**
+Your `DB_PASSWORD` contains a symbol (e.g. `@`, `:`, `;`, `/`, `#`, or a space). It's
+embedded in the database URL (`postgresql://marlinspike:DB_PASSWORD@db:5432/…`), so a
+symbol corrupts the address and the app can't reach the database. Set `DB_PASSWORD`
+to **letters and digits only** in `.env`, then reset the (empty) database and restart:
+`docker compose down -v && docker compose up -d --build`. (`SECRET_KEY` and
+`ADMIN_PASSWORD` may contain symbols — only `DB_PASSWORD` must be alphanumeric.)
+
 **Can't log in as admin.** Set `ADMIN_PASSWORD` in `.env` before first boot, or
 read the auto-generated password from the logs: `docker compose logs app | grep -i admin`.
 
