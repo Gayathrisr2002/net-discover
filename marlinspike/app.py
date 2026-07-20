@@ -1207,6 +1207,10 @@ def _finalize_scan_history(app, run_id, run_state, report_path):
                 # the terminal row doesn't read as recovery-touched.
                 if rec.recovery_state == "finalizing":
                     rec.recovery_state = None
+                # Clear the live-process pointer now the run is terminal (#54) —
+                # a stale engine_pid on a completed row is a landmine for any
+                # PID-based tooling and for PID reuse. Mirrors run_store.record_finish.
+                rec.engine_pid = None
                 if os.path.isfile(report_path):
                     try:
                         with open(report_path) as rf:
