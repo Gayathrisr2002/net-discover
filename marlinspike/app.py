@@ -2975,15 +2975,25 @@ def create_app():
     @app.after_request
     def security_headers(resp):
         nonce = getattr(g, "csp_nonce", "")
-        # CSP — keep 'unsafe-inline' on script/style-src until templates
-        # are scrubbed of inline handlers + style attributes. The nonce
-        # is the future-proofing path; once inline-everywhere is gone,
-        # drop 'unsafe-inline' (UPGRADING.md tracks this).
+        # CSP — keep 'unsafe-inline' on script/style-src until templates are
+        # scrubbed of inline handlers + style attributes. The nonce is the
+        # future-proofing path; once inline-everywhere is gone, drop
+        # 'unsafe-inline' (UPGRADING.md tracks this).
+        #
+        # IMPORTANT: putting a nonce on script-src/style-src makes CSP3 browsers
+        # IGNORE 'unsafe-inline' for inline event handlers (onclick=) and inline
+        # style attributes (style=). The templates rely on hundreds of those, so
+        # we must ALSO emit explicit *-src-attr directives with 'unsafe-inline'
+        # (no nonce in them → 'unsafe-inline' is honored) or every inline-handler
+        # button breaks and inline styles are dropped.
         nonce_token = f"'nonce-{nonce}'" if nonce else ""
         csp_parts = [
             "default-src 'self'",
             f"script-src 'self' {nonce_token} 'unsafe-inline'".strip(),
             f"style-src 'self' {nonce_token} 'unsafe-inline'".strip(),
+            # Inline event handlers + inline style attributes (see note above).
+            "script-src-attr 'unsafe-inline'",
+            "style-src-attr 'unsafe-inline'",
             "img-src 'self' data: blob:",
             "font-src 'self' data:",
             "connect-src 'self'",
