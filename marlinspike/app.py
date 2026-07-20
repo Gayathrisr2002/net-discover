@@ -606,9 +606,17 @@ def _build_findings_catalog():
         "summary": f"{len(REPORT_FINDING_COVERAGE)} current finding and indicator classes emitted by the engine",
     }
 
+    # RUST_PROTOCOL_DISPLAY_NAMES lives in the current engine module. (Was a stale
+    # `__import__("_ms_engine")` — the old root-level layout name — which raised
+    # ModuleNotFoundError and 500'd the /capabilities page.)
+    try:
+        from marlinspike import engine as _engine
+        _rust_protocol_names = getattr(_engine, "RUST_PROTOCOL_DISPLAY_NAMES", {})
+    except Exception:
+        _rust_protocol_names = {}
     dpi_protocols = sorted({
         (_slug_to_label(name), key.replace("_", "-"))
-        for key, name in getattr(__import__("_ms_engine"), "RUST_PROTOCOL_DISPLAY_NAMES", {}).items()
+        for key, name in _rust_protocol_names.items()
     }, key=lambda item: item[0].lower())
     for title, proto_key in dpi_protocols:
         _append_catalog_entry(
