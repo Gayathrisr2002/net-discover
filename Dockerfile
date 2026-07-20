@@ -6,10 +6,15 @@ ARG MARLINSPIKE_DPI_REF=326bdbb744a7b8f71295381fd209d9587dc09a3b
 
 WORKDIR /build
 
+# marlinspike-dpi's Bronze event schema is compiled from .proto at build time
+# (prost-build), so the Rust build needs the protobuf compiler + headers.
+# Without these, `cargo build` fails with "Could not find protoc".
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
-    git && \
+    git \
+    protobuf-compiler \
+    libprotobuf-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN git clone "$MARLINSPIKE_DPI_REPO" marlinspike-dpi && \
@@ -43,10 +48,14 @@ ARG MARLINSPIKE_MALWARE_REF=4a008211cad7e56609e8a667b95f1c09b790c1b4
 
 WORKDIR /build
 
+# Same as the DPI builder: the Rust build compiles protobuf schemas, so it
+# needs protoc + libprotobuf headers.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
-    git && \
+    git \
+    protobuf-compiler \
+    libprotobuf-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/marlinspike-malware/bin /opt/marlinspike-malware/rules && \
