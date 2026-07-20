@@ -2854,12 +2854,30 @@ class TopologyBuilder:
     def _load_oui_db(override: dict = None) -> dict:
         """Load OUI database: IEEE base + ICS-specific overlay."""
         db = {}
-        # Try loading IEEE OUI database — check alongside marlinspike.py, then data/
+        # Locate the IEEE OUI database. It ships at repo-root data/oui.json (dev)
+        # and the Docker image copies it to /app/oui.json (== PROJECT_ROOT), so
+        # searching only relative to the package dir missed it in BOTH layouts —
+        # silently degrading vendor fingerprinting to just the ICS overlay.
+        # Search the real locations (and an env override), first hit wins.
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        oui_path = os.path.join(base_dir, "oui.json")
-        if not os.path.isfile(oui_path):
-            oui_path = os.path.join(base_dir, "data", "oui.json")
-        if os.path.isfile(oui_path):
+        candidates = []
+        env_path = os.environ.get("MARLINSPIKE_OUI_DB")
+        if env_path:
+            candidates.append(env_path)
+        candidates += [
+            os.path.join(base_dir, "oui.json"),
+            os.path.join(base_dir, "data", "oui.json"),
+        ]
+        try:
+            from marlinspike import config as _cfg
+            candidates += [
+                os.path.join(_cfg.PROJECT_ROOT, "oui.json"),  # Docker: /app/oui.json
+                os.path.join(_cfg.DATA_DIR, "oui.json"),       # dev: <repo>/data/oui.json
+            ]
+        except Exception:
+            pass
+        oui_path = next((p for p in candidates if p and os.path.isfile(p)), None)
+        if oui_path and os.path.isfile(oui_path):
             try:
                 with open(oui_path) as f:
                     ieee_db = json.load(f)

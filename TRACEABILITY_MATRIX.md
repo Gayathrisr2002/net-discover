@@ -77,6 +77,14 @@ assigned in the order worked (the exact original numbering isn't recoverable wit
 | 55 | Silent in-memory-DB fallback | MEDIUM | **Fixed** | `tests/test_inmemory_db_warning.py` (2 tests; RED pre-fix — only a `log.debug`, GREEN post-fix; no warning when a real DB URL is set) | `marlinspike/app.py` (`create_app`) | Falling back to `sqlite:///:memory:` (only reachable via the test escape hatch `MARLINSPIKE_ALLOW_NO_DATABASE_URL=true`) now logs a prominent WARNING that data is ephemeral and not shared across workers — so a lingering env var + a real server start is no longer silent. Full suite 459 passed / 7 skipped. |
 | 68 | Missing index on `scan_history.status` | LOW | **Fixed** | `tests/test_scan_history_index.py` (2 tests; RED pre-fix — no index, GREEN post-fix) + `test_alembic_migrations.py` (chain upgrades) | `marlinspike/models.py` (`ScanHistory.__table_args__`) + `migrations/versions/0003_scan_history_status_index.py` | Composite `(status, user_id)` index: leading `status` serves the reaper's per-boot `status="running"` scan, full index serves the db-mode per-user concurrency count. Model change covers fresh installs; migration 0003 covers existing DBs. Full suite 457 passed / 7 skipped. |
 
+### Additional bugs found post-review / from user reports (not in the original 70)
+
+| Finding | Severity | Status | Regression Test | Fix Location | Notes |
+|---|---|---|---|---|---|
+| IEEE OUI database never loaded (vendor fingerprinting degraded) | MEDIUM | **Fixed** | `tests/test_oui_db_load.py` (3 tests; RED pre-fix — only ~20 ICS entries, GREEN post-fix — >1000 entries + VMware resolves) | `marlinspike/engine.py` (`TopologyBuilder._load_oui_db`) | Searched only the package dir; the file ships at repo-root `data/oui.json` (dev) and `/app/oui.json` (Docker). Now searches PROJECT_ROOT / DATA_DIR / package dir + `MARLINSPIKE_OUI_DB` env override. Full suite 462 passed / 7 skipped. |
+| Docker build fails — `protoc` missing in Rust builder stages | HIGH (build blocker) | **Fixed** | Manual (build-time; verified against user report) | `Dockerfile` (dpi-builder, malware-builder) | Added `protobuf-compiler` + `libprotobuf-dev`; users no longer patch the Dockerfile to build. |
+| Live-capture interface dropdown dumps raw `503 {…}` blob | LOW (cosmetic) | **Fixed** | Live render check (HTTP 200) | `marlinspike/templates/capture.html` | Shows a clean "disabled" label when live capture is off, instead of the raw API error. |
+
 ### Remaining MEDIUM + LOW (#26–31, #33, #36–42, #47–67, #69–70)
 
 Not yet worked. Grouped by theme in `IMPACT_ANALYSIS.md`: remaining recovery/concurrency plumbing
