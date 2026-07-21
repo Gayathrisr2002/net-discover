@@ -26,7 +26,7 @@ services:
       - MARLINSPIKE_MALWARE_RULES=/usr/share/marlinspike-malware/rules/packs
       - MARLINSPIKE_CISA_ENABLED=${MARLINSPIKE_CISA_ENABLED:-true}
       - MARLINSPIKE_CISA_MODULE=${MARLINSPIKE_CISA_MODULE:-plugins.marlinspike_cisa}
-      - LIVE_CAPTURE_ENABLED=${LIVE_CAPTURE_ENABLED:-false}
+      - LIVE_CAPTURE_ENABLED=${LIVE_CAPTURE_ENABLED:-true}
       - LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock
     depends_on:
       db:

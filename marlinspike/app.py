@@ -98,8 +98,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 
 # PCAP magic bytes for validation
 PCAP_MAGIC = {
-    b"\xd4\xc3\xb2\xa1",  # pcap LE
-    b"\xa1\xb2\xc3\xd4",  # pcap BE
+    b"\xd4\xc3\xb2\xa1",  # pcap LE, microsecond
+    b"\xa1\xb2\xc3\xd4",  # pcap BE, microsecond
+    b"\xa1\xb2\x3c\x4d",  # pcap LE, nanosecond
+    b"\x4d\x3c\xb2\xa1",  # pcap BE, nanosecond
     b"\x0a\x0d\x0d\x0a",  # pcapng
 }
 
