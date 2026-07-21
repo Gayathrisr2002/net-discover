@@ -95,6 +95,12 @@ PRESETS_BAKED_DIR = os.environ.get(
 PCAP_MAX_SIZE = int(os.environ.get("PCAP_MAX_SIZE", 5 * 1024 * 1024 * 1024))  # 5 GB
 PCAP_PROCESS_SIZE = int(os.environ.get("PCAP_PROCESS_SIZE", 5 * 1024 * 1024 * 1024))  # 5 GB (chunked pipeline handles large files)
 
+# Default per-user upload quota (User.upload_limit_mb) for accounts that
+# haven't had a custom quota set. Derived from PCAP_MAX_SIZE so it can't
+# silently undercut the operator's configured max (a fixed 200 MB default
+# rejected real-world OT captures well under the 5 GB PCAP_MAX_SIZE).
+DEFAULT_UPLOAD_LIMIT_MB = PCAP_MAX_SIZE // (1024 * 1024)
+
 # Hard framework-level cap on request body size. Werkzeug rejects any larger
 # request with 413 *before* the view spools it — so an oversized/lying body
 # can't exhaust memory or disk on any endpoint (the per-view streaming check is

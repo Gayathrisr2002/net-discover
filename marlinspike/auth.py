@@ -12,6 +12,7 @@ from functools import wraps
 from flask import redirect, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from marlinspike import config
 from marlinspike.models import PasswordResetToken, User, db
 
 log = logging.getLogger("marlinspike.auth")
@@ -88,7 +89,9 @@ def admin_required(f):
 # ── User CRUD ──
 
 
-def create_user(username, password, role="user", upload_limit_mb=200):
+def create_user(username, password, role="user", upload_limit_mb=None):
+    if upload_limit_mb is None:
+        upload_limit_mb = config.DEFAULT_UPLOAD_LIMIT_MB
     user = User(
         username=username,
         password_hash=generate_password_hash(password),

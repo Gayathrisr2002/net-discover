@@ -4021,7 +4021,11 @@ def create_app():
 
         # Per-user upload limit (falls back to global default)
         _uploader = User.query.get(session["user_id"])
-        _limit_mb = (_uploader.upload_limit_mb if _uploader and _uploader.upload_limit_mb else 200)
+        _limit_mb = (
+            _uploader.upload_limit_mb
+            if _uploader and _uploader.upload_limit_mb
+            else config.DEFAULT_UPLOAD_LIMIT_MB
+        )
         user_max_size = _limit_mb * 1024 * 1024
 
         # Check content length hint
@@ -5755,7 +5759,7 @@ def create_app():
                 "username": u.username,
                 "role": u.role,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
-                "upload_limit_mb": u.upload_limit_mb if u.upload_limit_mb else 200,
+                "upload_limit_mb": u.upload_limit_mb if u.upload_limit_mb else config.DEFAULT_UPLOAD_LIMIT_MB,
             }
             for u in users
         ]})
@@ -5868,7 +5872,7 @@ def create_app():
             "phone": user.phone or "",
             "birthday": user.birthday.isoformat() if user.birthday else "",
             "address": user.address or "",
-            "upload_limit_mb": user.upload_limit_mb if user.upload_limit_mb else 200,
+            "upload_limit_mb": user.upload_limit_mb if user.upload_limit_mb else config.DEFAULT_UPLOAD_LIMIT_MB,
             "joined": user.created_at.isoformat() if user.created_at else "",
             "scan_count": scan_count,
             "project_count": project_count,

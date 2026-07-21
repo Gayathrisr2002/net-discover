@@ -52,10 +52,15 @@ class CapdServer:
             os.unlink(sock_path)
         except FileNotFoundError:
             pass
-        # Create the socket so we can chmod it before accept().
+        # Create the socket so we can chmod it before accept(). The web app
+        # client runs as a different, non-root uid/gid with no group shared
+        # with this (root) process, so 0o660 would block its connect() before
+        # our SO_PEERCRED check ever runs. Real authorization happens in
+        # _handle_client() via allowed_uids, so the file mode just needs to
+        # let any local peer reach that check.
         srv_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         srv_sock.bind(sock_path)
-        os.chmod(sock_path, 0o660)
+        os.chmod(sock_path, 0o666)
         srv_sock.listen(16)
 
         loop = asyncio.get_running_loop()

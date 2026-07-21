@@ -62,9 +62,6 @@ services:
       - capd-socket:/var/run/marlinspike-capd
       - capd-captures:/var/lib/marlinspike/captures
     command:
-      - python
-      - -m
-      - capd
       - serve
       - --socket=/var/run/marlinspike-capd/marlinspike-capd.sock
       - --capture-root=/var/lib/marlinspike/captures

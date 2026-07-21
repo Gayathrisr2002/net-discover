@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 
+from marlinspike import config
+
 db = SQLAlchemy()
 
 
@@ -26,7 +28,9 @@ class User(db.Model):
     phone = db.Column(db.String(30), nullable=True)
     birthday = db.Column(db.Date, nullable=True)
     address = db.Column(db.Text, nullable=True)
-    upload_limit_mb = db.Column(db.Integer, nullable=False, default=200)
+    upload_limit_mb = db.Column(
+        db.Integer, nullable=False, default=lambda: config.DEFAULT_UPLOAD_LIMIT_MB
+    )
 
     scans = db.relationship("ScanHistory", backref="user", cascade="all, delete-orphan")
     projects = db.relationship("Project", backref="user", cascade="all, delete-orphan")
