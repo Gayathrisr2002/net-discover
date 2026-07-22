@@ -82,6 +82,7 @@ class CaptureSupervisor:
         self._known_files: set[str] = set()
         self._previous_active: str | None = None
         self._closed_emitted: list[str] = []
+        self._chmod_done: set[str] = set()
 
         # Authoritative tallies (parsed from dumpcap exit output).
         self.final_packets: int | None = None
@@ -172,6 +173,20 @@ class CaptureSupervisor:
         out_dir = Path(self.cfg.output_dir)
         files = sorted(glob.glob(str(out_dir / "cap_*.pcapng")))
         active = files[-1] if files else None
+
+        # dumpcap creates capture files 0600 (root-owned, since this process
+        # runs as root). The web app reads this directory as a different,
+        # non-root user — without this, every file is unreadable to it and
+        # the scan consumer.py queues for each rotated file fails silently
+        # (permission denied, logged but never surfaced to the user).
+        for f in files:
+            if f not in self._chmod_done:
+                try:
+                    os.chmod(f, 0o644)
+                except OSError:
+                    pass
+                else:
+                    self._chmod_done.add(f)
 
         # Detect rotation: anything we previously saw as "active" but
         # which is no longer the newest file is closed and ready for the
