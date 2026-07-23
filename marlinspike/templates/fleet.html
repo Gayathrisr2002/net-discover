@@ -162,6 +162,29 @@
     </div>
   </div>
 
+  <!-- Rotate credential modal (Phase 6.2) -->
+  <div class="ms-modal-backdrop" id="modal-rotate-credential">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('fleet.rotate_credential') }}</h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-rotate-credential')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <div id="fleet-rotate-pending">
+          <p>{{ t('fleet.rotate_credential_hint') }}</p>
+        </div>
+        <div id="fleet-rotate-result" style="display:none;">
+          <div class="fleet-token-box" id="fleet-rotate-token-value"></div>
+          <div class="fleet-token-warning">{{ t('fleet.token_shown_once') }}</div>
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-rotate-credential')">{{ t('common.close') }}</button>
+        <button class="btn btn-primary" id="fleet-rotate-confirm" onclick="FLEET.doRotateCredential()">{{ t('fleet.rotate_credential') }}</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Site members modal -->
   <div class="ms-modal-backdrop" id="modal-site-members">
     <div class="ms-modal">
@@ -213,6 +236,7 @@ var FLEET = (function() {
   var sites = [];
   var selectedSiteId = null;
   var statusStream = null; // EventSource for the currently-selected site
+  var rotatingAgentId = null;
 
   // Never build markup by interpolating user-controlled strings — same
   // discipline as users.html's actionBtn/cell helpers (Finding #1: stored
@@ -326,6 +350,7 @@ var FLEET = (function() {
 
         var actionsTd = document.createElement('td');
         if (a.status !== 'revoked') {
+          actionsTd.appendChild(actionBtn('{{ t("fleet.rotate_credential") }}', 'btn btn-sm', function() { showRotateCredential(a.id); }));
           actionsTd.appendChild(actionBtn('{{ t("common.revoke") }}', 'btn btn-sm btn-danger', function() { revokeAgent(a.id); }));
         }
         tr.appendChild(actionsTd);
@@ -342,6 +367,31 @@ var FLEET = (function() {
       .then(function(d) {
         if (d.ok) { msToast('{{ t("fleet.agent_revoked") }}', 'success'); loadAgents(selectedSiteId); }
         else msToast(d.error || '{{ t("common.failed") }}', true);
+      });
+  }
+
+  function showRotateCredential(agentId) {
+    rotatingAgentId = agentId;
+    document.getElementById('fleet-rotate-pending').style.display = '';
+    document.getElementById('fleet-rotate-result').style.display = 'none';
+    document.getElementById('fleet-rotate-confirm').style.display = '';
+    msModal.open('modal-rotate-credential');
+  }
+
+  function doRotateCredential() {
+    if (!rotatingAgentId) return;
+    fetch('/api/fleet/agents/' + rotatingAgentId + '/rotate-credential', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          document.getElementById('fleet-rotate-token-value').textContent = d.token;
+          document.getElementById('fleet-rotate-pending').style.display = 'none';
+          document.getElementById('fleet-rotate-result').style.display = '';
+          document.getElementById('fleet-rotate-confirm').style.display = 'none';
+          loadAgents(selectedSiteId);
+        } else {
+          msToast(d.error || '{{ t("common.failed") }}', true);
+        }
       });
   }
 
@@ -466,6 +516,7 @@ var FLEET = (function() {
     doIssueToken: doIssueToken,
     showMembers: showMembers,
     addMember: addMember,
+    doRotateCredential: doRotateCredential,
   };
 })();
 </script>

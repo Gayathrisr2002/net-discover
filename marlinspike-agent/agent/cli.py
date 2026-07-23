@@ -18,6 +18,7 @@ import platform
 import sys
 
 from . import __version__
+from .certs import CertError, generate_key_and_csr
 from .client import (
     DEFAULT_HEARTBEAT_INTERVAL_S,
     DEFAULT_STATS_INTERVAL_S,
@@ -48,23 +49,42 @@ def _cmd_enroll(args: argparse.Namespace) -> int:
     ssl_context = build_ssl_context(ca_cert=args.ca_cert, insecure_skip_verify=args.insecure_skip_verify)
     os_info = f"{platform.system()} {platform.release()}"
 
+    # Always generate a local keypair + CSR and offer it — cheap (one
+    # openssl invocation), and the gateway simply won't sign it (omitting
+    # client_cert_pem from the result) if no fleet CA is configured there,
+    # so this is a no-op against an older/unconfigured gateway.
+    client_key_pem = None
+    csr_pem = None
+    if not args.no_mtls:
+        try:
+            client_key_pem, csr_pem = generate_key_and_csr(cn="pending-enrollment")
+        except CertError as exc:
+            print(f"Warning: couldn't generate mTLS keypair ({exc}) — "
+                  f"falling back to bearer-credential-only enrollment.", file=sys.stderr)
+
     try:
         result = asyncio.run(_enroll(
             gateway_host=host, gateway_port=port, ssl_context=ssl_context,
             token=args.token, name=args.name, agent_version=__version__, os_info=os_info,
+            csr_pem=csr_pem,
         ))
     except AgentError as exc:
         print(f"Enrollment failed: {exc}", file=sys.stderr)
         return 1
 
+    client_cert_pem = result.get("client_cert_pem")
     creds = AgentCredentials(
         gateway_host=host, gateway_port=port,
         ca_cert=args.ca_cert, insecure_skip_verify=args.insecure_skip_verify,
         agent_uuid=result["agent_uuid"], credential=result["credential"],
+        client_cert_pem=client_cert_pem,
+        client_key_pem=client_key_pem if client_cert_pem else None,
     )
     creds.save(args.credential_file)
     print(f"Enrolled as agent {result['agent_uuid']}")
     print(f"Credentials written to {args.credential_file} (mode 0600)")
+    if client_cert_pem:
+        print("mTLS client cert issued — future reconnects will present it automatically.")
     print("Start the agent with: marlinspike-agent run")
     return 0
 
@@ -80,7 +100,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    ssl_context = build_ssl_context(ca_cert=creds.ca_cert, insecure_skip_verify=creds.insecure_skip_verify)
+    ssl_context = build_ssl_context(
+        ca_cert=creds.ca_cert, insecure_skip_verify=creds.insecure_skip_verify,
+        client_cert_pem=creds.client_cert_pem, client_key_pem=creds.client_key_pem,
+    )
     client = AgentClient(
         gateway_host=creds.gateway_host, gateway_port=creds.gateway_port, ssl_context=ssl_context,
         agent_uuid=creds.agent_uuid, credential=creds.credential,
@@ -115,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     p_enroll.add_argument("--ca-cert", default=None, help="Path to the gateway's CA/server cert")
     p_enroll.add_argument("--insecure-skip-verify", action="store_true",
                            help="Skip TLS certificate verification (testing only)")
+    p_enroll.add_argument("--no-mtls", action="store_true",
+                           help="Skip local key/CSR generation — enroll with the bearer "
+                                "credential only, even if the gateway has a fleet CA configured")
     p_enroll.add_argument("--credential-file", default=DEFAULT_CREDENTIAL_PATH)
     p_enroll.set_defaults(func=_cmd_enroll)
 

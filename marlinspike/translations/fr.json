@@ -325,6 +325,8 @@
   "fleet.role_editor": "Éditeur",
   "fleet.role_owner": "Propriétaire",
   "fleet.role_viewer": "Lecteur",
+  "fleet.rotate_credential": "Faire pivoter l'identifiant",
+  "fleet.rotate_credential_hint": "Invalide l'identifiant actuel de cet agent (et son certificat mTLS, le cas échéant) et génère un jeton de rotation à usage unique. Utilisez-le avec « marlinspike-agent enroll --token ... » sur le même hôte — l'agent conserve son identité et son historique, seul l'identifiant change. Expire au bout d'1 heure et n'est affiché qu'une seule fois.",
   "fleet.select_site": "Sélectionner un site",
   "fleet.select_site_hint": "Sélectionnez un site à gauche pour voir ses agents.",
   "fleet.site_created": "Site créé",

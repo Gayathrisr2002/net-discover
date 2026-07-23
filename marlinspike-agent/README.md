@@ -40,11 +40,15 @@ marlinspike-agent enroll \
     --gateway fleet.example.com:8765 \
     --token <token-from-console> \
     --name "plant-3-east-substation" \
-    --ca-cert /etc/marlinspike-agent/gateway-ca.crt
+    --ca-cert /etc/marlinspike-agent/fleet-ca.crt
 
 # Writes /etc/marlinspike-agent/credential.json (mode 0600) and prints
 # the assigned agent_uuid. This file is this agent's identity — treat it
-# like a private key.
+# like a private key. If the gateway has a fleet CA configured (Phase 6),
+# enrollment also generates a local keypair (never transmitted) and gets
+# back a signed mTLS client cert, both stored in the same credential file;
+# every reconnect then presents that cert automatically. Pass --no-mtls to
+# skip this and stay on bearer-credential-only auth.
 
 # Run (foreground, or via the bundled systemd unit):
 marlinspike-agent run

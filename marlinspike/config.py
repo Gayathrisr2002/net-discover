@@ -255,6 +255,40 @@ FLEET_GATEWAY_ADMIN_TIMEOUT_S = float(os.environ.get("FLEET_GATEWAY_ADMIN_TIMEOU
 FLEET_STATUS_REDIS_URL = os.environ.get("FLEET_STATUS_REDIS_URL", "") or RATELIMIT_STORAGE_URI
 FLEET_STATUS_REDIS_CHANNEL = "fleet:agent_status"
 
+# Fleet CA (Phase 6: mTLS). The gateway process acts as a tiny internal CA,
+# signing each agent's enrollment-time CSR into a short-lived-identity
+# client cert (marlinspike/fleet/gateway/db.py:_sign_csr) and verifying
+# every reconnecting agent's client cert against this same CA
+# (build_ssl_context's ca_cert_path). Only ever read by the gateway
+# process/container — the app container has no /certs mount and never
+# needs the CA key. Unset (the default) => mTLS issuance/verification is
+# skipped entirely and enrollment falls back to bearer-credential-only
+# auth, so existing dev/test deployments without a CA configured keep
+# working unchanged.
+FLEET_CA_CERT = os.environ.get("FLEET_CA_CERT", "")
+FLEET_CA_KEY = os.environ.get("FLEET_CA_KEY", "")
+
+# Horizontal gateway scaling (Phase 6.5). A single gateway process holds
+# every connected agent's live socket in its own memory (GatewayServer._connections)
+# — fine for one instance, but a second instance behind a load balancer has
+# no way to know which instance a given agent_uuid is actually connected to.
+# FLEET_GATEWAY_INSTANCE_ID identifies *this* gateway process in the shared
+# Redis registry (marlinspike/fleet/gateway/db.py:register_agent_instance);
+# FLEET_GATEWAY_ADMIN_HOST/PORT is where *this* instance's admin TCP
+# listener can be reached by a Flask worker that needs to push a command to
+# an agent connected to it rather than to the local unix socket. All unset
+# (the default, single-instance docker-compose deployment) — the local
+# unix admin socket is used exactly as before this upgrade; nothing here
+# changes single-instance behavior.
+FLEET_GATEWAY_INSTANCE_ID = os.environ.get("FLEET_GATEWAY_INSTANCE_ID", "")
+FLEET_GATEWAY_ADMIN_HOST = os.environ.get("FLEET_GATEWAY_ADMIN_HOST", "")
+FLEET_GATEWAY_ADMIN_PORT = int(os.environ.get("FLEET_GATEWAY_ADMIN_PORT", "0") or 0)
+# Shared secret for the TCP admin listener — SO_PEERCRED (the local unix
+# socket's auth mechanism) doesn't exist over TCP, so a cross-host admin
+# connection needs its own credential. Required to actually start the TCP
+# listener; the unix socket never needs this.
+FLEET_GATEWAY_ADMIN_TOKEN = os.environ.get("FLEET_GATEWAY_ADMIN_TOKEN", "")
+
 # System-wide interface allowlist. When unset, any interface is permitted.
 # When set to a comma-separated list, only those interfaces may be captured on.
 # Example: MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST=eth0,eth1

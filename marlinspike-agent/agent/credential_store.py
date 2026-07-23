@@ -25,6 +25,14 @@ class AgentCredentials:
     insecure_skip_verify: bool
     agent_uuid: str
     credential: str
+    # mTLS client identity (Phase 6), present only when the gateway had a
+    # fleet CA configured at enrollment time — client_key_pem never leaves
+    # this file (generated locally by certs.py, never sent to the gateway).
+    # Both None for agents enrolled before this upgrade or against a
+    # gateway with no CA set up; build_ssl_context treats that as "no
+    # client cert to present" and falls back to bearer-credential-only auth.
+    client_cert_pem: str | None = None
+    client_key_pem: str | None = None
 
     @classmethod
     def load(cls, path: str) -> "AgentCredentials":
@@ -37,6 +45,8 @@ class AgentCredentials:
             insecure_skip_verify=bool(data.get("insecure_skip_verify", False)),
             agent_uuid=data["agent_uuid"],
             credential=data["credential"],
+            client_cert_pem=data.get("client_cert_pem"),
+            client_key_pem=data.get("client_key_pem"),
         )
 
     def save(self, path: str) -> None:
@@ -49,6 +59,8 @@ class AgentCredentials:
             "insecure_skip_verify": self.insecure_skip_verify,
             "agent_uuid": self.agent_uuid,
             "credential": self.credential,
+            "client_cert_pem": self.client_cert_pem,
+            "client_key_pem": self.client_key_pem,
         }
         # Write then chmod, rather than relying on umask, so the credential
         # is never briefly world-readable between create and chmod.

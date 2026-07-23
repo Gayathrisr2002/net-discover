@@ -19,6 +19,8 @@ import json
 import logging
 import os
 import secrets
+import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 
@@ -52,6 +54,70 @@ def _get_redis():
     import redis
     _redis_client = redis.from_url(config.FLEET_STATUS_REDIS_URL)
     return _redis_client
+
+
+_INSTANCE_KEY_PREFIX = "fleet:agent_instance:"
+_INSTANCE_TTL_S = 120  # a bit above the agent heartbeat timeout (90s, server.py)
+
+
+def register_agent_instance(*, agent_uuid: str, instance_id: str,
+                             admin_host: str, admin_port: int) -> None:
+    """Record which gateway instance currently holds this agent's live
+    connection (Phase 6.5: horizontal scaling). Best-effort, like every
+    other Redis write here — a Flask worker that can't find an instance
+    for an agent just falls back to the local admin socket (the
+    single-instance default), so a Redis hiccup degrades gracefully rather
+    than breaking anything. TTL'd rather than held forever: if this
+    instance crashes without a clean disconnect, the entry expires on its
+    own instead of permanently misdirecting admin commands at a dead
+    process — refreshed on every throttled heartbeat DB write
+    (server.py), so a live connection's entry never actually expires."""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        r.set(
+            _INSTANCE_KEY_PREFIX + agent_uuid,
+            json.dumps({"instance_id": instance_id, "admin_host": admin_host, "admin_port": admin_port}),
+            ex=_INSTANCE_TTL_S,
+        )
+    except Exception:
+        log.exception("failed to register instance for agent %s", agent_uuid)
+
+
+def unregister_agent_instance(*, agent_uuid: str) -> None:
+    """Best-effort: clear the registry entry immediately on a clean
+    disconnect, rather than waiting out the TTL."""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        r.delete(_INSTANCE_KEY_PREFIX + agent_uuid)
+    except Exception:
+        log.exception("failed to unregister instance for agent %s", agent_uuid)
+
+
+def lookup_agent_instance(agent_uuid: str) -> dict | None:
+    """Flask-side lookup: which gateway instance (if any, if Redis is even
+    configured) currently holds this agent's connection. Returns None on
+    any failure or cache miss — the caller's fallback is always "use the
+    local admin socket", which is correct for the common single-instance
+    deployment where this registry is never even populated meaningfully
+    beyond one instance_id."""
+    r = _get_redis()
+    if r is None:
+        return None
+    try:
+        raw = r.get(_INSTANCE_KEY_PREFIX + agent_uuid)
+    except Exception:
+        log.exception("failed to look up instance for agent %s", agent_uuid)
+        return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
 
 
 def _publish_agent_status(*, agent_uuid: str, site_id: int, status: str) -> None:
@@ -100,11 +166,80 @@ class GatewayAuthError(Exception):
     """Raised for any enroll/auth failure. Message is safe to send to the client."""
 
 
+def _fleet_ca_configured() -> bool:
+    return bool(config.FLEET_CA_CERT and config.FLEET_CA_KEY
+                and os.path.isfile(config.FLEET_CA_CERT) and os.path.isfile(config.FLEET_CA_KEY))
+
+
+def _sign_csr(csr_pem: str, cn: str) -> tuple[str, str] | None:
+    """Sign an agent's CSR with the fleet CA, forcing the subject CN to the
+    server-issued agent_uuid (never trusting whatever CN the agent's own
+    CSR happened to carry). Returns (cert_pem, sha256_fingerprint_hex), or
+    None if no fleet CA is configured — enrollment then falls back to
+    bearer-credential-only auth, exactly as it worked before this upgrade.
+
+    Shells out to the openssl CLI rather than adding a cryptography
+    dependency — consistent with this project's existing dev-cert tooling
+    (scripts/gen_dev_tls_cert.sh) and capd/gateway's stdlib-first posture.
+    The agent's private key never reaches the gateway; only the CSR
+    (public key + a throwaway self-chosen CN) is sent over the wire.
+    """
+    if not _fleet_ca_configured():
+        return None
+
+    with tempfile.TemporaryDirectory() as tmp:
+        csr_path = os.path.join(tmp, "agent.csr")
+        cert_path = os.path.join(tmp, "agent.crt")
+        with open(csr_path, "w", encoding="utf-8") as f:
+            f.write(csr_pem)
+
+        # -set_serial with a random 128-bit value rather than -CAcreateserial:
+        # the latter reads/writes a .srl tracking file next to the CA cert,
+        # which is normally bind-mounted read-only into the gateway
+        # container (../certs:/certs:ro in docker-compose.yml — deliberately
+        # not writable, same posture as capd's captures mount) and wouldn't
+        # be concurrency-safe across simultaneous enrollments anyway. A
+        # random serial needs no shared mutable state at all.
+        serial = f"0x{secrets.token_hex(16)}"
+        try:
+            subprocess.run(
+                [
+                    "openssl", "x509", "-req",
+                    "-in", csr_path,
+                    "-CA", config.FLEET_CA_CERT, "-CAkey", config.FLEET_CA_KEY,
+                    "-set_serial", serial,
+                    "-out", cert_path,
+                    "-days", "825",
+                    "-copy_extensions", "none",
+                    "-subj", f"/CN={cn}",
+                ],
+                check=True, capture_output=True, timeout=10,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            log.exception("failed to sign agent CSR for cn=%s", cn)
+            return None
+
+        with open(cert_path, "r", encoding="utf-8") as f:
+            cert_pem = f.read()
+
+        der = subprocess.run(
+            ["openssl", "x509", "-in", cert_path, "-outform", "der"],
+            check=True, capture_output=True, timeout=10,
+        ).stdout
+        fingerprint = hashlib.sha256(der).hexdigest()
+        return cert_pem, fingerprint
+
+
 def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
-                  os_info: str | None) -> dict:
-    """Redeem a one-time enrollment token, create the Agent row, mint a
+                  os_info: str | None, csr_pem: str | None = None) -> dict:
+    """Redeem a one-time enrollment token, create (or, for a rotation token
+    — see AgentEnrollmentToken.agent_id — reuse) the Agent row, mint a
     long-lived credential. Returns {"agent_uuid": ..., "credential": ...}
-    (the raw credential — shown once, never recoverable after this call).
+    (the raw credential — shown once, never recoverable after this call),
+    plus {"client_cert_pem": ...} when the agent sent a CSR and a fleet CA
+    is configured (Phase 6 mTLS) — omitted entirely otherwise, so an agent
+    that didn't send a CSR (or a gateway with no CA set up) enrolls exactly
+    as it did before this upgrade.
     """
     app = get_app()
     with app.app_context():
@@ -120,36 +255,76 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
 
         token.used_at = now
 
-        agent = Agent(
-            agent_uuid=str(uuid.uuid4()),
-            site_id=token.site_id,
-            name=(name or f"agent-{secrets.token_hex(4)}")[:200],
-            status="enrolled",
-            agent_version=agent_version,
-            os_info=os_info,
-            last_seen_at=now,
-        )
-        db.session.add(agent)
-        db.session.flush()  # populate agent.id for the credential FK
+        if token.agent_id is not None:
+            # Credential rotation, not a new enrollment: same agent_uuid,
+            # same history (ScanHistory/CaptureSession rows keep pointing at
+            # this agent_id) — only the credential/cert actually changes.
+            agent = db.session.get(Agent, token.agent_id)
+            if agent is None:
+                raise GatewayAuthError("agent no longer exists")
+            if name:
+                agent.name = name[:200]
+            agent.agent_version = agent_version
+            agent.os_info = os_info
+            agent.last_seen_at = now
+            if agent.status == "revoked":
+                agent.status = "enrolled"
+        else:
+            agent = Agent(
+                agent_uuid=str(uuid.uuid4()),
+                site_id=token.site_id,
+                name=(name or f"agent-{secrets.token_hex(4)}")[:200],
+                status="enrolled",
+                agent_version=agent_version,
+                os_info=os_info,
+                last_seen_at=now,
+            )
+            db.session.add(agent)
+            db.session.flush()  # populate agent.id for the credential FK
 
         raw_credential = secrets.token_urlsafe(32)
         cred = AgentCredential(agent_id=agent.id, key_hash=_hash_token(raw_credential))
+
+        result = {"agent_uuid": agent.agent_uuid, "credential": raw_credential}
+        if csr_pem:
+            signed = _sign_csr(csr_pem, cn=agent.agent_uuid)
+            if signed is not None:
+                cert_pem, fingerprint = signed
+                cred.cert_fingerprint_sha256 = fingerprint
+                result["client_cert_pem"] = cert_pem
+
         db.session.add(cred)
         db.session.commit()
 
+        from marlinspike import __version__ as gateway_version
         from marlinspike.audit import audit
         audit("fleet.agent_enrolled", target_type="agent", target_id=str(agent.id),
               detail=f"site_id={token.site_id} name={agent.name!r}")
+        # Purely informational (see server.py's wire compatibility contract
+        # docstring) — a version mismatch is never itself a reason to
+        # reject an agent, just something worth an operator noticing.
+        if agent_version and agent_version != gateway_version:
+            log.info("agent %s enrolled with agent_version=%s (gateway is %s)",
+                      agent.agent_uuid, agent_version, gateway_version)
         _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
 
-        return {"agent_uuid": agent.agent_uuid, "credential": raw_credential}
+        return result
 
 
-def authenticate_agent(*, agent_uuid: str, raw_credential: str) -> dict:
+def authenticate_agent(*, agent_uuid: str, raw_credential: str,
+                        peer_cert_fingerprint: str | None = None) -> dict:
     """Verify a returning agent's long-lived credential. Returns
     {"agent_id": int} on success. Raises GatewayAuthError on any failure —
-    deliberately the same message for "no such agent", "revoked", and "bad
-    credential" so a failed attempt can't be used to enumerate agent_uuids.
+    deliberately the same message for "no such agent", "revoked", "bad
+    credential", and "cert mismatch" so a failed attempt can't be used to
+    enumerate agent_uuids or probe which check tripped.
+
+    When this agent's credential has a cert_fingerprint_sha256 on file
+    (Phase 6: it was issued a client cert at enrollment), the connection's
+    peer_cert_fingerprint must match it — a stolen bearer credential alone
+    is no longer sufficient once an agent has been upgraded to mTLS.
+    Agents enrolled before the mTLS upgrade (fingerprint NULL) are
+    unaffected — this is intentionally opt-in per-agent, not a hard cutover.
     """
     app = get_app()
     with app.app_context():
@@ -162,6 +337,9 @@ def authenticate_agent(*, agent_uuid: str, raw_credential: str) -> dict:
             agent_id=agent.id, key_hash=cred_hash, revoked_at=None
         ).first()
         if cred is None:
+            raise GatewayAuthError("unauthorized")
+
+        if cred.cert_fingerprint_sha256 and cred.cert_fingerprint_sha256 != peer_cert_fingerprint:
             raise GatewayAuthError("unauthorized")
 
         agent.status = "online"

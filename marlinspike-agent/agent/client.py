@@ -84,7 +84,9 @@ async def _send_frame(writer: asyncio.StreamWriter, obj: dict) -> None:
     await writer.drain()
 
 
-def build_ssl_context(*, ca_cert: str | None, insecure_skip_verify: bool) -> ssl.SSLContext:
+def build_ssl_context(*, ca_cert: str | None, insecure_skip_verify: bool,
+                      client_cert_pem: str | None = None,
+                      client_key_pem: str | None = None) -> ssl.SSLContext:
     if insecure_skip_verify:
         log.warning(
             "TLS certificate verification DISABLED (--insecure-skip-verify) — "
@@ -93,18 +95,45 @@ def build_ssl_context(*, ca_cert: str | None, insecure_skip_verify: bool) -> ssl
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    return ssl.create_default_context(cafile=ca_cert)
+    else:
+        ctx = ssl.create_default_context(cafile=ca_cert)
+
+    if client_cert_pem and client_key_pem:
+        # SSLContext.load_cert_chain needs file paths, not in-memory PEM —
+        # write to a private temp dir (0700 by mkdtemp default) just long
+        # enough for this eager, synchronous load, then clean up. The
+        # durable copy lives only in the 0600 credential file
+        # (credential_store.py), never as a standing file on disk here.
+        import stat
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cert_path = os.path.join(tmp, "client-cert.pem")
+            key_path = os.path.join(tmp, "client-key.pem")
+            with open(cert_path, "w", encoding="utf-8") as f:
+                f.write(client_cert_pem)
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(client_key_pem)
+            os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
+            ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+
+    return ctx
 
 
 async def enroll(*, gateway_host: str, gateway_port: int, ssl_context: ssl.SSLContext,
-                  token: str, name: str | None, agent_version: str, os_info: str) -> dict:
-    """One-shot: redeem an enrollment token, return {"agent_uuid", "credential"}."""
+                  token: str, name: str | None, agent_version: str, os_info: str,
+                  csr_pem: str | None = None) -> dict:
+    """One-shot: redeem an enrollment token, return {"agent_uuid", "credential"}
+    (plus "client_cert_pem" when csr_pem was supplied and the gateway has a
+    fleet CA configured — see gateway/db.py:enroll_agent)."""
     reader, writer = await asyncio.open_connection(gateway_host, gateway_port, ssl=ssl_context)
     try:
         await _send_frame(writer, {
             "type": "req", "id": 1, "method": "enroll",
-            "params": {"token": token, "name": name, "agent_version": agent_version, "os_info": os_info},
+            "params": {
+                "token": token, "name": name, "agent_version": agent_version, "os_info": os_info,
+                "csr_pem": csr_pem,
+            },
         })
         resp = await _recv_frame(reader)
         if resp is None:

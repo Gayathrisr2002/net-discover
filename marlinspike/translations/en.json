@@ -325,6 +325,8 @@
   "fleet.role_editor": "Editor",
   "fleet.role_owner": "Owner",
   "fleet.role_viewer": "Viewer",
+  "fleet.rotate_credential": "Rotate Credential",
+  "fleet.rotate_credential_hint": "Invalidates this agent's current credential (and mTLS cert, if any) and generates a one-time rotation token. Redeem it with 'marlinspike-agent enroll --token ...' on the same host — the agent keeps its identity and history, only the credential changes. Expires in 1 hour and is only shown once.",
   "fleet.select_site": "Select a site",
   "fleet.select_site_hint": "Select a site on the left to view its agents.",
   "fleet.site_created": "Site created",

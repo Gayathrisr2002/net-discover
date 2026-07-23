@@ -92,6 +92,28 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _force_disconnect(agent_uuid: str) -> None:
+    """Best-effort: drop this agent's live gateway connection right now
+    (Phase 6.2), instead of leaving a revoked/rotated agent connected
+    until its next heartbeat-interval revocation check. Never raises —
+    the caller's DB-side revocation has already committed regardless of
+    whether the gateway is even reachable (e.g. the `fleet` profile isn't
+    running in this deployment at all)."""
+    from marlinspike.capture.client import CapdUnavailable
+    from marlinspike.fleet.gateway_client import GatewayAdminClient
+
+    try:
+        GatewayAdminClient(
+            config.FLEET_GATEWAY_ADMIN_SOCKET, agent_uuid,
+            timeout=config.FLEET_GATEWAY_ADMIN_TIMEOUT_S,
+        ).disconnect_agent()
+    except CapdUnavailable:
+        pass  # gateway not running — agent was never connected here anyway
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("failed to force-disconnect agent %s", agent_uuid)
+
+
 def _serialize_site(site: Site, *, agent_count: int | None = None) -> dict:
     return {
         "id": site.id,
@@ -442,7 +464,53 @@ def revoke_agent(agent_id):
         {"revoked_at": datetime.now(timezone.utc)}
     )
     db.session.commit()
+    _force_disconnect(agent.agent_uuid)
 
     audit("fleet.agent_revoked", target_type="agent", target_id=str(agent_id),
           detail=f"site_id={agent.site_id}")
     return jsonify({"ok": True, "agent": _serialize_agent(agent)})
+
+
+@bp.route("/agents/<int:agent_id>/rotate-credential", methods=["POST"])
+@login_required
+def rotate_agent_credential(agent_id):
+    """Replace a (possibly compromised) agent's credential/cert without
+    losing its identity or history: revoke every existing AgentCredential
+    for this agent, force-disconnect it if currently connected, and mint a
+    one-time rotation token (returned once, like enrollment tokens) that
+    the operator redeems via ``marlinspike-agent enroll --token ...`` on
+    the same host — see AgentEnrollmentToken.agent_id and gateway/db.py's
+    enroll_agent, which reuses this exact Agent row instead of creating a
+    new one when a rotation token is redeemed.
+    """
+    agent = db.session.get(Agent, agent_id)
+    if not agent:
+        return jsonify({"ok": False, "error": "Agent not found"}), 404
+    site = _get_site_for_user(agent.site_id, "editor")
+    if not site:
+        return jsonify({"ok": False, "error": "Agent not found"}), 404
+    if agent.status == "revoked":
+        return jsonify({"ok": False, "error": "Agent is revoked — cannot rotate its credential"}), 409
+
+    AgentCredential.query.filter_by(agent_id=agent.id, revoked_at=None).update(
+        {"revoked_at": datetime.now(timezone.utc)}
+    )
+    raw_token = secrets.token_urlsafe(32)
+    token = AgentEnrollmentToken(
+        site_id=agent.site_id,
+        agent_id=agent.id,
+        token_hash=_hash_token(raw_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=ENROLLMENT_TOKEN_TTL_MINUTES),
+        created_by=session["user_id"],
+    )
+    db.session.add(token)
+    db.session.commit()
+    _force_disconnect(agent.agent_uuid)
+
+    audit("fleet.agent_credential_rotated", target_type="agent", target_id=str(agent_id),
+          detail=f"site_id={agent.site_id}")
+    return jsonify({
+        "ok": True,
+        "token": raw_token,
+        "expires_at": token.expires_at.isoformat(),
+    }), 201

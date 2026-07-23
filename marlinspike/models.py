@@ -384,6 +384,14 @@ class AgentEnrollmentToken(db.Model):
     site_id = db.Column(
         db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Set only for a credential-rotation token (Phase 6.2): redeeming it
+    # reuses this existing Agent row (same agent_uuid, name, history) and
+    # just replaces its credential/cert, rather than enrolling a brand new
+    # agent — see gateway/db.py:enroll_agent. NULL for an ordinary
+    # first-time enrollment token.
+    agent_id = db.Column(
+        db.Integer, db.ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     token_hash = db.Column(db.String(64), unique=True, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
     used_at = db.Column(db.DateTime, nullable=True)
@@ -407,3 +415,11 @@ class AgentCredential(db.Model):
     key_hash = db.Column(db.String(64), unique=True, nullable=False)
     issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     revoked_at = db.Column(db.DateTime, nullable=True)
+    # SHA-256 fingerprint (hex) of the mTLS client cert issued alongside this
+    # credential at enrollment (Phase 6), when a fleet CA is configured. NULL
+    # for agents enrolled before the mTLS upgrade or when no CA is set up —
+    # authenticate_agent() only enforces a client-cert match when this is
+    # non-NULL, so bearer-only agents keep working. Revoking this credential
+    # (revoked_at) implicitly revokes the cert too, since both checks gate on
+    # the same non-revoked row — no separate CRL/OCSP infrastructure needed.
+    cert_fingerprint_sha256 = db.Column(db.String(64), nullable=True, index=True)

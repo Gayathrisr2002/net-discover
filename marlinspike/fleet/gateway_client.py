@@ -1,4 +1,5 @@
-"""Client for the fleet gateway's local admin socket.
+"""Client for the fleet gateway's admin interface (local unix socket, or a
+specific remote instance's admin TCP listener — Phase 6.5).
 
 Lets the Flask app push a capture command (start/stop/list_interfaces) to
 a specific connected remote agent and get back the result, synchronously,
@@ -7,14 +8,27 @@ client.py's CapdClient shape (same method names/signatures, same
 CapdError/CapdUnavailable exceptions) so capture/api.py can pick whichever
 client to use with minimal branching — see capture/api.py's `_client_for`.
 
-Wire format: length-prefixed JSON over a unix socket, one call:
+Wire format: length-prefixed JSON, one call:
 
     {"method": "push_command", "id": 1, "params": {
         "agent_uuid": ..., "command_method": "start"/"stop"/"list_interfaces",
         "command_params": {...}, "timeout_s": ...
     }}
 
-matching marlinspike/fleet/gateway/server.py's admin-socket handler.
+matching marlinspike/fleet/gateway/server.py's admin dispatch (shared by
+both its unix-socket and TCP listeners).
+
+Routing (Phase 6.5): a fleet with more than one gateway instance needs to
+reach whichever *specific* instance currently holds the target agent's
+live connection, not just "the" gateway — see
+marlinspike/fleet/gateway/db.py's Redis-backed registry. Every call here
+looks up that registry first; a hit routes over TCP (with the shared
+admin_token) to that instance, a miss (registry empty/not configured, or
+the agent isn't tracked in it) falls back to the local unix socket
+unchanged — which is exactly today's single-instance behavior, since a
+single-instance deployment never populates the registry in the first
+place (GatewayServer only registers when admin_host/admin_port are
+configured — see server.py's _handle_connection).
 """
 
 from __future__ import annotations
@@ -25,6 +39,7 @@ import logging
 import socket
 import struct
 
+from marlinspike import config
 from marlinspike.capture.client import CapdError, CapdUnavailable, Interface
 
 log = logging.getLogger(__name__)
@@ -59,15 +74,36 @@ class GatewayAdminClient:
         # Stop can take a few seconds on the agent side (dumpcap SIGINT + flush).
         return self._push("stop", {"session_id": session_id}, timeout_s=20.0)
 
+    def disconnect_agent(self) -> bool:
+        """Force-drop this agent's live gateway connection right now, rather
+        than waiting for its next heartbeat-interval revocation check
+        (Phase 6.2). Unlike start/stop/list_interfaces this isn't relayed
+        to the agent at all — it's a direct gateway-local admin method, not
+        wrapped in the push_command envelope. Best-effort by design: the
+        caller (revoke_agent / rotate_credential) has already committed the
+        DB-side revocation regardless of whether this succeeds."""
+        sock, extra_params = self._connect(self.timeout + 5.0)
+        try:
+            _send_json(sock, {"method": "disconnect_agent", "id": 1,
+                               "params": {"agent_uuid": self.agent_uuid, **extra_params}})
+            resp = _recv_json(sock)
+            if resp is None or not resp.get("ok"):
+                return False
+            return bool((resp.get("result") or {}).get("disconnected"))
+        finally:
+            with contextlib.suppress(OSError):
+                sock.close()
+
     def _push(self, command_method: str, command_params: dict, timeout_s: float | None = None) -> dict:
         effective_timeout = timeout_s or self.timeout
-        sock = self._connect(effective_timeout + 5.0)
+        sock, extra_params = self._connect(effective_timeout + 5.0)
         try:
             _send_json(sock, {"method": "push_command", "id": 1, "params": {
                 "agent_uuid": self.agent_uuid,
                 "command_method": command_method,
                 "command_params": command_params,
                 "timeout_s": effective_timeout,
+                **extra_params,
             }})
             resp = _recv_json(sock)
             if resp is None:
@@ -79,7 +115,37 @@ class GatewayAdminClient:
             with contextlib.suppress(OSError):
                 sock.close()
 
-    def _connect(self, timeout: float) -> socket.socket:
+    def _connect(self, timeout: float) -> tuple[socket.socket, dict]:
+        """Returns (connected socket, extra params to merge into the
+        request — {"admin_token": ...} for a routed TCP connection, {}
+        for the local unix socket)."""
+        instance = self._lookup_instance()
+        if instance is not None:
+            return self._connect_tcp(instance, timeout), {"admin_token": config.FLEET_GATEWAY_ADMIN_TOKEN}
+        return self._connect_unix(timeout), {}
+
+    def _lookup_instance(self) -> dict | None:
+        try:
+            from marlinspike.fleet.gateway.db import lookup_agent_instance
+            return lookup_agent_instance(self.agent_uuid)
+        except Exception:
+            log.exception("instance registry lookup failed for agent %s — using local admin socket",
+                          self.agent_uuid)
+            return None
+
+    def _connect_tcp(self, instance: dict, timeout: float) -> socket.socket:
+        host, port = instance.get("admin_host"), instance.get("admin_port")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            sock.connect((host, int(port)))
+        except (ConnectionRefusedError, OSError, TypeError, ValueError) as exc:
+            sock.close()
+            raise CapdUnavailable(f"gateway instance {instance.get('instance_id')} "
+                                  f"unreachable at {host}:{port}: {exc}") from exc
+        return sock
+
+    def _connect_unix(self, timeout: float) -> socket.socket:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         try:

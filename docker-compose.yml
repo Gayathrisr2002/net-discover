@@ -100,6 +100,15 @@ services:
       # live SSE stream (fleet/api.py) — same Redis instance as rate
       # limiting, distinct channel name, no keyspace collision.
       - RATELIMIT_STORAGE_URI=${RATELIMIT_STORAGE_URI:-redis://ratelimit:6379/0}
+      # Phase 6: mTLS. Only this container ever reads FLEET_CA_KEY (the app
+      # container has no /certs mount at all) — it's what lets the gateway
+      # act as a tiny internal CA, signing each agent's enrollment-time CSR
+      # (marlinspike/fleet/gateway/db.py:_sign_csr). Missing files here
+      # degrade gracefully to bearer-credential-only auth (see
+      # build_ssl_context's warning), so this is safe to leave as-is until
+      # scripts/gen_dev_tls_cert.sh has actually been (re-)run.
+      - FLEET_CA_CERT=${FLEET_CA_CERT:-/certs/fleet-ca.crt}
+      - FLEET_CA_KEY=${FLEET_CA_KEY:-/certs/fleet-ca.key}
     ports:
       - "0.0.0.0:${FLEET_GATEWAY_PORT:-8765}:8765"
     volumes:
@@ -120,6 +129,7 @@ services:
       - --port=8765
       - --tls-cert=/certs/gateway.crt
       - --tls-key=/certs/gateway.key
+      - --ca-cert=/certs/fleet-ca.crt
       - --admin-socket=/var/run/marlinspike-fleet-gateway/admin.sock
     depends_on:
       db:
