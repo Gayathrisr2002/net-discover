@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% block title %}MarlinSpike — {{ t('fleet.title') }}{% endblock %}
+
+{% block head %}
+<style nonce="{{ csp_nonce }}">
+.fleet-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .fleet-grid { grid-template-columns: 1fr; }
+}
+.fleet-site-row {
+  cursor: pointer;
+}
+.fleet-site-row.active {
+  background: var(--panel-alt);
+}
+.fleet-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+.fleet-token-box {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  word-break: break-all;
+  user-select: all;
+}
+.fleet-token-warning {
+  color: var(--color-warning);
+  font-size: 0.82em;
+  margin-top: 8px;
+}
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.modal-field label {
+  font-size: 0.74em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+.modal-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="ms-content">
+
+  <div class="fleet-grid">
+
+    <!-- Sites list -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>{{ t('fleet.sites') }}</h2>
+        <button class="btn btn-primary btn-sm" onclick="FLEET.showAddSite()">{{ t('fleet.add_site') }}</button>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <table class="ms-table">
+          <thead>
+            <tr>
+              <th>{{ t('common.name') }}</th>
+              <th>{{ t('fleet.agents') }}</th>
+            </tr>
+          </thead>
+          <tbody id="fleet-sites-body">
+            <tr><td colspan="2"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('common.loading') }}</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Selected site detail -->
+    <div class="panel" id="fleet-detail-panel">
+      <div class="panel-header">
+        <h2 id="fleet-detail-title">{{ t('fleet.select_site') }}</h2>
+        <button class="btn btn-sm" id="fleet-issue-token-btn" style="display:none;" onclick="FLEET.showIssueToken()">{{ t('fleet.issue_enrollment_token') }}</button>
+      </div>
+      <div class="panel-body">
+        <div id="fleet-detail-empty" class="fleet-empty">{{ t('fleet.select_site_hint') }}</div>
+        <table class="ms-table" id="fleet-agents-table" style="display:none;">
+          <thead>
+            <tr>
+              <th>{{ t('common.name') }}</th>
+              <th>{{ t('fleet.status') }}</th>
+              <th>{{ t('fleet.agent_version') }}</th>
+              <th>{{ t('fleet.last_seen') }}</th>
+              <th>{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody id="fleet-agents-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Add site modal -->
+  <div class="ms-modal-backdrop" id="modal-add-site">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('fleet.add_site') }}</h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-add-site')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <div class="modal-form-grid">
+          <div class="modal-field">
+            <label for="fleet-new-site-name">{{ t('common.name') }}</label>
+            <input type="text" id="fleet-new-site-name" class="ms-input" placeholder="{{ t('fleet.site_name_placeholder') }}">
+          </div>
+          <div class="modal-field">
+            <label for="fleet-new-site-project">{{ t('fleet.bound_project') }}</label>
+            <select id="fleet-new-site-project" class="ms-input"></select>
+          </div>
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-add-site')">{{ t('common.cancel') }}</button>
+        <button class="btn btn-success" onclick="FLEET.createSite()">{{ t('common.create') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Issue enrollment token modal -->
+  <div class="ms-modal-backdrop" id="modal-issue-token">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('fleet.issue_enrollment_token') }}</h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-issue-token')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <div id="fleet-token-pending">
+          <p>{{ t('fleet.issue_token_hint') }}</p>
+        </div>
+        <div id="fleet-token-result" style="display:none;">
+          <div class="fleet-token-box" id="fleet-token-value"></div>
+          <div class="fleet-token-warning">{{ t('fleet.token_shown_once') }}</div>
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-issue-token')">{{ t('common.close') }}</button>
+        <button class="btn btn-primary" id="fleet-issue-token-confirm" onclick="FLEET.doIssueToken()">{{ t('fleet.issue_enrollment_token') }}</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+var FLEET = (function() {
+  'use strict';
+
+  var sites = [];
+  var selectedSiteId = null;
+
+  // Never build markup by interpolating user-controlled strings — same
+  // discipline as users.html's actionBtn/cell helpers (Finding #1: stored
+  // XSS from unescaped values in onclick strings). Always textContent /
+  // addEventListener closures.
+  function cell(text, cls) {
+    var td = document.createElement('td');
+    if (cls) td.className = cls;
+    if (text !== undefined && text !== null) td.textContent = String(text);
+    return td;
+  }
+
+  function actionBtn(label, cls, handler) {
+    var b = document.createElement('button');
+    b.className = cls;
+    b.textContent = label;
+    b.addEventListener('click', handler);
+    return b;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    try { var d = new Date(iso); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
+    catch (e) { return iso; }
+  }
+
+  function loadSites() {
+    fetch('/api/fleet/sites').then(function(r) { return r.json(); }).then(function(d) {
+      sites = d.sites || [];
+      var tbody = document.getElementById('fleet-sites-body');
+      tbody.innerHTML = '';
+      if (!sites.length) {
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 2;
+        td.className = 'fleet-empty';
+        td.textContent = '{{ t("fleet.no_sites") }}';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      sites.forEach(function(s) {
+        var tr = document.createElement('tr');
+        tr.className = 'fleet-site-row' + (s.id === selectedSiteId ? ' active' : '');
+        tr.appendChild(cell(s.name));
+        tr.appendChild(cell(s.agent_count, 'mono dim'));
+        tr.addEventListener('click', function() { selectSite(s.id); });
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  function selectSite(siteId) {
+    selectedSiteId = siteId;
+    loadSites();
+    var site = sites.filter(function(s) { return s.id === siteId; })[0];
+    document.getElementById('fleet-detail-title').textContent = site ? site.name : '';
+    document.getElementById('fleet-detail-empty').style.display = 'none';
+    document.getElementById('fleet-agents-table').style.display = '';
+    document.getElementById('fleet-issue-token-btn').style.display = '';
+    loadAgents(siteId);
+  }
+
+  function loadAgents(siteId) {
+    fetch('/api/fleet/sites/' + siteId + '/agents').then(function(r) { return r.json(); }).then(function(d) {
+      var tbody = document.getElementById('fleet-agents-body');
+      tbody.innerHTML = '';
+      var agents = d.agents || [];
+      if (!agents.length) {
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'fleet-empty';
+        td.textContent = '{{ t("fleet.no_agents") }}';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      agents.forEach(function(a) {
+        var tr = document.createElement('tr');
+        tr.appendChild(cell(a.name, 'mono'));
+
+        var statusTd = document.createElement('td');
+        var badge = document.createElement('span');
+        badge.className = 'badge badge-' + (a.status === 'online' ? 'running' : (a.status === 'revoked' ? 'stopped' : 'pending'));
+        badge.textContent = a.status;
+        statusTd.appendChild(badge);
+        tr.appendChild(statusTd);
+
+        tr.appendChild(cell(a.agent_version || '—', 'dim'));
+        tr.appendChild(cell(formatDate(a.last_seen_at), 'dim'));
+
+        var actionsTd = document.createElement('td');
+        if (a.status !== 'revoked') {
+          actionsTd.appendChild(actionBtn('{{ t("common.revoke") }}', 'btn btn-sm btn-danger', function() { revokeAgent(a.id); }));
+        }
+        tr.appendChild(actionsTd);
+
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  function revokeAgent(agentId) {
+    if (!confirm('{{ t("fleet.confirm_revoke") }}')) return;
+    fetch('/api/fleet/agents/' + agentId + '/revoke', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) { msToast('{{ t("fleet.agent_revoked") }}', 'success'); loadAgents(selectedSiteId); }
+        else msToast(d.error || '{{ t("common.failed") }}', true);
+      });
+  }
+
+  function showAddSite() {
+    fetch('/api/projects').then(function(r) { return r.json(); }).then(function(d) {
+      var sel = document.getElementById('fleet-new-site-project');
+      sel.innerHTML = '';
+      (d.projects || []).forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      });
+      document.getElementById('fleet-new-site-name').value = '';
+      msModal.open('modal-add-site');
+    });
+  }
+
+  function createSite() {
+    var name = document.getElementById('fleet-new-site-name').value.trim();
+    var projectId = parseInt(document.getElementById('fleet-new-site-project').value, 10);
+    if (!name || !projectId) { msToast('{{ t("fleet.name_and_project_required") }}', true); return; }
+    fetch('/api/fleet/sites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, project_id: projectId }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast('{{ t("fleet.site_created") }}', 'success');
+        msModal.close('modal-add-site');
+        loadSites();
+      } else {
+        msToast(d.error || '{{ t("common.failed") }}', true);
+      }
+    });
+  }
+
+  function showIssueToken() {
+    document.getElementById('fleet-token-pending').style.display = '';
+    document.getElementById('fleet-token-result').style.display = 'none';
+    document.getElementById('fleet-issue-token-confirm').style.display = '';
+    msModal.open('modal-issue-token');
+  }
+
+  function doIssueToken() {
+    if (!selectedSiteId) return;
+    fetch('/api/fleet/sites/' + selectedSiteId + '/enrollment-tokens', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          document.getElementById('fleet-token-value').textContent = d.token;
+          document.getElementById('fleet-token-pending').style.display = 'none';
+          document.getElementById('fleet-token-result').style.display = '';
+          document.getElementById('fleet-issue-token-confirm').style.display = 'none';
+        } else {
+          msToast(d.error || '{{ t("common.failed") }}', true);
+        }
+      });
+  }
+
+  document.addEventListener('DOMContentLoaded', loadSites);
+
+  return {
+    showAddSite: showAddSite,
+    createSite: createSite,
+    showIssueToken: showIssueToken,
+    doIssueToken: doIssueToken,
+  };
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,345 @@
+"""Persistent TLS connection to the fleet gateway.
+
+Wire format matches marlinspike/fleet/gateway/server.py exactly (that
+module's docstring is the canonical protocol description) — length-
+prefixed JSON envelopes:
+
+    {"type": "req", "id": <int>, "method": <str>, "params": {...}}
+    {"type": "res", "id": <int>, "ok": bool, "result": {...} | "error": <str>}
+    {"type": "event", "method": <str>, "params": {...}}   # no response expected
+
+Deliberately NOT a shared import between this package and the gateway:
+this package must stay installable standalone on a bare remote box with
+none of the rest of the MarlinSpike suite present, so the ~30 lines of
+framing are duplicated rather than pulled in via a dependency — the same
+tradeoff marlinspike-capd/capd/server.py and marlinspike/capture/client.py
+already make for the same reason (capd_client.py in this package is the
+same tradeoff applied to the capd client itself).
+
+Phase 2 scope was strict request/response: agent sends heartbeat, sleeps,
+repeats. Phase 3 needs real bidirectionality — the gateway pushes capture
+commands (start/stop/list_interfaces) at any time, which must be relayed
+to the agent's own local capd and answered, *while* heartbeat keeps going
+and *while* an active capture's stats get reported upward. That requires
+a proper multiplexer: one reader task demuxing incoming frames (res ->
+resolve a pending future for something *we* asked; req -> dispatch to a
+command handler and reply), a heartbeat loop using the same pending-
+future mechanism, and one stats-reporter task per active capture session.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import functools
+import json
+import logging
+import ssl
+import struct
+
+from .capd_client import CapdClient, CapdError, CapdUnavailable, Interface
+
+log = logging.getLogger("marlinspike-agent")
+
+_LEN_PREFIX = 4
+_MAX_MESSAGE_BYTES = 1 << 20
+
+DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
+DEFAULT_STATS_INTERVAL_S = 3.0
+_MAX_BACKOFF_S = 60.0
+_REQUEST_TIMEOUT_S = 10.0
+
+
+class AgentError(RuntimeError):
+    pass
+
+
+# ── wire framing ────────────────────────────────────────────────
+
+async def _recv_frame(reader: asyncio.StreamReader) -> dict | None:
+    try:
+        header = await reader.readexactly(_LEN_PREFIX)
+    except asyncio.IncompleteReadError:
+        return None
+    (length,) = struct.unpack(">I", header)
+    if length <= 0 or length > _MAX_MESSAGE_BYTES:
+        raise AgentError(f"bad frame length: {length}")
+    try:
+        body = await reader.readexactly(length)
+    except asyncio.IncompleteReadError:
+        return None
+    return json.loads(body.decode("utf-8"))
+
+
+async def _send_frame(writer: asyncio.StreamWriter, obj: dict) -> None:
+    body = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+    writer.write(struct.pack(">I", len(body)) + body)
+    await writer.drain()
+
+
+def build_ssl_context(*, ca_cert: str | None, insecure_skip_verify: bool) -> ssl.SSLContext:
+    if insecure_skip_verify:
+        log.warning(
+            "TLS certificate verification DISABLED (--insecure-skip-verify) — "
+            "only ever use this for local testing, never a real deployment."
+        )
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return ssl.create_default_context(cafile=ca_cert)
+
+
+async def enroll(*, gateway_host: str, gateway_port: int, ssl_context: ssl.SSLContext,
+                  token: str, name: str | None, agent_version: str, os_info: str) -> dict:
+    """One-shot: redeem an enrollment token, return {"agent_uuid", "credential"}."""
+    reader, writer = await asyncio.open_connection(gateway_host, gateway_port, ssl=ssl_context)
+    try:
+        await _send_frame(writer, {
+            "type": "req", "id": 1, "method": "enroll",
+            "params": {"token": token, "name": name, "agent_version": agent_version, "os_info": os_info},
+        })
+        resp = await _recv_frame(reader)
+        if resp is None:
+            raise AgentError("connection closed during enrollment")
+        if not resp.get("ok"):
+            raise AgentError(resp.get("error") or "enrollment failed")
+        return resp["result"]
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+class AgentClient:
+    """Maintains the long-lived, authenticated connection: auth once, then
+    heartbeat + relay gateway-pushed capture commands to the local capd,
+    reconnecting with exponential backoff on any drop."""
+
+    def __init__(self, *, gateway_host: str, gateway_port: int, ssl_context: ssl.SSLContext,
+                 agent_uuid: str, credential: str,
+                 capd_socket_path: str,
+                 heartbeat_interval_s: float = DEFAULT_HEARTBEAT_INTERVAL_S,
+                 stats_interval_s: float = DEFAULT_STATS_INTERVAL_S):
+        self.gateway_host = gateway_host
+        self.gateway_port = gateway_port
+        self.ssl_context = ssl_context
+        self.agent_uuid = agent_uuid
+        self.credential = credential
+        self.capd_socket_path = capd_socket_path
+        self.heartbeat_interval_s = heartbeat_interval_s
+        self.stats_interval_s = stats_interval_s
+
+        self._next_id_counter = 1
+        self._pending: dict[int, asyncio.Future] = {}
+        self._write_lock: asyncio.Lock | None = None
+        self._active_sessions: dict[str, asyncio.Task] = {}
+        self._current_writer: asyncio.StreamWriter | None = None
+
+    def _capd(self) -> CapdClient:
+        return CapdClient(self.capd_socket_path)
+
+    def _next_id(self) -> int:
+        self._next_id_counter += 1
+        return self._next_id_counter
+
+    async def run_forever(self) -> None:
+        backoff = 1.0
+        while True:
+            try:
+                await self._run_once()
+                backoff = 1.0  # clean session ended (shouldn't normally happen) — reset backoff
+            except (ConnectionError, OSError, ssl.SSLError, asyncio.TimeoutError, AgentError) as exc:
+                log.warning("connection lost (%s) — reconnecting in %.0fs", exc, backoff)
+            except Exception:
+                log.exception("agent client crashed — reconnecting in %.0fs", backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _MAX_BACKOFF_S)
+
+    async def _run_once(self) -> None:
+        reader, writer = await asyncio.open_connection(
+            self.gateway_host, self.gateway_port, ssl=self.ssl_context
+        )
+        self._pending = {}
+        self._write_lock = asyncio.Lock()
+        self._active_sessions = {}
+        self._current_writer = writer
+        try:
+            # Auth handshake happens before the reader/heartbeat tasks exist —
+            # a plain direct send+recv, same as Phase 2.
+            await _send_frame(writer, {
+                "type": "req", "id": self._next_id(), "method": "auth",
+                "params": {"agent_uuid": self.agent_uuid, "credential": self.credential},
+            })
+            resp = await _recv_frame(reader)
+            if resp is None:
+                raise AgentError("connection closed during auth")
+            if not resp.get("ok"):
+                raise AgentError(resp.get("error") or "auth rejected")
+            log.info("authenticated as %s", self.agent_uuid)
+
+            reader_task = asyncio.create_task(self._reader_loop(reader, writer))
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop(writer))
+            done, still_running = await asyncio.wait(
+                {reader_task, heartbeat_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for t in still_running:
+                t.cancel()
+            for t in done:
+                exc = t.exception()
+                if exc is not None:
+                    raise exc
+        finally:
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.cancel()
+            for task in self._active_sessions.values():
+                task.cancel()
+            self._active_sessions.clear()
+            self._current_writer = None
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    # ── agent-initiated requests (heartbeat) ────────────────────
+
+    async def _send_request(self, writer: asyncio.StreamWriter, method: str, params: dict) -> dict:
+        req_id = self._next_id()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[req_id] = fut
+        async with self._write_lock:
+            await _send_frame(writer, {"type": "req", "id": req_id, "method": method, "params": params})
+        try:
+            resp = await asyncio.wait_for(fut, timeout=_REQUEST_TIMEOUT_S)
+        finally:
+            self._pending.pop(req_id, None)
+        if not resp.get("ok"):
+            raise AgentError(resp.get("error") or f"{method} rejected")
+        return resp.get("result") or {}
+
+    async def _heartbeat_loop(self, writer: asyncio.StreamWriter) -> None:
+        while True:
+            await asyncio.sleep(self.heartbeat_interval_s)
+            await self._send_request(writer, "heartbeat", {})
+
+    # ── demux incoming frames ────────────────────────────────────
+
+    async def _reader_loop(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        while True:
+            msg = await _recv_frame(reader)
+            if msg is None:
+                raise AgentError("connection closed by gateway")
+
+            msg_type = msg.get("type")
+            if msg_type == "res":
+                fut = self._pending.get(msg.get("id"))
+                if fut is not None and not fut.done():
+                    fut.set_result(msg)
+                continue
+
+            if msg_type == "req":
+                # A gateway-pushed command (start/stop/list_interfaces). Handle
+                # it as its own task so a slow capd round-trip never blocks
+                # reading the next frame (heartbeat responses, other commands).
+                asyncio.create_task(self._handle_command(writer, msg))
+                continue
+
+    async def _handle_command(self, writer: asyncio.StreamWriter, msg: dict) -> None:
+        req_id = msg.get("id")
+        method = msg.get("method")
+        params = msg.get("params") or {}
+        loop = asyncio.get_running_loop()
+
+        try:
+            if method == "list_interfaces":
+                ifaces = await loop.run_in_executor(
+                    None, functools.partial(self._capd().list_interfaces,
+                                             include_virtual=bool(params.get("include_virtual", False)))
+                )
+                result = {"interfaces": [i.to_dict() for i in ifaces]}
+            elif method == "start":
+                result = await self._cmd_start(params, loop)
+            elif method == "stop":
+                result = await self._cmd_stop(params, loop)
+            else:
+                await _send_frame_locked(self._write_lock, writer,
+                                          {"type": "res", "id": req_id, "ok": False,
+                                           "error": f"unknown method: {method}"})
+                return
+        except (CapdError, CapdUnavailable) as exc:
+            await _send_frame_locked(self._write_lock, writer,
+                                      {"type": "res", "id": req_id, "ok": False, "error": str(exc)})
+            return
+        except Exception:
+            log.exception("command %s crashed", method)
+            await _send_frame_locked(self._write_lock, writer,
+                                      {"type": "res", "id": req_id, "ok": False, "error": "internal agent error"})
+            return
+
+        await _send_frame_locked(self._write_lock, writer,
+                                  {"type": "res", "id": req_id, "ok": True, "result": result})
+
+    async def _cmd_start(self, params: dict, loop: asyncio.AbstractEventLoop) -> dict:
+        session_id = str(params.get("session_id", ""))
+        resp = await loop.run_in_executor(None, functools.partial(
+            self._capd().start,
+            session_id=session_id,
+            interface=str(params.get("interface", "")),
+            bpf_filter=str(params.get("bpf", "") or params.get("bpf_filter", "")),
+            ring_filesize_kb=int(params.get("ring_filesize_kb") or 200_000),
+            ring_files=int(params.get("ring_files") or 10),
+            max_duration_s=int(params.get("max_duration_s") or 0),
+        ))
+        # Kick off a background reporter that relays periodic progress
+        # upward as unprompted 'event' frames — decoupled from the
+        # request/response channel so a stalled stats poll never blocks
+        # heartbeat or other commands.
+        task = asyncio.create_task(self._stats_reporter(session_id))
+        self._active_sessions[session_id] = task
+        return resp
+
+    async def _cmd_stop(self, params: dict, loop: asyncio.AbstractEventLoop) -> dict:
+        session_id = str(params.get("session_id", ""))
+        resp = await loop.run_in_executor(None, self._capd().stop, session_id)
+        task = self._active_sessions.pop(session_id, None)
+        if task is not None:
+            task.cancel()
+        return resp
+
+    async def _stats_reporter(self, session_id: str) -> None:
+        """Poll local capd's one-shot session_status and relay a summarized
+        snapshot upward — never the raw per-second stream (that would be a
+        needless amount of chatter over the WAN for a progress indicator)."""
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                await asyncio.sleep(self.stats_interval_s)
+                try:
+                    status = await loop.run_in_executor(None, self._capd().session_status, session_id)
+                except (CapdError, CapdUnavailable):
+                    return  # session gone (stopped/crashed) — nothing more to report
+                # writer/write_lock belong to the currently-running connection;
+                # grabbed fresh each iteration in case of reconnect churn.
+                writer = self._current_writer
+                if writer is None:
+                    return
+                await _send_frame_locked(self._write_lock, writer, {
+                    "type": "event", "method": "session_stats",
+                    "params": {
+                        "session_id": session_id,
+                        "bytes_captured": status.get("bytes_total", 0),
+                        "rotation_count": status.get("file_index", 0),
+                    },
+                })
+                if not status.get("running", True):
+                    return
+        except asyncio.CancelledError:
+            return
+
+
+async def _send_frame_locked(lock: asyncio.Lock, writer: asyncio.StreamWriter, obj: dict) -> None:
+    async with lock:
+        await _send_frame(writer, obj)

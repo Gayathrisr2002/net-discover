@@ -116,6 +116,7 @@ COPY marlinspike/ ./marlinspike/
 COPY presets/ ./presets/
 COPY plugins/ ./plugins/
 COPY rules/ ./rules/
+COPY migrations/ ./migrations/
 
 COPY --from=mitre-builder /build/marlinspike-mitre/plugins/marlinspike_mitre ./plugins/marlinspike_mitre
 COPY --from=mitre-builder /build/marlinspike-mitre/rules/mitre ./rules/mitre
@@ -134,6 +135,15 @@ RUN mkdir -p data/reports data/uploads data/submissions
 # Create non-root user (needs NET_RAW for tshark)
 RUN useradd -m -u 1000 marlinspike && \
     chown -R marlinspike:marlinspike /app
+
+# Fleet gateway admin socket dir (shared volume with the fleet-gateway
+# service). Pre-created and chowned here so a *fresh* named volume gets
+# seeded with correct ownership on first mount (Docker copies the image's
+# existing directory content, including ownership, into an empty volume
+# on its first use) — both app and fleet-gateway run as uid 1000, neither
+# root, so nothing at runtime can chown a root-owned mountpoint itself.
+RUN mkdir -p /var/run/marlinspike-fleet-gateway && \
+    chown marlinspike:marlinspike /var/run/marlinspike-fleet-gateway
 
 ENV PATH="/opt/marlinspike-malware/bin:${PATH}" \
     MARLINSPIKE_DPI_BIN=/usr/local/bin/marlinspike-dpi \

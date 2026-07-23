@@ -1,0 +1,51 @@
+[Unit]
+Description=MarlinSpike fleet agent (remote sensor, phones home to the central fleet gateway)
+Documentation=https://github.com/eris-ot/marlinspike
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=marlinspike-agent
+Group=marlinspike-agent
+
+# Unlike marlinspike-capd, this process holds no raw-packet capabilities —
+# it only talks TLS to the central gateway and relays capture commands to
+# the local capd sidecar over its own unix socket (capd itself still holds
+# CAP_NET_RAW/CAP_NET_ADMIN; that privilege boundary is unchanged).
+NoNewPrivileges=true
+
+# Hardening — the agent doesn't need any of these.
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# credential.json is written by `marlinspike-agent enroll` (run manually,
+# once, as setup) and only read here. The capd socket dir needs read+write
+# for the unix-socket connect (Phase 3: relaying capture commands).
+ReadOnlyPaths=/etc/marlinspike-agent
+ReadWritePaths=/var/run/marlinspike-capd
+
+# This user must be in the group that owns /var/run/marlinspike-capd's
+# socket (or the socket's mode must allow it) — see marlinspike-capd's own
+# install docs for how that directory's permissions are set up.
+
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/local/bin/marlinspike-agent run \
+    --credential-file=/etc/marlinspike-agent/credential.json
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

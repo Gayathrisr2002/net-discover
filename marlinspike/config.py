@@ -237,6 +237,16 @@ LIVE_CAPTURE_SOCKET = os.environ.get(
 LIVE_CAPTURE_TIMEOUT_S = float(os.environ.get("LIVE_CAPTURE_TIMEOUT_S", "5"))
 LIVE_CAPTURE_MAX_CONCURRENT = int(os.environ.get("LIVE_CAPTURE_MAX_CONCURRENT", "2"))
 
+# Fleet gateway admin socket (Phase 3: remote capture control). The gateway
+# is a separate process/container — this is the local unix socket it
+# exposes for Flask to push start/stop/list_interfaces to a specific
+# connected agent. Not used at all unless a capture request names an
+# agent_id.
+FLEET_GATEWAY_ADMIN_SOCKET = os.environ.get(
+    "FLEET_GATEWAY_ADMIN_SOCKET", "/var/run/marlinspike-fleet-gateway/admin.sock"
+)
+FLEET_GATEWAY_ADMIN_TIMEOUT_S = float(os.environ.get("FLEET_GATEWAY_ADMIN_TIMEOUT_S", "15"))
+
 # System-wide interface allowlist. When unset, any interface is permitted.
 # When set to a comma-separated list, only those interfaces may be captured on.
 # Example: MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST=eth0,eth1

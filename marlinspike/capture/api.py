@@ -43,7 +43,8 @@ def _capture_control_required(view_func):
 from marlinspike.capture import consumer
 from marlinspike.capture.client import CapdClient, CapdError, CapdUnavailable
 from marlinspike.capture.sessions import StatsHub, manager
-from marlinspike.models import CaptureSession, Project, SavedFilter, db
+from marlinspike.fleet.gateway_client import GatewayAdminClient
+from marlinspike.models import Agent, CaptureSession, Project, SavedFilter, Site, SiteMember, db
 
 log = logging.getLogger(__name__)
 
@@ -174,6 +175,51 @@ def _client() -> CapdClient:
     return CapdClient(config.LIVE_CAPTURE_SOCKET, timeout=float(config.LIVE_CAPTURE_TIMEOUT_S))
 
 
+# Local copy of app.py's role-rank dict (same reason capture/api.py already
+# has its own _require_project instead of importing _get_project_for_user:
+# app.py registers this blueprint, so importing back from app.py would be
+# circular). Mirrors fleet/api.py's own local copy too.
+_MEMBER_ROLE_RANK: dict[str, int] = {"viewer": 1, "editor": 2, "owner": 3}
+
+
+def _require_agent(agent_id) -> Agent | None:
+    """Return the agent if it exists, isn't revoked, and the caller can at
+    least view the site it belongs to (owner or SiteMember) — the same ACL
+    shape as _require_project, just via Site/SiteMember instead of Project/
+    ProjectMember."""
+    try:
+        aid = int(agent_id)
+    except (TypeError, ValueError):
+        return None
+    agent = Agent.query.get(aid)
+    if agent is None or agent.status == "revoked":
+        return None
+    uid = session["user_id"]
+    site = Site.query.get(agent.site_id)
+    if site is None:
+        return None
+    if site.created_by == uid:
+        return agent
+    member = SiteMember.query.filter_by(site_id=site.id, user_id=uid).first()
+    if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get("viewer", 1):
+        return agent
+    return None
+
+
+def _client_for(agent: Agent | None):
+    """Return the right client for a capture operation: the local capd
+    client (today's untouched default) when no agent is named, or a
+    GatewayAdminClient that relays the same calls to that agent's own
+    local capd through the fleet gateway. Same method names on both
+    (list_interfaces/start/stop), so callers don't need to branch."""
+    if agent is None:
+        return _client()
+    return GatewayAdminClient(
+        config.FLEET_GATEWAY_ADMIN_SOCKET, agent.agent_uuid,
+        timeout=config.FLEET_GATEWAY_ADMIN_TIMEOUT_S,
+    )
+
+
 def _require_project(project_id) -> Project | None:
     if project_id is None:
         return None
@@ -252,9 +298,18 @@ def list_interfaces():
     elif config.MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST:
         effective_allowlist = list(config.MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST)
 
+    # Optionally list a remote agent's interfaces instead of the local
+    # capd's (Phase 3) — same allowlist/policy logic applies either way.
+    agent_id = request.args.get("agent_id", type=int)
+    agent = None
+    if agent_id is not None:
+        agent = _require_agent(agent_id)
+        if agent is None:
+            return jsonify({"ok": False, "error": "Agent not found"}), 404
+
     include_virtual = request.args.get("include_virtual", "0") in ("1", "true", "yes", "on")
     try:
-        ifaces = _client().list_interfaces(include_virtual=include_virtual)
+        ifaces = _client_for(agent).list_interfaces(include_virtual=include_virtual)
     except CapdUnavailable as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
     except CapdError as exc:
@@ -305,6 +360,14 @@ def start_session():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "ring_filesize_kb, ring_files, and max_duration_s must be integers"}), 400
     project = _require_project(body.get("project_id"))
+
+    # Optional: run this capture on a remote fleet agent instead of the
+    # local capd (Phase 3). agent_id is None is the untouched default path.
+    agent = None
+    if body.get("agent_id") is not None:
+        agent = _require_agent(body.get("agent_id"))
+        if agent is None:
+            return jsonify({"ok": False, "error": "Agent not found"}), 404
 
     if not interface:
         return jsonify({"ok": False, "error": "interface required"}), 400
@@ -388,22 +451,30 @@ def start_session():
     if isinstance(operator_warning, str):
         operator_warning = operator_warning.strip() or None
 
-    # ── Per-host concurrency cap ──────────────────────────────
-    if manager.active_session_count() >= config.LIVE_CAPTURE_MAX_CONCURRENT:
-        return jsonify({
-            "ok": False,
-            "error": f"max {config.LIVE_CAPTURE_MAX_CONCURRENT} concurrent live captures reached",
-        }), 409
-
+    # ── Per-host concurrency cap + interface lock ─────────────
+    # Both are specifically about *this* box's own local capd/dumpcap
+    # processes — meaningless for a remote agent's interface, which lives
+    # in a completely separate namespace on a completely separate host.
+    # A remote agent's own capd instance already enforces "one capture per
+    # interface at a time" as its own local invariant (capd/server.py's
+    # _start_session), so there's no cross-host conflict to guard against
+    # here for the agent_id-is-set path.
     session_uuid = str(uuid.uuid4())
-    holder = manager.acquire_interface(interface, session_uuid)
-    if holder is not None:
-        return jsonify({"ok": False, "error": f"interface {interface} in use by session {holder[:8]}"}), 409
+    if agent is None:
+        if manager.active_session_count() >= config.LIVE_CAPTURE_MAX_CONCURRENT:
+            return jsonify({
+                "ok": False,
+                "error": f"max {config.LIVE_CAPTURE_MAX_CONCURRENT} concurrent live captures reached",
+            }), 409
+        holder = manager.acquire_interface(interface, session_uuid)
+        if holder is not None:
+            return jsonify({"ok": False, "error": f"interface {interface} in use by session {holder[:8]}"}), 409
 
     cs = CaptureSession(
         session_uuid=session_uuid,
         user_id=session["user_id"],
         project_id=project.id,
+        agent_id=agent.id if agent is not None else None,
         interface=interface,
         bpf_filter=bpf_filter,
         ring_filesize_kb=applied_ring_filesize_kb,
@@ -414,9 +485,10 @@ def start_session():
     db.session.add(cs)
     db.session.commit()
 
-    # Ask capd to start. We do this after the DB row exists so the row
-    # is the durable record even if the start RPC times out.
-    client = _client()
+    # Ask capd (local or, via the fleet gateway, remote) to start. We do
+    # this after the DB row exists so the row is the durable record even
+    # if the start RPC times out.
+    client = _client_for(agent)
     try:
         resp = client.start(
             session_id=session_uuid,
@@ -431,7 +503,8 @@ def start_session():
         cs.error_tail = str(exc)
         cs.stopped_at = datetime.now(timezone.utc)
         db.session.commit()
-        manager.release_interface(interface, session_uuid)
+        if agent is None:
+            manager.release_interface(interface, session_uuid)
         status_code = 503 if isinstance(exc, CapdUnavailable) else 502
         return jsonify({"ok": False, "error": str(exc)}), status_code
 
@@ -440,18 +513,27 @@ def start_session():
     cs.capture_dir = resp.get("output_dir")
     db.session.commit()
 
-    # Wire up the StatsHub: it streams capd → SSE subscribers AND
-    # triggers the rotation consumer for each closed pcap.
-    hub = StatsHub(session_uuid=session_uuid, client=client)
-    hub.add_file_listener(consumer.make_listener(
-        user_id=cs.user_id, project_id=cs.project_id,
-        session_uuid=session_uuid, scan_profile="fast",
-    ))
-    manager.register_hub(hub)
-    hub.start()
+    if agent is None:
+        # Wire up the StatsHub: it streams capd → SSE subscribers AND
+        # triggers the rotation consumer for each closed pcap.
+        hub = StatsHub(session_uuid=session_uuid, client=client)
+        hub.add_file_listener(consumer.make_listener(
+            user_id=cs.user_id, project_id=cs.project_id,
+            session_uuid=session_uuid, scan_profile="fast",
+        ))
+        manager.register_hub(hub)
+        hub.start()
+    # else: remote session. Progress arrives via the gateway's independent
+    # session_stats event handling (writes straight into cs.bytes_captured/
+    # rotation_count — see fleet/gateway/db.py:record_session_stats), and
+    # rotated pcaps simply accumulate on the agent's own disk for now —
+    # local analysis + report shipping is Phase 4, not this phase's scope.
 
     audit("capture.start", target_type="capture_session", target_id=cs.id,
-          detail=json.dumps({"interface": interface, "bpf": bpf_filter, "project_id": project.id}))
+          detail=json.dumps({
+              "interface": interface, "bpf": bpf_filter, "project_id": project.id,
+              "agent_id": agent.id if agent is not None else None,
+          }))
 
     result = {"ok": True, "session": _serialize(cs)}
     if operator_warning:
@@ -476,23 +558,27 @@ def stop_session(sid: int):
     cs.status = "stopping"
     db.session.commit()
 
+    agent = Agent.query.get(cs.agent_id) if cs.agent_id is not None else None
+
     try:
-        resp = _client().stop(cs.session_uuid)
+        resp = _client_for(agent).stop(cs.session_uuid)
     except CapdUnavailable as exc:
         cs.status = "failed"
         cs.error_tail = f"stop failed: {exc}"
         cs.stopped_at = datetime.now(timezone.utc)
         db.session.commit()
-        manager.release_interface(cs.interface, cs.session_uuid)
-        manager.drop_hub(cs.session_uuid)
+        if agent is None:
+            manager.release_interface(cs.interface, cs.session_uuid)
+            manager.drop_hub(cs.session_uuid)
         return jsonify({"ok": False, "error": str(exc), "session": _serialize(cs)}), 503
     except CapdError as exc:
         cs.status = "failed"
         cs.error_tail = f"stop failed: {exc}"
         cs.stopped_at = datetime.now(timezone.utc)
         db.session.commit()
-        manager.release_interface(cs.interface, cs.session_uuid)
-        manager.drop_hub(cs.session_uuid)
+        if agent is None:
+            manager.release_interface(cs.interface, cs.session_uuid)
+            manager.drop_hub(cs.session_uuid)
         return jsonify({"ok": False, "error": str(exc), "session": _serialize(cs)}), 502
 
     cs.status = "stopped"
@@ -506,11 +592,13 @@ def stop_session(sid: int):
     cs.rotation_count = max(cs.rotation_count, len(files_closed))
     db.session.commit()
 
-    # Tear down hub + locks.
-    hub = manager.drop_hub(cs.session_uuid)
-    if hub is not None:
-        hub.shutdown()
-    manager.release_interface(cs.interface, cs.session_uuid)
+    if agent is None:
+        # Tear down hub + locks (remote sessions never had either — see
+        # start_session's matching branch).
+        hub = manager.drop_hub(cs.session_uuid)
+        if hub is not None:
+            hub.shutdown()
+        manager.release_interface(cs.interface, cs.session_uuid)
 
     audit("capture.stop" if not admin_override else "capture.admin_stop",
           target_type="capture_session", target_id=cs.id,

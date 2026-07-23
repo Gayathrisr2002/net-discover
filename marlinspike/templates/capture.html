@@ -403,6 +403,13 @@
         </div>
 
         <div class="cap-field">
+          <label for="cap-agent">{{ t('capture.new.run_on') }}</label>
+          <select class="ms-select" id="cap-agent">
+            <option value="">{{ t('capture.new.run_on_local') }}</option>
+          </select>
+        </div>
+
+        <div class="cap-field">
           <label for="cap-iface">{{ t('capture.new.interface') }}</label>
           <select class="ms-select" id="cap-iface" disabled>
             <option>{{ t('capture.new.interface_loading') }}</option>
@@ -517,6 +524,7 @@
     'filter_delete_confirm': "{{ t('capture.filters.delete_confirm') }}",
     'policy_active': "{{ t('capture.policy.badge_active') }}",
     'policy_disabled': "{{ t('capture.policy.badge_disabled') }}",
+    'run_on_local': "{{ t('capture.new.run_on_local') }}",
   };
 
   var streams = Object.create(null); // sessionId -> EventSource
@@ -695,9 +703,11 @@
   function loadInterfaces() {
     var showVirtual = document.getElementById('cap-show-virtual').checked;
     var pid = currentProjectId();
+    var agentId = document.getElementById('cap-agent').value;
     var params = [];
     if (showVirtual) params.push('include_virtual=1');
     if (pid != null) params.push('project_id=' + pid);
+    if (agentId) params.push('agent_id=' + agentId);
     var url = '/api/capture/interfaces' + (params.length ? '?' + params.join('&') : '');
     var sel = document.getElementById('cap-iface');
     sel.disabled = true;
@@ -793,6 +803,7 @@
     }
 
     btn.disabled = true; help.textContent = T.starting;
+    var agentId = document.getElementById('cap-agent').value;
     var body = {
       project_id: parseInt(document.getElementById('cap-project').value, 10) || null,
       interface: document.getElementById('cap-iface').value,
@@ -801,6 +812,7 @@
       ring_files: parseInt(document.getElementById('cap-files').value, 10) || 10,
       max_duration_s: parseInt(document.getElementById('cap-duration').value, 10) || 0,
     };
+    if (agentId) body.agent_id = parseInt(agentId, 10);
 
     // If there is an operator_warning in the active policy, show confirmation before POSTing.
     var warning = activePolicy && activePolicy.operator_warning;
@@ -971,13 +983,46 @@
   // ── wire ──────────────────────────────────────────────────
   function onProjectChange() {
     loadPolicy().then(function(){
-      loadInterfaces();
+      loadAgents().then(loadInterfaces);
       loadFilters();
     });
   }
 
+  // ── remote agents (Phase 3) ────────────────────────────────
+  // Populated from sites bound to the currently-selected project; only
+  // online agents are offered. Local (the default, empty value) always
+  // stays available regardless of fleet reachability.
+  function loadAgents() {
+    var pid = currentProjectId();
+    var sel = document.getElementById('cap-agent');
+    var previous = sel.value;
+    sel.innerHTML = '<option value="">' + T.run_on_local + '</option>';
+    if (pid == null) return Promise.resolve();
+    return fetchJson('/api/fleet/sites').then(function(j){
+      var sites = ((j && j.sites) || []).filter(function(s){ return s.project_id === pid; });
+      if (!sites.length) return;
+      return Promise.all(sites.map(function(s){
+        return fetchJson('/api/fleet/sites/' + s.id + '/agents').then(function(aj){
+          return ((aj && aj.agents) || []).filter(function(a){ return a.status === 'online'; });
+        }).catch(function(){ return []; });
+      })).then(function(lists){
+        var agents = [].concat.apply([], lists);
+        agents.forEach(function(a){
+          var opt = document.createElement('option');
+          opt.value = a.id;
+          opt.textContent = a.name + ' (' + a.agent_uuid.slice(0, 8) + ')';
+          sel.appendChild(opt);
+        });
+        if (previous && agents.some(function(a){ return String(a.id) === previous; })) {
+          sel.value = previous;
+        }
+      });
+    }).catch(function(){ /* fleet feature unreachable — local-only stays offered */ });
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
     document.getElementById('cap-show-virtual').addEventListener('change', loadInterfaces);
+    document.getElementById('cap-agent').addEventListener('change', loadInterfaces);
     document.getElementById('cap-iface').addEventListener('change', maybeEnableStart);
     document.getElementById('cap-bpf').addEventListener('input', onBpfInput);
     document.getElementById('cap-start').addEventListener('click', onStart);

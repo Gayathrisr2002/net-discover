@@ -132,6 +132,8 @@ def test_baseline_applies_to_empty_db(tmp_db):
 
 def test_upgrade_is_idempotent(tmp_db):
     """Running upgrade() twice should be a no-op (no errors, no duplicate work)."""
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
     from flask_migrate import upgrade
 
     app, db = _make_app(tmp_db)
@@ -139,13 +141,17 @@ def test_upgrade_is_idempotent(tmp_db):
         upgrade()  # first run — applies baseline
         upgrade()  # second run — should be a no-op
 
-        # Verify still at head revision after double-run.
+        # Verify still at head revision after double-run. Computed from the
+        # migrations directory itself (not hardcoded) so this doesn't go
+        # stale every time a new migration is added.
         from alembic.runtime.migration import MigrationContext
         with db.engine.connect() as conn:
             ctx = MigrationContext.configure(conn)
             current = ctx.get_current_revision()
 
-    assert current == "0002", f"Expected revision '0002', got {current!r}"
+    script_dir = ScriptDirectory(str(MIGRATIONS_DIR))
+    head = script_dir.get_current_head()
+    assert current == head, f"Expected head revision {head!r}, got {current!r}"
 
 
 def test_recovery_columns_present(tmp_db):

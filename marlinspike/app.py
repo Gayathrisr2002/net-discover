@@ -87,6 +87,8 @@ from marlinspike.models import (
     Project,
     ProjectMember,
     ScanHistory,
+    Site,
+    SiteMember,
     User,
     db,
 )
@@ -879,6 +881,28 @@ def _get_project_for_user(pid: int, min_role: str = "viewer") -> "Project | None
     member = ProjectMember.query.filter_by(project_id=pid, user_id=uid).first()
     if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get(min_role, 1):
         return proj
+    return None
+
+
+def _get_site_for_user(site_id: int, min_role: str = "viewer") -> "Site | None":
+    """Return the site if the current session user can access it.
+
+    Mirrors _get_project_for_user: access is granted when the user created
+    the site (always owner) OR has a SiteMember row whose role rank >=
+    min_role. Returns None when the site doesn't exist or access is denied.
+    """
+    from flask import session as _session
+    uid = _session.get("user_id")
+    if not uid:
+        return None
+    site = db.session.get(Site, site_id)
+    if site is None:
+        return None
+    if site.created_by == uid:
+        return site
+    member = SiteMember.query.filter_by(site_id=site_id, user_id=uid).first()
+    if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get(min_role, 1):
+        return site
     return None
 
 
@@ -3168,6 +3192,11 @@ def create_app():
         return render_template("capture.html",
                                live_capture_enabled=config.LIVE_CAPTURE_ENABLED,
                                live_capture_socket=config.LIVE_CAPTURE_SOCKET)
+
+    @app.route("/fleet")
+    @login_required
+    def fleet_page():
+        return render_template("fleet.html")
 
     @app.route("/capabilities")
     @login_required
@@ -6248,6 +6277,10 @@ def create_app():
     # LIVE_CAPTURE_ENABLED is false or capd is unreachable.
     from marlinspike.capture.api import bp as capture_bp
     app.register_blueprint(capture_bp)
+
+    # ── Fleet (Phase 1: sites + agent enrollment, no live transport yet) ──
+    from marlinspike.fleet.api import bp as fleet_bp
+    app.register_blueprint(fleet_bp)
 
     return app
 

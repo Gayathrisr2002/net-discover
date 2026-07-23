@@ -118,6 +118,13 @@ class ScanHistory(db.Model):
     timeout_at = db.Column(db.DateTime)          # hard deadline for abandonment reaping
     recovery_state = db.Column(db.String(20))   # NULL / reattached / reaped_*
 
+    # Set when this scan ran on a remote fleet agent rather than as a local
+    # subprocess. engine_pid/engine_argv stay NULL for these rows — there is
+    # no local PID to reap; marlinspike.recovery's reaper must skip them.
+    agent_id = db.Column(
+        db.Integer, db.ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Composite index on (status, user_id): the recovery reaper queries
     # status="running" on every boot and the db-mode concurrency check queries
     # (status, user_id) on every scan-start. The leading status column also
@@ -256,6 +263,12 @@ class CaptureSession(db.Model):
     rotation_count = db.Column(db.Integer, default=0, nullable=False)
     error_tail = db.Column(db.Text)
 
+    # Set when this capture ran on a remote fleet agent rather than the local
+    # capd sidecar. NULL (the default) is the untouched, existing local path.
+    agent_id = db.Column(
+        db.Integer, db.ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     user = db.relationship("User", backref="capture_sessions")
     project = db.relationship("Project", backref="capture_sessions")
 
@@ -276,3 +289,115 @@ class SavedFilter(db.Model):
     __table_args__ = (
         db.UniqueConstraint("project_id", "name", name="uq_saved_filter_project_name"),
     )
+
+
+# ── Fleet (remote sensor agents) ─────────────────────────────────
+
+class Site(db.Model):
+    """A physical site running one or more remote sensor agents.
+
+    Bound to a project so a site's reports land in that project's existing
+    REPORTS_DIR — the report-viewing UI needs no changes to show them.
+    """
+
+    __tablename__ = "sites"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    project = db.relationship("Project", backref="sites")
+
+    __table_args__ = (
+        db.UniqueConstraint("project_id", "name", name="uq_site_project_name"),
+    )
+
+
+class SiteMember(db.Model):
+    """Additional members of a site beyond the creator.
+
+    Mirrors ProjectMember: the site creator (sites.created_by) is implicitly
+    owner and is not stored here — this table only holds invited members.
+    """
+
+    __tablename__ = "site_members"
+
+    id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role = db.Column(db.String(20), nullable=False, default="viewer")  # viewer | editor | owner
+    invited_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint("site_id", "user_id", name="uq_site_member"),
+    )
+
+
+class Agent(db.Model):
+    """A remote sensor agent enrolled at a site."""
+
+    __tablename__ = "agents"
+
+    id = db.Column(db.Integer, primary_key=True)
+    agent_uuid = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    site_id = db.Column(
+        db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name = db.Column(db.String(200), nullable=False)
+    # 'pending' (token issued, never connected) | 'enrolled' (connected once,
+    # currently offline) | 'online' | 'offline' | 'revoked'
+    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+    agent_version = db.Column(db.String(40), nullable=True)
+    os_info = db.Column(db.Text, nullable=True)
+    last_seen_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+    site = db.relationship("Site", backref="agents")
+
+
+class AgentEnrollmentToken(db.Model):
+    """One-time token used to enroll a new agent at a site.
+
+    Mirrors PasswordResetToken's hash-at-rest / expire / single-use shape —
+    reuse auth.py's token hashing helpers rather than re-deriving them.
+    """
+
+    __tablename__ = "agent_enrollment_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(
+        db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AgentCredential(db.Model):
+    """Long-lived post-enrollment credential for an agent.
+
+    Kept separate from AgentEnrollmentToken (the one-time token) so
+    rotation/revocation has a clean history distinct from enrollment.
+    """
+
+    __tablename__ = "agent_credentials"
+
+    id = db.Column(db.Integer, primary_key=True)
+    agent_id = db.Column(
+        db.Integer, db.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key_hash = db.Column(db.String(64), unique=True, nullable=False)
+    issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    revoked_at = db.Column(db.DateTime, nullable=True)

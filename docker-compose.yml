@@ -28,6 +28,7 @@ services:
       - MARLINSPIKE_CISA_MODULE=${MARLINSPIKE_CISA_MODULE:-plugins.marlinspike_cisa}
       - LIVE_CAPTURE_ENABLED=${LIVE_CAPTURE_ENABLED:-true}
       - LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock
+      - FLEET_GATEWAY_ADMIN_SOCKET=/var/run/marlinspike-fleet-gateway/admin.sock
     depends_on:
       db:
         condition: service_healthy
@@ -37,6 +38,7 @@ services:
       - marlinspike-data:/app/data
       - capd-socket:/var/run/marlinspike-capd
       - capd-captures:/var/lib/marlinspike/captures:ro
+      - fleet-admin-socket:/var/run/marlinspike-fleet-gateway
     networks:
       - internal
     mem_limit: 3g
@@ -66,6 +68,54 @@ services:
       - --socket=/var/run/marlinspike-capd/marlinspike-capd.sock
       - --capture-root=/var/lib/marlinspike/captures
       - --allow-uid=${LIVE_CAPTURE_ALLOW_UID:-0}
+    mem_limit: 256m
+
+  # Fleet gateway (Phase 2 of the distributed-agent architecture). Off by
+  # default — opt in with:
+  #   docker compose --profile fleet up -d
+  # Same image as `app` (needs the same models/migrations, nothing else),
+  # different command. Reachable from outside the docker network (remote
+  # agents dial in), unlike `app`'s localhost-only port — so ./certs must
+  # hold a real TLS cert for any non-local deployment. For local testing:
+  #   scripts/gen_dev_tls_cert.sh
+  fleet-gateway:
+    profiles: ["fleet"]
+    build:
+      context: .
+      args:
+        MARLINSPIKE_DPI_REPO: ${MARLINSPIKE_DPI_REPO:-https://github.com/eris-ot/marlinspike-dpi.git}
+        MARLINSPIKE_DPI_REF: ${MARLINSPIKE_DPI_REF:-326bdbb744a7b8f71295381fd209d9587dc09a3b}
+        MARLINSPIKE_MITRE_REPO: ${MARLINSPIKE_MITRE_REPO:-https://github.com/eris-ot/marlinspike-mitre.git}
+        MARLINSPIKE_MITRE_REF: ${MARLINSPIKE_MITRE_REF:-c3583ec2d189b8cde69f2160da6a5e8e5b643f7b}
+        MARLINSPIKE_MALWARE_REPO: ${MARLINSPIKE_MALWARE_REPO:-https://github.com/eris-ot/marlinspike-malware.git}
+        MARLINSPIKE_MALWARE_REF: ${MARLINSPIKE_MALWARE_REF:-4a008211cad7e56609e8a667b95f1c09b790c1b4}
+        MARLINSPIKE_MALWARE_RULES_REPO: ${MARLINSPIKE_MALWARE_RULES_REPO:-https://github.com/eris-ot/marlinspike-malware-rules.git}
+        MARLINSPIKE_MALWARE_RULES_REF: ${MARLINSPIKE_MALWARE_RULES_REF:-99cbe9358d0a5047d9b5e57a7e4ff5eafdee9bd4}
+    container_name: marlinspike-fleet-gateway
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://marlinspike:${DB_PASSWORD}@db:5432/marlinspike
+      - SECRET_KEY=${SECRET_KEY}
+    ports:
+      - "0.0.0.0:${FLEET_GATEWAY_PORT:-8765}:8765"
+    volumes:
+      - ./certs:/certs:ro
+      - fleet-admin-socket:/var/run/marlinspike-fleet-gateway
+    command:
+      - python3
+      - -m
+      - marlinspike.fleet.gateway
+      - serve
+      - --host=0.0.0.0
+      - --port=8765
+      - --tls-cert=/certs/gateway.crt
+      - --tls-key=/certs/gateway.key
+      - --admin-socket=/var/run/marlinspike-fleet-gateway/admin.sock
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
     mem_limit: 256m
 
   db:
@@ -106,6 +156,7 @@ volumes:
   marlinspike-pgdata:
   capd-socket:
   capd-captures:
+  fleet-admin-socket:
 
 networks:
   internal:

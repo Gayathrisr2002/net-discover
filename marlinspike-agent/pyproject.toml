@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marlinspike-agent"
+version = "0.1.0"
+description = "Remote sensor agent for MarlinSpike fleet management. Enrolls with the central fleet gateway over TLS and maintains an authenticated heartbeat connection. Phase 3+ adds capture control and report shipping over the same connection."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = []
+
+[project.scripts]
+marlinspike-agent = "agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*"]

@@ -127,6 +127,9 @@ class CapdServer:
         if method == "stop":
             return await self._stop_session(str(params.get("session_id", "")))
 
+        if method == "session_status":
+            return self._session_status(str(params.get("session_id", "")))
+
         if method == "stats":
             await self._stream_stats(client_sock, str(params.get("session_id", "")),
                                      float(params.get("interval_s", 1.0)))
@@ -227,6 +230,23 @@ class CapdServer:
             "drops": sup.final_drops,
             "bytes_total": stats.bytes_total,
             "files_closed": stats.files_closed,
+        }
+
+    def _session_status(self, session_id: str) -> dict:
+        """One-shot, non-streaming snapshot — for a caller that just wants
+        a periodic poll (e.g. a fleet agent relaying summarized progress to
+        the central gateway) without holding open a `stats` stream."""
+        sup = self._sessions.get(session_id)
+        if sup is None:
+            return {"ok": False, "error": f"unknown session: {session_id}"}
+        stats = sup.poll()
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "bytes_total": stats.bytes_total,
+            "file_index": stats.file_index,
+            "files_closed": stats.files_closed,
+            "running": stats.running,
         }
 
     async def _stream_stats(self, client_sock: socket.socket, session_id: str, interval_s: float) -> None:

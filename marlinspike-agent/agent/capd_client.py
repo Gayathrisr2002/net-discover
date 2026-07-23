@@ -1,4 +1,12 @@
-"""Synchronous capd client.
+"""Synchronous local-capd client — vendored copy of marlinspike/capture/client.py.
+
+This is a deliberate duplicate, not an import: this package must stay
+installable on a bare remote box with none of the rest of the MarlinSpike
+suite present, so pulling in `marlinspike/capture/client.py` (which lives
+inside the main `marlinspike` package) isn't an option even though it has
+zero Flask/DB coupling of its own. The file is unchanged from its source
+except for this docstring — keep the two in sync by hand if capd's
+protocol changes.
 
 Length-prefixed JSON over a unix-domain socket. One connection per
 operation for simple methods; one long-lived connection for the
@@ -27,7 +35,7 @@ class CapdError(RuntimeError):
 
 
 class CapdUnavailable(CapdError):
-    """Raised when the socket can't be reached. Surfaces as a 503 in the API."""
+    """Raised when the socket can't be reached."""
 
 
 @dataclass
@@ -49,6 +57,13 @@ class Interface:
             is_virtual=bool(d.get("is_virtual")),
             mtu=d.get("mtu"), speed_mbps=d.get("speed_mbps"),
         )
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name, "mac": self.mac, "ips": self.ips, "is_up": self.is_up,
+            "is_loopback": self.is_loopback, "is_virtual": self.is_virtual,
+            "mtu": self.mtu, "speed_mbps": self.speed_mbps,
+        }
 
 
 class CapdClient:
@@ -89,11 +104,8 @@ class CapdClient:
         return resp
 
     def session_status(self, session_id: str) -> dict:
-        """One-shot, non-streaming snapshot (see capd/server.py's
-        _session_status) — for a periodic poll without holding a `stats`
-        stream open. Used by the fleet agent to relay summarized progress
-        to the central gateway; not used by the local capture path, which
-        already has a persistent stream via stream_stats()."""
+        """One-shot, non-streaming snapshot — this is what the fleet agent
+        polls to relay summarized progress up to the central gateway."""
         resp = self._call("session_status", {"session_id": session_id})
         if not resp.get("ok"):
             raise CapdError(resp.get("error") or "capd session_status failed")

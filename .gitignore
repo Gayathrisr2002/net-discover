@@ -38,6 +38,10 @@ instance/
 release-artifacts/
 marlinspike-*.tar.gz
 
+# Fleet gateway TLS cert/key (scripts/gen_dev_tls_cert.sh output; a real
+# deployment's cert/key must never be committed either)
+/certs/
+
 # Local SQLite databases (dev.db etc. — never publish runtime DBs)
 *.db
 *.sqlite
