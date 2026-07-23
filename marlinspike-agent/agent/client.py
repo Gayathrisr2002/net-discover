@@ -33,9 +33,11 @@ import asyncio
 import functools
 import json
 import logging
+import os
 import ssl
 import struct
 
+from . import consumer
 from .capd_client import CapdClient, CapdError, CapdUnavailable, Interface
 
 log = logging.getLogger("marlinspike-agent")
@@ -47,6 +49,11 @@ DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
 DEFAULT_STATS_INTERVAL_S = 3.0
 _MAX_BACKOFF_S = 60.0
 _REQUEST_TIMEOUT_S = 10.0
+
+# Report text is split into chunks well under the 1 MiB frame cap (leaves
+# headroom for JSON envelope overhead + string-escaping expansion) rather
+# than raising the cap unbounded for a large chain-output report.
+_REPORT_CHUNK_CHARS = 512 * 1024
 
 
 class AgentError(RuntimeError):
@@ -121,7 +128,11 @@ class AgentClient:
                  agent_uuid: str, credential: str,
                  capd_socket_path: str,
                  heartbeat_interval_s: float = DEFAULT_HEARTBEAT_INTERVAL_S,
-                 stats_interval_s: float = DEFAULT_STATS_INTERVAL_S):
+                 stats_interval_s: float = DEFAULT_STATS_INTERVAL_S,
+                 staging_dir: str | None = None,
+                 scan_profile: str = "fast",
+                 dpi_engine: str | None = None,
+                 dpi_binary: str | None = None):
         self.gateway_host = gateway_host
         self.gateway_port = gateway_port
         self.ssl_context = ssl_context
@@ -130,6 +141,10 @@ class AgentClient:
         self.capd_socket_path = capd_socket_path
         self.heartbeat_interval_s = heartbeat_interval_s
         self.stats_interval_s = stats_interval_s
+        self.staging_dir = staging_dir or consumer.default_staging_dir()
+        self.scan_profile = scan_profile
+        self.dpi_engine = dpi_engine
+        self.dpi_binary = dpi_binary
 
         self._next_id_counter = 1
         self._pending: dict[int, asyncio.Future] = {}
@@ -307,12 +322,20 @@ class AgentClient:
         task = self._active_sessions.pop(session_id, None)
         if task is not None:
             task.cancel()
+        # The stats-reporter task (just cancelled) is what normally notices
+        # rotated files — but the *final* file only closes as part of this
+        # stop() call itself, after the reporter stopped polling, so it must
+        # be picked up here or that last rotation's data never gets analyzed.
+        for closed_path in resp.get("files_closed") or []:
+            asyncio.create_task(self._scan_and_ship(closed_path, session_id))
         return resp
 
     async def _stats_reporter(self, session_id: str) -> None:
         """Poll local capd's one-shot session_status and relay a summarized
         snapshot upward — never the raw per-second stream (that would be a
-        needless amount of chatter over the WAN for a progress indicator)."""
+        needless amount of chatter over the WAN for a progress indicator).
+        Also the trigger for local analysis: each newly-closed rotation file
+        gets scanned and its report shipped upward (Phase 4)."""
         loop = asyncio.get_running_loop()
         try:
             while True:
@@ -326,6 +349,8 @@ class AgentClient:
                 writer = self._current_writer
                 if writer is None:
                     return
+                for closed_path in status.get("files_closed") or []:
+                    asyncio.create_task(self._scan_and_ship(closed_path, session_id))
                 await _send_frame_locked(self._write_lock, writer, {
                     "type": "event", "method": "session_stats",
                     "params": {
@@ -338,6 +363,61 @@ class AgentClient:
                     return
         except asyncio.CancelledError:
             return
+
+    # ── local analysis + report shipping (Phase 4) ───────────────
+
+    async def _scan_and_ship(self, pcap_path: str, session_id: str) -> None:
+        loop = asyncio.get_running_loop()
+        report_path = await loop.run_in_executor(None, functools.partial(
+            consumer.run_scan,
+            pcap_path=pcap_path, session_id=session_id, staging_dir=self.staging_dir,
+            scan_profile=self.scan_profile, dpi_engine=self.dpi_engine, dpi_binary=self.dpi_binary,
+        ))
+        if report_path is None:
+            return  # already logged by consumer.run_scan
+
+        try:
+            with open(report_path, "r", encoding="utf-8") as f:
+                report_text = f.read()
+        except OSError:
+            log.exception("failed to read report %s", report_path)
+            return
+
+        try:
+            await self._ship_report(session_id, os.path.basename(report_path), report_text,
+                                     pcap_filename=os.path.basename(pcap_path))
+        finally:
+            try:
+                os.remove(report_path)
+            except OSError:
+                pass
+
+    async def _ship_report(self, session_id: str, filename: str, report_text: str,
+                            pcap_filename: str) -> None:
+        writer = self._current_writer
+        if writer is None or self._write_lock is None:
+            log.warning("session=%s no active connection — dropping report %s", session_id, filename)
+            return
+
+        total_chunks = max(1, -(-len(report_text) // _REPORT_CHUNK_CHARS))  # ceil div
+        for i in range(total_chunks):
+            chunk = report_text[i * _REPORT_CHUNK_CHARS:(i + 1) * _REPORT_CHUNK_CHARS]
+            await _send_frame_locked(self._write_lock, writer, {
+                "type": "event", "method": "report_chunk",
+                "params": {
+                    "session_id": session_id, "filename": filename,
+                    "chunk_index": i, "total_chunks": total_chunks, "data": chunk,
+                },
+            })
+        await _send_frame_locked(self._write_lock, writer, {
+            "type": "event", "method": "report_complete",
+            "params": {
+                "session_id": session_id, "filename": filename,
+                "total_chunks": total_chunks, "pcap_filename": pcap_filename,
+            },
+        })
+        log.info("session=%s shipped report %s (%d bytes, %d chunks)",
+                  session_id, filename, len(report_text), total_chunks)
 
 
 async def _send_frame_locked(lock: asyncio.Lock, writer: asyncio.StreamWriter, obj: dict) -> None:

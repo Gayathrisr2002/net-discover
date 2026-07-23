@@ -706,7 +706,7 @@
           <div class="upload-zone" id="upload-zone" onclick="document.getElementById('upload-input').click()">
             <span style="font-size:1.1em;margin-right:6px;">&#128193;</span>
             {{ t('dashboard.upload_drop_hint') }}
-            <span style="font-size:0.82em;color:var(--text-muted);margin-left:8px;">{{ t('dashboard.upload_max', mb=200) }}</span>
+            <span id="upload-limit-label" style="font-size:0.82em;color:var(--text-muted);margin-left:8px;">{{ t('dashboard.upload_max', mb=200) }}</span>
           </div>
           <input type="file" id="upload-input" accept=".pcap,.pcapng,.cap">
           <div id="upload-status" style="margin-top:8px;font-size:0.85em;color:var(--text-dim);"></div>
@@ -988,6 +988,16 @@ var MS = (function() {
   }
 
   // ── Upload ──
+  var uploadLimitMb = 200;
+
+  function loadUploadLimit() {
+    fetch('/api/profile').then(function(r) { return r.json(); }).then(function(d) {
+      uploadLimitMb = d.upload_limit_mb || 200;
+      var lbl = document.getElementById('upload-limit-label');
+      if (lbl) lbl.textContent = msT('dashboard.upload_max', 'Max {mb} MB').replace('{mb}', uploadLimitMb);
+    }).catch(function() {});
+  }
+
   function setupUpload() {
     var zone = document.getElementById('upload-zone');
     var input = document.getElementById('upload-input');
@@ -1001,12 +1011,13 @@ var MS = (function() {
     input.addEventListener('change', function() {
       if (input.files.length) doUpload(input.files[0]);
     });
+    loadUploadLimit();
   }
 
   function doUpload(file) {
     // Client-side size check
-    if (file.size > 200 * 1024 * 1024) {
-      msToast(msT('dashboard.file_too_large', 'File too large (max {max} MB)').replace('{max}', 200), true);
+    if (file.size > uploadLimitMb * 1024 * 1024) {
+      msToast(msT('dashboard.file_too_large', 'File too large (max {max} MB)').replace('{max}', uploadLimitMb), true);
       return;
     }
     var status = document.getElementById('upload-status');

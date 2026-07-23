@@ -87,6 +87,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         capd_socket_path=args.capd_socket,
         heartbeat_interval_s=args.heartbeat_interval_s,
         stats_interval_s=args.stats_interval_s,
+        staging_dir=args.staging_dir,
+        scan_profile=args.scan_profile,
+        dpi_engine=args.dpi_engine,
+        dpi_binary=args.dpi_binary,
     )
     log.info("starting agent %s -> %s:%d", creds.agent_uuid, creds.gateway_host, creds.gateway_port)
     try:
@@ -121,6 +125,17 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--capd-socket", default=DEFAULT_CAPD_SOCKET,
                         help="Path to the local marlinspike-capd unix socket "
                              "(capture commands from the gateway are relayed here)")
+    p_run.add_argument("--staging-dir", default=None,
+                        help="Local scratch dir for engine output before it ships "
+                             "upward (default: a marlinspike-agent-reports dir under tmp)")
+    p_run.add_argument("--scan-profile", default="fast", choices=["fast", "full"],
+                        help="Passed through to the engine chain (--fast when 'fast')")
+    p_run.add_argument("--dpi-engine", default=None,
+                        help="Passed through to the engine chain's --dpi-engine")
+    p_run.add_argument("--dpi-binary", default=None,
+                        help="Passed through to the engine chain's --dpi-binary "
+                             "(requires the real marlinspike package + engine "
+                             "dependencies installed on this host — see README.md)")
     p_run.set_defaults(func=_cmd_run)
 
     args = parser.parse_args(argv)

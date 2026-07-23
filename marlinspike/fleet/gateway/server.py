@@ -113,6 +113,13 @@ class _AgentConnection:
         self.pending: dict[int, asyncio.Future] = {}
         self.write_lock = asyncio.Lock()
         self._next_id = 1
+        # Reassembly buffers for chunked report_chunk/report_complete events
+        # (Phase 4) — keyed by filename since one agent could in principle
+        # ship more than one report in flight. Each session_uuid produces at
+        # most one in-flight report at a time in practice, but keying by
+        # filename (unique per run) rather than session_uuid costs nothing
+        # and avoids a rare cross-talk edge case if that ever changes.
+        self.report_chunks: dict[str, dict[int, str]] = {}
 
     def next_id(self) -> int:
         self._next_id += 1
@@ -269,7 +276,7 @@ class GatewayServer:
                 continue
 
             if msg_type == "event":
-                asyncio.create_task(self._handle_event(agent_uuid, msg, loop))
+                asyncio.create_task(self._handle_event(agent_uuid, conn, msg, loop))
                 continue
 
             if msg_type != "req":
@@ -293,9 +300,10 @@ class GatewayServer:
 
             await _send_frame(conn.writer, _res(req_id, ok=False, error=f"unknown method: {method}"))
 
-    async def _handle_event(self, agent_uuid: str, msg: dict, loop) -> None:
+    async def _handle_event(self, agent_uuid: str, conn: _AgentConnection, msg: dict, loop) -> None:
         method = msg.get("method")
         params = msg.get("params") or {}
+
         if method == "session_stats":
             try:
                 await loop.run_in_executor(None, functools.partial(
@@ -306,6 +314,34 @@ class GatewayServer:
                 ))
             except Exception:
                 log.exception("failed to record session_stats event from agent %s", agent_uuid)
+            return
+
+        if method == "report_chunk":
+            filename = str(params.get("filename", ""))
+            chunk_index = int(params.get("chunk_index", 0))
+            conn.report_chunks.setdefault(filename, {})[chunk_index] = str(params.get("data", ""))
+            return
+
+        if method == "report_complete":
+            filename = str(params.get("filename", ""))
+            total_chunks = int(params.get("total_chunks") or 0)
+            chunks = conn.report_chunks.pop(filename, {})
+            if len(chunks) != total_chunks or any(i not in chunks for i in range(total_chunks)):
+                log.warning("agent %s report %s incomplete (got %d/%d chunks) — dropping",
+                            agent_uuid, filename, len(chunks), total_chunks)
+                return
+            report_text = "".join(chunks[i] for i in range(total_chunks))
+            try:
+                await loop.run_in_executor(None, functools.partial(
+                    db.ingest_report,
+                    session_uuid=str(params.get("session_id", "")),
+                    filename=filename,
+                    report_text=report_text,
+                    pcap_filename=params.get("pcap_filename"),
+                ))
+            except Exception:
+                log.exception("failed to ingest report %s from agent %s", filename, agent_uuid)
+            return
 
     # ── command push (called from the admin-socket handler) ──────
 

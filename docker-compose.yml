@@ -101,6 +101,12 @@ services:
     volumes:
       - ./certs:/certs:ro
       - fleet-admin-socket:/var/run/marlinspike-fleet-gateway
+      # Phase 4: ingest_report() writes into config.REPORTS_DIR
+      # (/app/data/reports) — without this mount that path is just the
+      # gateway container's own local, non-shared filesystem, so a report
+      # would "ingest" successfully yet be invisible to the app container
+      # and never show up in the UI.
+      - marlinspike-data:/app/data
     command:
       - python3
       - -m

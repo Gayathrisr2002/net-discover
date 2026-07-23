@@ -137,8 +137,19 @@ def record_finish(
 
 
 def get_active_for_recovery() -> list[ScanHistory]:
-    """Return ScanHistory rows still marked 'running' — input to the reaper."""
-    return ScanHistory.query.filter_by(status="running").all()
+    """Return ScanHistory rows still marked 'running' — input to the reaper.
+
+    Excludes agent_id-set rows: the reaper's liveness check (pid_alive on
+    engine_pid) is meaningless for a scan whose engine ran on a different
+    host's PID namespace — a remote-agent row would get falsely reaped as
+    abandoned on the next central restart otherwise. In the current design
+    (fleet/gateway/db.py:ingest_report) these rows are only ever inserted
+    already 'completed', so this is defensive scoping rather than a
+    presently-reachable bug, but it's cheap insurance against a future
+    design (e.g. a 'scan in progress' row created at start) reintroducing
+    exactly that hazard.
+    """
+    return ScanHistory.query.filter_by(status="running", agent_id=None).all()
 
 
 def claim_for_recovery(run_id: str) -> bool:

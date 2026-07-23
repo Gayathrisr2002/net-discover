@@ -15,12 +15,25 @@ a DB round-trip never blocks the event loop.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
+import os
 import secrets
 import uuid
 from datetime import datetime, timezone
 
 from marlinspike import config
-from marlinspike.models import Agent, AgentCredential, AgentEnrollmentToken, CaptureSession, db
+from marlinspike.models import (
+    Agent,
+    AgentCredential,
+    AgentEnrollmentToken,
+    CaptureSession,
+    Project,
+    ScanHistory,
+    db,
+)
+
+log = logging.getLogger("fleet.gateway.db")
 
 _app = None
 
@@ -169,6 +182,77 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
         cs.bytes_captured = bytes_captured
         cs.rotation_count = max(cs.rotation_count, rotation_count)
         db.session.commit()
+
+
+def ingest_report(*, session_uuid: str, filename: str, report_text: str,
+                   pcap_filename: str | None) -> None:
+    """Write a report an agent finished analyzing locally to the *same*
+    REPORTS_DIR/<owner_user_id>/<project_id>/<filename> path the local
+    upload-and-scan flow already uses, and create a ScanHistory row for
+    it — this is what makes it show up in the existing report-browsing
+    UI indistinguishable from a locally-produced report, with zero UI
+    changes. engine_pid/engine_argv stay NULL (no local PID to reap —
+    see recovery.py's agent_id-aware reaper scoping).
+
+    Best-effort: an unknown/deleted session_uuid or malformed report text
+    is logged and dropped, not raised — a stray late-arriving report from
+    a since-cleaned-up session shouldn't crash the gateway's event loop.
+    """
+    try:
+        json.loads(report_text)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        log.warning("session=%s dropping malformed report %s (%d bytes)",
+                     session_uuid, filename, len(report_text))
+        return
+
+    app = get_app()
+    with app.app_context():
+        cs = CaptureSession.query.filter_by(session_uuid=session_uuid).first()
+        if cs is None or cs.project_id is None:
+            log.warning("session=%s unknown or project-less — dropping report %s",
+                         session_uuid, filename)
+            return
+        project = db.session.get(Project, cs.project_id)
+        if project is None:
+            log.warning("session=%s project %s gone — dropping report %s",
+                         session_uuid, cs.project_id, filename)
+            return
+
+        owner_uid = project.user_id
+        out_dir = os.path.join(config.REPORTS_DIR, str(owner_uid), str(project.id))
+        os.makedirs(out_dir, exist_ok=True)
+        report_path = os.path.join(out_dir, filename)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report_text)
+
+        node_count = edge_count = 0
+        try:
+            parsed = json.loads(report_text)
+            topology = parsed.get("topology") or parsed
+            node_count = len(topology.get("nodes") or [])
+            edge_count = len(topology.get("edges") or [])
+        except Exception:
+            pass  # cosmetic counts only — never worth failing ingestion over
+
+        now = datetime.now(timezone.utc)
+        sh = ScanHistory(
+            run_id=str(uuid.uuid4()),
+            user_id=owner_uid,
+            project_id=project.id,
+            agent_id=cs.agent_id,
+            command="chain",
+            scan_profile="fast",
+            pcap_source=pcap_filename,
+            status="completed",
+            started_at=cs.started_at or now,
+            completed_at=now,
+            report_path=report_path,
+            node_count=node_count,
+            edge_count=edge_count,
+        )
+        db.session.add(sh)
+        db.session.commit()
+        log.info("session=%s ingested report -> %s (ScanHistory id=%s)", session_uuid, report_path, sh.id)
 
 
 def is_agent_revoked(*, agent_uuid: str) -> bool:
