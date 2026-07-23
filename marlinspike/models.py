@@ -309,6 +309,12 @@ class Site(db.Model):
     )
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    # JSON-encoded per-site capture policy — same shape as Project.capture_policy
+    # (enabled, allowed_interfaces, max_session_duration_s, max_total_bytes,
+    # operator_warning). NULL = no site-level restriction. For a remote-agent
+    # capture, the effective policy is project policy merged with site policy
+    # (most-restrictive-wins) — see capture/api.py's _merge_site_policy.
+    capture_policy = db.Column(db.Text, nullable=True)
 
     project = db.relationship("Project", backref="sites")
 

@@ -89,7 +89,10 @@
     <div class="panel" id="fleet-detail-panel">
       <div class="panel-header">
         <h2 id="fleet-detail-title">{{ t('fleet.select_site') }}</h2>
-        <button class="btn btn-sm" id="fleet-issue-token-btn" style="display:none;" onclick="FLEET.showIssueToken()">{{ t('fleet.issue_enrollment_token') }}</button>
+        <div>
+          <button class="btn btn-sm" id="fleet-members-btn" style="display:none;" onclick="FLEET.showMembers()">{{ t('fleet.members') }}</button>
+          <button class="btn btn-sm" id="fleet-issue-token-btn" style="display:none;" onclick="FLEET.showIssueToken()">{{ t('fleet.issue_enrollment_token') }}</button>
+        </div>
       </div>
       <div class="panel-body">
         <div id="fleet-detail-empty" class="fleet-empty">{{ t('fleet.select_site_hint') }}</div>
@@ -159,6 +162,46 @@
     </div>
   </div>
 
+  <!-- Site members modal -->
+  <div class="ms-modal-backdrop" id="modal-site-members">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('fleet.members') }}</h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-site-members')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <table class="ms-table" id="fleet-members-table">
+          <thead>
+            <tr>
+              <th>{{ t('common.name') }}</th>
+              <th>{{ t('fleet.role') }}</th>
+              <th>{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody id="fleet-members-body"></tbody>
+        </table>
+        <div class="modal-form-grid" style="margin-top:14px;">
+          <div class="modal-field">
+            <label for="fleet-member-username">{{ t('fleet.add_member_username') }}</label>
+            <input type="text" id="fleet-member-username" class="ms-input">
+          </div>
+          <div class="modal-field">
+            <label for="fleet-member-role">{{ t('fleet.role') }}</label>
+            <select id="fleet-member-role" class="ms-input">
+              <option value="viewer">{{ t('fleet.role_viewer') }}</option>
+              <option value="editor">{{ t('fleet.role_editor') }}</option>
+              <option value="owner">{{ t('fleet.role_owner') }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-site-members')">{{ t('common.close') }}</button>
+        <button class="btn btn-success" onclick="FLEET.addMember()">{{ t('fleet.add_member') }}</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
@@ -169,6 +212,7 @@ var FLEET = (function() {
 
   var sites = [];
   var selectedSiteId = null;
+  var statusStream = null; // EventSource for the currently-selected site
 
   // Never build markup by interpolating user-controlled strings — same
   // discipline as users.html's actionBtn/cell helpers (Finding #1: stored
@@ -229,7 +273,26 @@ var FLEET = (function() {
     document.getElementById('fleet-detail-empty').style.display = 'none';
     document.getElementById('fleet-agents-table').style.display = '';
     document.getElementById('fleet-issue-token-btn').style.display = '';
+    document.getElementById('fleet-members-btn').style.display = '';
     loadAgents(siteId);
+    openStatusStream(siteId);
+  }
+
+  // Live status updates (Phase 5) — a full agents/sites re-fetch on every
+  // event is simple and correct; these lists are small and events are
+  // infrequent (enroll/auth/heartbeat-transition/offline), so there's no
+  // real cost to not diffing individual rows.
+  function openStatusStream(siteId) {
+    if (statusStream) { statusStream.close(); statusStream = null; }
+    statusStream = new EventSource('/api/fleet/sites/' + siteId + '/stream');
+    statusStream.onmessage = function() {
+      if (selectedSiteId === siteId) {
+        loadAgents(siteId);
+        loadSites();
+      }
+    };
+    // No onerror-driven reconnect loop: EventSource retries automatically
+    // on its own, and switching sites (or leaving the page) simply closes it.
   }
 
   function loadAgents(siteId) {
@@ -339,6 +402,61 @@ var FLEET = (function() {
       });
   }
 
+  // ── site members ────────────────────────────────────────────
+
+  function showMembers() {
+    if (!selectedSiteId) return;
+    loadMembers();
+    msModal.open('modal-site-members');
+  }
+
+  function loadMembers() {
+    fetch('/api/fleet/sites/' + selectedSiteId + '/members').then(function(r) { return r.json(); }).then(function(d) {
+      var tbody = document.getElementById('fleet-members-body');
+      tbody.innerHTML = '';
+      (d.members || []).forEach(function(m) {
+        var tr = document.createElement('tr');
+        tr.appendChild(cell(m.username, 'mono'));
+        tr.appendChild(cell(m.role, 'dim'));
+        var actionsTd = document.createElement('td');
+        if (!m.is_creator) {
+          actionsTd.appendChild(actionBtn('{{ t("common.delete") }}', 'btn btn-sm btn-danger', function() {
+            removeMember(m.user_id);
+          }));
+        }
+        tr.appendChild(actionsTd);
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  function addMember() {
+    var username = document.getElementById('fleet-member-username').value.trim();
+    var role = document.getElementById('fleet-member-role').value;
+    if (!username) { msToast('{{ t("fleet.username_required") }}', true); return; }
+    fetch('/api/fleet/sites/' + selectedSiteId + '/members', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, role: role }),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast('{{ t("fleet.member_added") }}', 'success');
+        document.getElementById('fleet-member-username').value = '';
+        loadMembers();
+      } else {
+        msToast(d.error || '{{ t("common.failed") }}', true);
+      }
+    });
+  }
+
+  function removeMember(userId) {
+    fetch('/api/fleet/sites/' + selectedSiteId + '/members/' + userId, { method: 'DELETE' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) { loadMembers(); } else { msToast(d.error || '{{ t("common.failed") }}', true); }
+      });
+  }
+
   document.addEventListener('DOMContentLoaded', loadSites);
 
   return {
@@ -346,6 +464,8 @@ var FLEET = (function() {
     createSite: createSite,
     showIssueToken: showIssueToken,
     doIssueToken: doIssueToken,
+    showMembers: showMembers,
+    addMember: addMember,
   };
 })();
 </script>

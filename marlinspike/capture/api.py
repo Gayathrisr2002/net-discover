@@ -169,6 +169,46 @@ def _apply_max_total_bytes_cap(
     )
 
 
+def _merge_site_policy(policy: dict, site_policy: dict) -> dict:
+    """Merge a remote agent's site policy into the project policy dict,
+    most-restrictive-wins (Phase 5). Only called when a capture targets an
+    agent — the local path never has a site policy to merge.
+
+    - enabled: site can turn OFF what the project allows, never turn ON
+      what the project disabled.
+    - allowed_interfaces: intersected (fewest-interfaces-wins), same
+      semantics _resolve_interface_allowlist already uses for system ∩ project.
+    - max_session_duration_s / max_total_bytes: the smaller of the two
+      caps that are actually set applies.
+    - operator_warning: both shown if both set.
+    """
+    merged = dict(policy)
+
+    if site_policy.get("enabled") is False:
+        merged["enabled"] = False
+
+    proj_allow = policy.get("allowed_interfaces")
+    site_allow = site_policy.get("allowed_interfaces")
+    if site_allow is not None:
+        merged["allowed_interfaces"] = (
+            [i for i in proj_allow if i in set(site_allow)] if proj_allow is not None else list(site_allow)
+        )
+
+    for field in ("max_session_duration_s", "max_total_bytes"):
+        proj_v = policy.get(field)
+        site_v = site_policy.get(field)
+        if isinstance(site_v, int) and site_v >= 0:
+            if not isinstance(proj_v, int) or proj_v <= 0 or site_v < proj_v:
+                merged[field] = site_v
+
+    proj_warn = policy.get("operator_warning")
+    site_warn = site_policy.get("operator_warning")
+    if site_warn:
+        merged["operator_warning"] = f"{proj_warn} {site_warn}" if proj_warn else site_warn
+
+    return merged
+
+
 # ── Helpers ───────────────────────────────────────────────────
 
 def _client() -> CapdClient:
@@ -376,12 +416,21 @@ def start_session():
     if project is None:
         return jsonify({"ok": False, "error": "valid project_id required"}), 400
 
-    # ── Gate 1: per-project enabled flag ─────────────────────
+    # ── Gate 0: site policy (remote-agent captures only) ──────
+    # Merged in before Gate 1 so every gate below sees one effective
+    # policy dict — a site can only add restrictions on top of the
+    # project's, never loosen them (most-restrictive-wins).
     policy = _parse_policy(project.capture_policy)
-    if policy.get("enabled") is False:
-        return jsonify({"ok": False, "error": "Live capture disabled for this project"}), 403
+    if agent is not None:
+        site = Site.query.get(agent.site_id)
+        if site is not None and site.capture_policy:
+            policy = _merge_site_policy(policy, _parse_policy(site.capture_policy))
 
-    # ── Gate 2: interface allowlist (system ∩ project) ───────
+    # ── Gate 1: per-project (+ site, if merged above) enabled flag ─
+    if policy.get("enabled") is False:
+        return jsonify({"ok": False, "error": "Live capture disabled for this project or site"}), 403
+
+    # ── Gate 2: interface allowlist (system ∩ project ∩ site) ─
     effective_allowlist = _resolve_interface_allowlist(policy)
     if effective_allowlist is not None and interface not in effective_allowlist:
         if effective_allowlist:

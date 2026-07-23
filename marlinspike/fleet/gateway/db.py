@@ -36,6 +36,37 @@ from marlinspike.models import (
 log = logging.getLogger("fleet.gateway.db")
 
 _app = None
+_redis_client = None
+
+
+def _get_redis():
+    """Lazily build (once) a synchronous redis-py client for status
+    publishing. Returns None if no Redis URL is configured — status
+    publishing is a nice-to-have (Flask falls back to plain DB polling
+    without it), never a hard requirement to enroll/auth/heartbeat."""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    if not config.FLEET_STATUS_REDIS_URL:
+        return None
+    import redis
+    _redis_client = redis.from_url(config.FLEET_STATUS_REDIS_URL)
+    return _redis_client
+
+
+def _publish_agent_status(*, agent_uuid: str, site_id: int, status: str) -> None:
+    """Best-effort: publish a status change for live fleet-page updates
+    (fleet/api.py's SSE endpoint). Never raises — a Redis hiccup should
+    never take down enroll/auth/heartbeat handling."""
+    r = _get_redis()
+    if r is None:
+        return
+    try:
+        r.publish(config.FLEET_STATUS_REDIS_CHANNEL, json.dumps({
+            "agent_uuid": agent_uuid, "site_id": site_id, "status": status,
+        }))
+    except Exception:
+        log.exception("failed to publish agent status for %s", agent_uuid)
 
 
 def get_app():
@@ -109,6 +140,7 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
         from marlinspike.audit import audit
         audit("fleet.agent_enrolled", target_type="agent", target_id=str(agent.id),
               detail=f"site_id={token.site_id} name={agent.name!r}")
+        _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
 
         return {"agent_uuid": agent.agent_uuid, "credential": raw_credential}
 
@@ -135,6 +167,7 @@ def authenticate_agent(*, agent_uuid: str, raw_credential: str) -> dict:
         agent.status = "online"
         agent.last_seen_at = datetime.now(timezone.utc)
         db.session.commit()
+        _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
         return {"agent_id": agent.id}
 
 
@@ -148,9 +181,14 @@ def record_heartbeat(*, agent_uuid: str) -> None:
         if agent is None or agent.status == "revoked":
             return
         agent.last_seen_at = datetime.now(timezone.utc)
-        if agent.status != "online":
-            agent.status = "online"
+        was_online = agent.status == "online"
+        agent.status = "online"
         db.session.commit()
+        # Only publish on an actual transition — every heartbeat publishing
+        # would just be noise the SSE endpoint filters right back out, and
+        # the fleet UI shows last-seen via its own periodic agent-list poll.
+        if not was_online:
+            _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
 
 
 def mark_offline(*, agent_uuid: str) -> None:
@@ -162,6 +200,7 @@ def mark_offline(*, agent_uuid: str) -> None:
             return
         agent.status = "offline"
         db.session.commit()
+        _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
 
 
 def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_count: int) -> None:

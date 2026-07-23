@@ -87,3 +87,13 @@ def run_scan(*, pcap_path: str, session_id: str, staging_dir: str,
 
 def default_staging_dir() -> str:
     return os.path.join(tempfile.gettempdir(), "marlinspike-agent-reports")
+
+
+def default_spool_dir() -> str:
+    """Durable local queue (Phase 5): a report that can't be shipped right
+    now (link down) is written here instead of being dropped, and flushed
+    on the next successful reconnect. See agent/client.py's _spool_report/
+    _flush_spool. A flat-file spool rather than SQLite — this only ever
+    holds a handful of not-yet-shipped reports, and plain files are easy
+    to inspect/clear by hand if something goes wrong."""
+    return os.path.join(tempfile.gettempdir(), "marlinspike-agent-spool")

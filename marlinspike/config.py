@@ -247,6 +247,14 @@ FLEET_GATEWAY_ADMIN_SOCKET = os.environ.get(
 )
 FLEET_GATEWAY_ADMIN_TIMEOUT_S = float(os.environ.get("FLEET_GATEWAY_ADMIN_TIMEOUT_S", "15"))
 
+# Redis pub/sub channel for live agent status (Phase 5). Agent status
+# changes happen in the gateway process — a separate process from every
+# Flask/gunicorn worker — so polling the DB is the only cross-worker-safe
+# fallback without this. Defaults to the same Redis instance already used
+# for rate limiting; a distinct channel name avoids any keyspace collision.
+FLEET_STATUS_REDIS_URL = os.environ.get("FLEET_STATUS_REDIS_URL", "") or RATELIMIT_STORAGE_URI
+FLEET_STATUS_REDIS_CHANNEL = "fleet:agent_status"
+
 # System-wide interface allowlist. When unset, any interface is permitted.
 # When set to a comma-separated list, only those interfaces may be captured on.
 # Example: MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST=eth0,eth1

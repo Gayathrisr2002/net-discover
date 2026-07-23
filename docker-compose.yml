@@ -96,6 +96,10 @@ services:
     environment:
       - DATABASE_URL=postgresql://marlinspike:${DB_PASSWORD}@db:5432/marlinspike
       - SECRET_KEY=${SECRET_KEY}
+      # Phase 5: publishes agent status changes here for the fleet page's
+      # live SSE stream (fleet/api.py) — same Redis instance as rate
+      # limiting, distinct channel name, no keyspace collision.
+      - RATELIMIT_STORAGE_URI=${RATELIMIT_STORAGE_URI:-redis://ratelimit:6379/0}
     ports:
       - "0.0.0.0:${FLEET_GATEWAY_PORT:-8765}:8765"
     volumes:
@@ -119,6 +123,8 @@ services:
       - --admin-socket=/var/run/marlinspike-fleet-gateway/admin.sock
     depends_on:
       db:
+        condition: service_healthy
+      ratelimit:
         condition: service_healthy
     networks:
       - internal

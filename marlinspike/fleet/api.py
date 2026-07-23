@@ -13,13 +13,16 @@ import — app.py registers this blueprint).
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, Response, jsonify, request, session, stream_with_context
 
+from marlinspike import config
 from marlinspike.audit import audit
 from marlinspike.auth import login_required
+from marlinspike.capture.api import _parse_policy, _resolve_interface_allowlist, _validate_policy_body
 from marlinspike.models import (
     Agent,
     AgentCredential,
@@ -27,6 +30,7 @@ from marlinspike.models import (
     Project,
     Site,
     SiteMember,
+    User,
     db,
 )
 
@@ -173,6 +177,153 @@ def get_site(site_id):
     return jsonify({"ok": True, "site": _serialize_site(site, agent_count=agent_count)})
 
 
+# ── Site members ─────────────────────────────────────────────────
+# Mirrors app.py's /api/projects/<pid>/members routes exactly — same
+# shape, same rules (creator is an implicit, unremovable, unchangeable
+# owner; SiteMember only holds invited members). Exercises the ACL
+# helper that's existed since Phase 1 with no UI to actually add anyone.
+
+@bp.route("/sites/<int:site_id>/members", methods=["GET"])
+@login_required
+def list_site_members(site_id):
+    site = _get_site_for_user(site_id)
+    if not site:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+    creator = db.session.get(User, site.created_by)
+    members = [{
+        "user_id": site.created_by,
+        "username": creator.username if creator else "unknown",
+        "role": "owner",
+        "is_creator": True,
+        "invited_by": None,
+        "created_at": None,
+    }]
+    for m in SiteMember.query.filter_by(site_id=site_id).all():
+        u = db.session.get(User, m.user_id)
+        members.append({
+            "user_id": m.user_id,
+            "username": u.username if u else "unknown",
+            "role": m.role,
+            "is_creator": False,
+            "invited_by": m.invited_by,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+    return jsonify({"ok": True, "members": members})
+
+
+@bp.route("/sites/<int:site_id>/members", methods=["POST"])
+@login_required
+def add_site_member(site_id):
+    site = _get_site_for_user(site_id, "owner")
+    if not site:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+    body = request.get_json(silent=True) or {}
+    username = (body.get("username") or "").strip()
+    role = body.get("role", "viewer")
+    if role not in _VALID_MEMBER_ROLES:
+        return jsonify({"ok": False, "error": f"role must be one of: {sorted(_VALID_MEMBER_ROLES)}"}), 400
+    target = User.query.filter_by(username=username).first()
+    if not target:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+    if target.id == site.created_by:
+        return jsonify({"ok": False, "error": "Site creator is already an owner"}), 409
+    existing = SiteMember.query.filter_by(site_id=site_id, user_id=target.id).first()
+    if existing:
+        existing.role = role
+    else:
+        existing = SiteMember(site_id=site_id, user_id=target.id, role=role, invited_by=session["user_id"])
+        db.session.add(existing)
+    db.session.commit()
+
+    audit("fleet.site_member_added", target_type="site", target_id=str(site_id),
+          detail=f"user_id={target.id} username={target.username!r} role={role}")
+    return jsonify({"ok": True, "user_id": target.id, "username": target.username, "role": role})
+
+
+@bp.route("/sites/<int:site_id>/members/<int:uid>", methods=["PUT"])
+@login_required
+def update_site_member(site_id, uid):
+    site = _get_site_for_user(site_id, "owner")
+    if not site:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+    if uid == site.created_by:
+        return jsonify({"ok": False, "error": "Cannot change the site creator's role"}), 400
+    body = request.get_json(silent=True) or {}
+    role = body.get("role")
+    if role not in _VALID_MEMBER_ROLES:
+        return jsonify({"ok": False, "error": f"role must be one of: {sorted(_VALID_MEMBER_ROLES)}"}), 400
+    member = SiteMember.query.filter_by(site_id=site_id, user_id=uid).first()
+    if not member:
+        return jsonify({"ok": False, "error": "Member not found"}), 404
+    member.role = role
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@bp.route("/sites/<int:site_id>/members/<int:uid>", methods=["DELETE"])
+@login_required
+def remove_site_member(site_id, uid):
+    site = _get_site_for_user(site_id, "owner")
+    if not site:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+    if uid == site.created_by:
+        return jsonify({"ok": False, "error": "Cannot remove the site creator"}), 400
+    member = SiteMember.query.filter_by(site_id=site_id, user_id=uid).first()
+    if member:
+        db.session.delete(member)
+        db.session.commit()
+    return jsonify({"ok": True})
+
+
+# ── Site capture policy ──────────────────────────────────────────
+# Mirrors capture/api.py's GET/PUT /api/capture/policy/<pid> exactly —
+# reuses that module's parse/validate helpers rather than duplicating them
+# (both live in the same deployable package, unlike the agent's
+# deliberately-duplicated wire framing).
+
+@bp.route("/sites/<int:site_id>/policy", methods=["GET"])
+@login_required
+def get_site_policy(site_id):
+    site = _get_site_for_user(site_id, "owner")
+    if site is None:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+    policy = _parse_policy(site.capture_policy)
+    return jsonify({
+        "ok": True,
+        "site_id": site_id,
+        "policy": policy,
+        "effective_allowed_interfaces": _resolve_interface_allowlist(policy),
+    })
+
+
+@bp.route("/sites/<int:site_id>/policy", methods=["PUT"])
+@login_required
+def set_site_policy(site_id):
+    site = _get_site_for_user(site_id, "owner")
+    if site is None:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+
+    body = request.get_json(silent=True)
+    if body is None or not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "JSON body required"}), 400
+
+    err = _validate_policy_body(body)
+    if err:
+        return jsonify({"ok": False, "error": f"invalid policy: {err}"}), 400
+
+    old_raw = site.capture_policy
+    site.capture_policy = json.dumps(body) if body else None
+    db.session.commit()
+
+    audit("fleet.site_policy_set", target_type="site", target_id=str(site_id),
+          detail=json.dumps({
+              "site_id": site_id,
+              "old_policy": json.loads(old_raw) if old_raw else None,
+              "new_policy": body,
+          }))
+    return jsonify({"ok": True, "policy": body})
+
+
 # ── Enrollment tokens ────────────────────────────────────────────
 
 @bp.route("/sites/<int:site_id>/enrollment-tokens", methods=["POST"])
@@ -220,6 +371,59 @@ def list_agents(site_id):
         return jsonify({"ok": False, "error": "Site not found"}), 404
     agents = Agent.query.filter_by(site_id=site_id).order_by(Agent.created_at).all()
     return jsonify({"ok": True, "agents": [_serialize_agent(a) for a in agents]})
+
+
+@bp.route("/sites/<int:site_id>/stream", methods=["GET"])
+@login_required
+def stream_site_status(site_id):
+    """Live agent status updates for one site (Phase 5).
+
+    Agent status changes happen in the fleet gateway — a separate process
+    from every Flask/gunicorn worker — so there's no in-process signal to
+    push from the way capture/api.py's local StatsHub can. Redis pub/sub
+    is the cross-process/cross-worker bridge (gateway publishes, every
+    subscribed worker's SSE connection gets a copy — the same reason
+    RATELIMIT_STORAGE_URI already needs to be shared, not per-worker).
+    Falls back to nothing (no live updates, just the periodic poll the
+    fleet page already does) if no Redis URL is configured.
+    """
+    site = _get_site_for_user(site_id)
+    if site is None:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+
+    if not config.FLEET_STATUS_REDIS_URL:
+        def _unavailable():
+            yield ": fleet status streaming unavailable (no Redis configured)\n\n"
+        return Response(stream_with_context(_unavailable()), mimetype="text/event-stream")
+
+    import redis
+
+    @stream_with_context
+    def _gen():
+        r = redis.from_url(config.FLEET_STATUS_REDIS_URL)
+        pubsub = r.pubsub()
+        pubsub.subscribe(config.FLEET_STATUS_REDIS_CHANNEL)
+        yield ": connected\n\n"
+        try:
+            for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                except (ValueError, TypeError):
+                    continue
+                if data.get("site_id") != site_id:
+                    continue  # this channel carries every site's events
+                yield f"data: {json.dumps(data)}\n\n"
+        except GeneratorExit:
+            return
+        finally:
+            pubsub.close()
+
+    resp = Response(_gen(), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache, no-store"
+    resp.headers["X-Accel-Buffering"] = "no"
+    return resp
 
 
 @bp.route("/agents/<int:agent_id>/revoke", methods=["POST"])

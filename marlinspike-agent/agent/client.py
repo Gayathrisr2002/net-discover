@@ -34,6 +34,7 @@ import functools
 import json
 import logging
 import os
+import random
 import ssl
 import struct
 
@@ -130,6 +131,7 @@ class AgentClient:
                  heartbeat_interval_s: float = DEFAULT_HEARTBEAT_INTERVAL_S,
                  stats_interval_s: float = DEFAULT_STATS_INTERVAL_S,
                  staging_dir: str | None = None,
+                 spool_dir: str | None = None,
                  scan_profile: str = "fast",
                  dpi_engine: str | None = None,
                  dpi_binary: str | None = None):
@@ -142,6 +144,7 @@ class AgentClient:
         self.heartbeat_interval_s = heartbeat_interval_s
         self.stats_interval_s = stats_interval_s
         self.staging_dir = staging_dir or consumer.default_staging_dir()
+        self.spool_dir = spool_dir or consumer.default_spool_dir()
         self.scan_profile = scan_profile
         self.dpi_engine = dpi_engine
         self.dpi_binary = dpi_binary
@@ -166,10 +169,15 @@ class AgentClient:
                 await self._run_once()
                 backoff = 1.0  # clean session ended (shouldn't normally happen) — reset backoff
             except (ConnectionError, OSError, ssl.SSLError, asyncio.TimeoutError, AgentError) as exc:
-                log.warning("connection lost (%s) — reconnecting in %.0fs", exc, backoff)
+                log.warning("connection lost (%s) — reconnecting shortly", exc)
             except Exception:
-                log.exception("agent client crashed — reconnecting in %.0fs", backoff)
-            await asyncio.sleep(backoff)
+                log.exception("agent client crashed — reconnecting shortly")
+            # Jittered sleep (±50% of the nominal backoff): a fleet of many
+            # agents all dropped by the same event (gateway restart, network
+            # blip) would otherwise all retry in lockstep and hit the
+            # gateway with a synchronized reconnect spike every backoff
+            # interval. The backoff value itself still grows deterministically.
+            await asyncio.sleep(random.uniform(backoff * 0.5, backoff * 1.5))
             backoff = min(backoff * 2, _MAX_BACKOFF_S)
 
     async def _run_once(self) -> None:
@@ -193,6 +201,8 @@ class AgentClient:
             if not resp.get("ok"):
                 raise AgentError(resp.get("error") or "auth rejected")
             log.info("authenticated as %s", self.agent_uuid)
+
+            asyncio.create_task(self._flush_spool())
 
             reader_task = asyncio.create_task(self._reader_loop(reader, writer))
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(writer))
@@ -394,30 +404,85 @@ class AgentClient:
 
     async def _ship_report(self, session_id: str, filename: str, report_text: str,
                             pcap_filename: str) -> None:
+        """Send a finished report upward. Never loses it: a link that's
+        down (or drops mid-send) gets the report spooled to disk instead
+        of dropped, and _flush_spool retries it on the next reconnect."""
         writer = self._current_writer
         if writer is None or self._write_lock is None:
-            log.warning("session=%s no active connection — dropping report %s", session_id, filename)
+            log.warning("session=%s no active connection — spooling report %s", session_id, filename)
+            self._spool_report(session_id, filename, report_text, pcap_filename)
             return
 
-        total_chunks = max(1, -(-len(report_text) // _REPORT_CHUNK_CHARS))  # ceil div
-        for i in range(total_chunks):
-            chunk = report_text[i * _REPORT_CHUNK_CHARS:(i + 1) * _REPORT_CHUNK_CHARS]
+        try:
+            total_chunks = max(1, -(-len(report_text) // _REPORT_CHUNK_CHARS))  # ceil div
+            for i in range(total_chunks):
+                chunk = report_text[i * _REPORT_CHUNK_CHARS:(i + 1) * _REPORT_CHUNK_CHARS]
+                await _send_frame_locked(self._write_lock, writer, {
+                    "type": "event", "method": "report_chunk",
+                    "params": {
+                        "session_id": session_id, "filename": filename,
+                        "chunk_index": i, "total_chunks": total_chunks, "data": chunk,
+                    },
+                })
             await _send_frame_locked(self._write_lock, writer, {
-                "type": "event", "method": "report_chunk",
+                "type": "event", "method": "report_complete",
                 "params": {
                     "session_id": session_id, "filename": filename,
-                    "chunk_index": i, "total_chunks": total_chunks, "data": chunk,
+                    "total_chunks": total_chunks, "pcap_filename": pcap_filename,
                 },
             })
-        await _send_frame_locked(self._write_lock, writer, {
-            "type": "event", "method": "report_complete",
-            "params": {
-                "session_id": session_id, "filename": filename,
-                "total_chunks": total_chunks, "pcap_filename": pcap_filename,
-            },
-        })
+        except (ConnectionError, OSError, asyncio.CancelledError) as exc:
+            log.warning("session=%s link dropped mid-send (%s) — spooling report %s",
+                        session_id, exc, filename)
+            self._spool_report(session_id, filename, report_text, pcap_filename)
+            return
+
         log.info("session=%s shipped report %s (%d bytes, %d chunks)",
                   session_id, filename, len(report_text), total_chunks)
+
+    # ── durable local spool (Phase 5) ────────────────────────────
+
+    def _spool_report(self, session_id: str, filename: str, report_text: str, pcap_filename: str) -> None:
+        try:
+            os.makedirs(self.spool_dir, exist_ok=True)
+            spool_path = os.path.join(self.spool_dir, filename + ".spool.json")
+            with open(spool_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "session_id": session_id, "filename": filename,
+                    "pcap_filename": pcap_filename, "report_text": report_text,
+                }, f)
+        except OSError:
+            log.exception("failed to spool report %s — data lost", filename)
+
+    async def _flush_spool(self) -> None:
+        """Called once right after (re)authenticating. Best-effort: any
+        report still un-shippable (immediate re-disconnect) just gets
+        re-spooled by _ship_report and waits for the next reconnect."""
+        if not os.path.isdir(self.spool_dir):
+            return
+        try:
+            entries = sorted(os.listdir(self.spool_dir))
+        except OSError:
+            return
+        spooled = [e for e in entries if e.endswith(".spool.json")]
+        if not spooled:
+            return
+        log.info("flushing %d spooled report(s)", len(spooled))
+        for entry in spooled:
+            spool_path = os.path.join(self.spool_dir, entry)
+            try:
+                with open(spool_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                log.exception("failed to read spool entry %s — leaving in place", entry)
+                continue
+            try:
+                os.remove(spool_path)
+            except OSError:
+                pass
+            await self._ship_report(
+                data["session_id"], data["filename"], data["report_text"], data["pcap_filename"],
+            )
 
 
 async def _send_frame_locked(lock: asyncio.Lock, writer: asyncio.StreamWriter, obj: dict) -> None:
