@@ -4014,9 +4014,11 @@ def create_app():
     def _handle_upload(project_id=None):
         """Core upload handler with magic-byte validation, size limits, auto-slice, and archival."""
         if "file" not in request.files:
+            log.warning("upload rejected: no 'file' part in request.files (keys=%s)", list(request.files.keys()))
             return jsonify({"ok": False, "error": "No file part"}), 400
         f = request.files["file"]
         if not f.filename:
+            log.warning("upload rejected: empty filename")
             return jsonify({"ok": False, "error": "No file selected"}), 400
 
         # Per-user upload limit (falls back to global default)
@@ -4076,6 +4078,10 @@ def create_app():
                             # Read more to get at least 4 bytes
                             chunk += f.read(4 - len(chunk))
                         if len(chunk) < 4 or chunk[:4] not in PCAP_MAGIC:
+                            log.warning(
+                                "upload rejected: bad magic bytes filename=%r first_bytes=%s",
+                                f.filename, chunk[:8].hex(),
+                            )
                             os.unlink(tmp_path)
                             return jsonify({
                                 "ok": False,
@@ -4097,6 +4103,7 @@ def create_app():
             raise
 
         if written == 0:
+            log.warning("upload rejected: zero bytes written filename=%r", f.filename)
             os.unlink(tmp_path)
             return jsonify({"ok": False, "error": "Empty file"}), 400
 
