@@ -5441,6 +5441,62 @@ def create_app():
     def api_upload():
         return _handle_upload()
 
+    def _upload_result_payload(result):
+        """_handle_upload() returns either a bare jsonify(...) Response
+        (implicit 200) or a (Response, status) tuple, exactly like any
+        Flask view is allowed to — fine when Flask's own routing consumes
+        it, but calling it directly as a plain helper (as /upload's POST
+        handler below does) needs to normalize both shapes to get the
+        actual payload dict back out."""
+        resp, status = result if isinstance(result, tuple) else (result, 200)
+        return (resp.get_json(silent=True) or {}), status
+
+    @app.route("/upload", methods=["GET"])
+    @login_required
+    def upload_page():
+        """Standalone, plain-HTML-form PCAP upload page — a real browser
+        multipart form POST with a full-page reload, not a JS fetch() call.
+        Built as a deliberately simpler, independent alternative alongside
+        the dashboard's drag-and-drop/AJAX uploader: a plain form submit
+        has far fewer ways to fail silently (no client-side fetch/CORS/
+        network-error handling to get wrong, no JS event-listener state to
+        get stuck) — if this one fails, the browser shows the real
+        server error directly. Reuses _handle_upload()'s exact same
+        validated core logic (magic bytes, size limits, ACL), not a
+        reimplementation, so this can never drift from what the API path
+        actually accepts.
+        """
+        from sqlalchemy import or_
+        uid = session["user_id"]
+        shared_pids = db.session.query(ProjectMember.project_id).filter_by(user_id=uid)
+        projects = Project.query.filter(
+            or_(Project.user_id == uid, Project.id.in_(shared_pids))
+        ).order_by(Project.created_at).all()
+        memberships = {m.project_id: m.role for m in ProjectMember.query.filter_by(user_id=uid).all()}
+        # Only projects the user can actually upload to (editor+), matching
+        # _handle_upload's own ACL check exactly -- no point listing a
+        # project here that the upload would then reject.
+        uploadable = [
+            p for p in projects
+            if p.user_id == uid or _MEMBER_ROLE_RANK.get(memberships.get(p.id), 0) >= _MEMBER_ROLE_RANK["editor"]
+        ]
+        default = _ensure_default_project(uid)
+        return render_template(
+            "upload_simple.html", projects=uploadable, default_project_id=default.id,
+            success=request.args.get("success"), filename=request.args.get("filename"),
+            size=request.args.get("size"), error=request.args.get("error"),
+        )
+
+    @app.route("/upload", methods=["POST"])
+    @login_required
+    @limiter.limit("10 per minute")
+    def upload_page_submit():
+        payload, status = _upload_result_payload(_handle_upload())
+        if payload.get("ok"):
+            return redirect(url_for("upload_page", success="1",
+                                     filename=payload.get("filename", ""), size=payload.get("size", 0)))
+        return redirect(url_for("upload_page", error=payload.get("error") or f"Upload failed (HTTP {status})"))
+
     # ── Scan history ─────────────────────────────────────────
 
     @app.route("/api/history")
