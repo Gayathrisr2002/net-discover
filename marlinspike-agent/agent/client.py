@@ -405,15 +405,29 @@ class AgentClient:
                     return
                 for closed_path in status.get("files_closed") or []:
                     self._spawn(self._scan_and_ship(closed_path, session_id))
+                still_running = status.get("running", True)
                 await _send_frame_locked(self._write_lock, writer, {
                     "type": "event", "method": "session_stats",
                     "params": {
                         "session_id": session_id,
                         "bytes_captured": status.get("bytes_total", 0),
                         "rotation_count": status.get("file_index", 0),
+                        # Without this, a session that expires on its own
+                        # (max_duration_s reached, or the ring simply fills
+                        # under a policy that doesn't loop) never tells the
+                        # gateway it's actually done — record_session_stats
+                        # only touched bytes/rotation counts, never status,
+                        # so the CaptureSession row stayed "running" forever
+                        # even after the report had already shipped and
+                        # been ingested. Same class of bug as the local
+                        # capture path's StatsHub finalizer fixes, on the
+                        # remote path instead. Explicit /stop requests are
+                        # unaffected — they already finalize synchronously
+                        # from the app's own stop_session handler.
+                        "running": still_running,
                     },
                 })
-                if not status.get("running", True):
+                if not still_running:
                     return
         except asyncio.CancelledError:
             return

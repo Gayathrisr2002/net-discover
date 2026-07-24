@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import platform
 import sys
@@ -80,7 +81,26 @@ def _cmd_enroll(args: argparse.Namespace) -> int:
         client_cert_pem=client_cert_pem,
         client_key_pem=client_key_pem if client_cert_pem else None,
     )
-    creds.save(args.credential_file)
+    try:
+        creds.save(args.credential_file)
+    except OSError as exc:
+        # By this point the enroll RPC has ALREADY succeeded server-side —
+        # the one-time token is consumed and a real credential has been
+        # minted. A save failure here (e.g. /etc/marlinspike-agent not
+        # created yet — see README's systemd setup) used to just lose that
+        # credential silently, leaving a "phantom" enrolled-but-unusable
+        # agent recoverable only via an admin rotate-credential action.
+        # Print it so the operator can save it by hand instead.
+        print(f"WARNING: enrollment succeeded but failed to write {args.credential_file}: {exc}",
+              file=sys.stderr)
+        print("Save this now — it will not be shown again:", file=sys.stderr)
+        print(json.dumps({
+            "gateway_host": creds.gateway_host, "gateway_port": creds.gateway_port,
+            "ca_cert": creds.ca_cert, "insecure_skip_verify": creds.insecure_skip_verify,
+            "agent_uuid": creds.agent_uuid, "credential": creds.credential,
+            "client_cert_pem": creds.client_cert_pem, "client_key_pem": creds.client_key_pem,
+        }, indent=2))
+        return 1
     print(f"Enrolled as agent {result['agent_uuid']}")
     print(f"Credentials written to {args.credential_file} (mode 0600)")
     if client_cert_pem:

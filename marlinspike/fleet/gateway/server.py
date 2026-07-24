@@ -510,6 +510,7 @@ class GatewayServer:
                     bytes_captured=int(params.get("bytes_captured") or 0),
                     rotation_count=int(params.get("rotation_count") or 0),
                     agent_uuid=agent_uuid,
+                    running=bool(params.get("running", True)),
                 ))
             except Exception:
                 log.exception("failed to record session_stats event from agent %s", agent_uuid)

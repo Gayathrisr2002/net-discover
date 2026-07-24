@@ -404,7 +404,7 @@ def _session_owned_by_agent(cs: CaptureSession, agent_uuid: str) -> bool:
 
 
 def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_count: int,
-                          agent_uuid: str) -> None:
+                          agent_uuid: str, running: bool = True) -> None:
     """Persist a periodic progress snapshot an agent relayed for one of its
     active capture sessions. Writes straight into the same CaptureSession
     columns the local capture path already uses (capture/api.py's
@@ -412,6 +412,17 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
     GET /api/capture/sessions/<id> show live-ish progress for a remote
     session with zero changes to the report-reading side, matching the
     plan's 'same endpoints serve both local and remote captures' principle.
+
+    When `running` is False (the agent's local capd session ended on its
+    own — max_duration_s reached, or the ring stopped without looping —
+    not an explicit /stop request, which finalizes synchronously from
+    stop_session instead), this also finalizes status/stopped_at. Without
+    this, a self-expiring *remote* session stayed "running" forever even
+    after its report had already shipped and been ingested — the same
+    class of bug the local capture path's StatsHub finalizer fixes, found
+    by actually deploying and running a real agent end-to-end rather than
+    only exercising the explicit-stop path.
+
     Best-effort: an unknown/already-stopped session_uuid, or one this
     agent doesn't actually own, is not an error, just an event dropped
     silently — either arrived too late to matter or is worth logging as
@@ -427,6 +438,9 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
             return
         cs.bytes_captured = bytes_captured
         cs.rotation_count = max(cs.rotation_count, rotation_count)
+        if not running:
+            cs.status = "stopped"
+            cs.stopped_at = datetime.now(timezone.utc)
         db.session.commit()
 
 
