@@ -68,7 +68,10 @@
     <div class="panel">
       <div class="panel-header">
         <h2>{{ t('fleet.sites') }}</h2>
-        <button class="btn btn-primary btn-sm" onclick="FLEET.showAddSite()">{{ t('fleet.add_site') }}</button>
+        <div>
+          <a class="btn btn-sm" href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
+          <button class="btn btn-primary btn-sm" onclick="FLEET.showAddSite()">{{ t('fleet.add_site') }}</button>
+        </div>
       </div>
       <div class="panel-body" style="padding:0;">
         <table class="ms-table">
@@ -153,6 +156,10 @@
         <div id="fleet-token-result" style="display:none;">
           <div class="fleet-token-box" id="fleet-token-value"></div>
           <div class="fleet-token-warning">{{ t('fleet.token_shown_once') }}</div>
+          <p style="margin-top:10px;">
+            <a href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
+            — {{ t('fleet.download_agent_hint') }}
+          </p>
         </div>
       </div>
       <div class="ms-modal-footer">

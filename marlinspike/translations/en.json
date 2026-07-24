@@ -313,6 +313,8 @@
   "fleet.agents": "Agents",
   "fleet.bound_project": "Bound Project",
   "fleet.confirm_revoke": "Revoke this agent? It will be disconnected and its credential invalidated.",
+  "fleet.download_agent": "Download Agent",
+  "fleet.download_agent_hint": "install with 'pip install -e .', then run 'marlinspike-agent enroll --gateway HOST:PORT --token TOKEN'.",
   "fleet.issue_enrollment_token": "Issue Enrollment Token",
   "fleet.issue_token_hint": "Generates a one-time token to enroll a new agent at this site. It expires in 1 hour and is only shown once.",
   "fleet.last_seen": "Last Seen",

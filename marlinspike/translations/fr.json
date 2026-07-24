@@ -313,6 +313,8 @@
   "fleet.agents": "Agents",
   "fleet.bound_project": "Projet associé",
   "fleet.confirm_revoke": "Révoquer cet agent ? Il sera déconnecté et son identifiant invalidé.",
+  "fleet.download_agent": "Télécharger l'agent",
+  "fleet.download_agent_hint": "installez avec « pip install -e . », puis lancez « marlinspike-agent enroll --gateway HOST:PORT --token TOKEN ».",
   "fleet.issue_enrollment_token": "Émettre un jeton d'inscription",
   "fleet.issue_token_hint": "Génère un jeton à usage unique pour inscrire un nouvel agent sur ce site. Il expire au bout d'1 heure et n'est affiché qu'une seule fois.",
   "fleet.last_seen": "Vu pour la dernière fois",

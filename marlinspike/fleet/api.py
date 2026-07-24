@@ -13,11 +13,14 @@ import — app.py registers this blueprint).
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import os
 import secrets
+import tarfile
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, Response, jsonify, request, session, stream_with_context
+from flask import Blueprint, Response, jsonify, request, send_file, session, stream_with_context
 
 from marlinspike import config
 from marlinspike.audit import audit
@@ -344,6 +347,49 @@ def set_site_policy(site_id):
               "new_policy": body,
           }))
     return jsonify({"ok": True, "policy": body})
+
+
+# ── Agent package download ───────────────────────────────────────
+
+@bp.route("/agent-package", methods=["GET"])
+@login_required
+def download_agent_package():
+    """Serve the marlinspike-agent source as a .tar.gz — the operator's
+    only way to actually get the agent onto a remote host before this
+    route existed was to separately clone the whole repo. Built fresh
+    from config.MARLINSPIKE_AGENT_SOURCE_DIR on every request (small,
+    source-only, no compiled artifacts) rather than a cached/prebuilt
+    file, so it can never drift from whatever agent code this exact
+    running deployment actually ships. Not site- or project-scoped — the
+    package itself is generic; only the enrollment token (issued
+    separately, per-site) ties a specific install to a specific site.
+    """
+    source_dir = config.MARLINSPIKE_AGENT_SOURCE_DIR
+    if not os.path.isdir(source_dir):
+        return jsonify({"ok": False, "error": "agent package not available on this deployment"}), 404
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(source_dir, arcname="marlinspike-agent", filter=_agent_tar_filter)
+    buf.seek(0)
+
+    audit("fleet.agent_package_downloaded", target_type="site", target_id=None)
+    return send_file(
+        buf, mimetype="application/gzip", as_attachment=True,
+        download_name="marlinspike-agent.tar.gz",
+    )
+
+
+def _agent_tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    """Excludes __pycache__/.pyc/.egg-info cruft and normalizes ownership
+    (uid/gid 0) so the downloaded tarball doesn't carry this container's
+    internal uid/gid — matches how e.g. `git archive` behaves."""
+    name = info.name
+    if "__pycache__" in name.split("/") or name.endswith((".pyc", ".pyo")) or ".egg-info" in name:
+        return None
+    info.uid = info.gid = 0
+    info.uname = info.gname = ""
+    return info
 
 
 # ── Enrollment tokens ────────────────────────────────────────────

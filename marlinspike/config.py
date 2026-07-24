@@ -47,6 +47,13 @@ BASE_DIR = PROJECT_ROOT  # backwards-compatible alias for v2.x callers
 DATA_DIR = os.environ.get("MARLINSPIKE_DATA_DIR", os.path.join(PROJECT_ROOT, "data"))
 RULES_DIR = os.environ.get("MARLINSPIKE_RULES_DIR", os.path.join(PROJECT_ROOT, "rules"))
 REPORTS_DIR = os.path.join(DATA_DIR, "reports")
+
+# Remote sensor agent source tree (Dockerfile COPYs marlinspike-agent/ next
+# to this package for exactly this — see fleet/api.py's /agent-package
+# download route). Never installed/imported by this app itself.
+MARLINSPIKE_AGENT_SOURCE_DIR = os.environ.get(
+    "MARLINSPIKE_AGENT_SOURCE_DIR", os.path.join(PROJECT_ROOT, "marlinspike-agent")
+)
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 SUBMISSIONS_DIR = os.path.join(DATA_DIR, "submissions")
 

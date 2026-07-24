@@ -117,6 +117,11 @@ COPY presets/ ./presets/
 COPY plugins/ ./plugins/
 COPY rules/ ./rules/
 COPY migrations/ ./migrations/
+# Remote sensor agent source (Phase 1-6 distributed-agent architecture) —
+# never installed/run in this image, only served for download from the
+# Fleet page (marlinspike/fleet/api.py's /agent-package route) so an
+# operator doesn't need to separately clone the repo to deploy an agent.
+COPY marlinspike-agent/ ./marlinspike-agent/
 
 COPY --from=mitre-builder /build/marlinspike-mitre/plugins/marlinspike_mitre ./plugins/marlinspike_mitre
 COPY --from=mitre-builder /build/marlinspike-mitre/rules/mitre ./rules/mitre
