@@ -244,7 +244,14 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
     app = get_app()
     with app.app_context():
         token_hash = _hash_token(raw_token)
-        token = AgentEnrollmentToken.query.filter_by(token_hash=token_hash).first()
+        # with_for_update(): without a row lock here, two concurrent
+        # redemptions of the same raw token (e.g. a replayed/intercepted
+        # token racing the legitimate one) could both read used_at=None
+        # before either commits, both pass the check below, and both mint
+        # a live credential from one supposedly single-use token. The lock
+        # makes the second request block until the first's commit, after
+        # which it correctly sees used_at already set.
+        token = AgentEnrollmentToken.query.filter_by(token_hash=token_hash).with_for_update().first()
         if token is None:
             raise GatewayAuthError("invalid enrollment token")
         if token.used_at is not None:
@@ -381,7 +388,23 @@ def mark_offline(*, agent_uuid: str) -> None:
         _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
 
 
-def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_count: int) -> None:
+def _session_owned_by_agent(cs: CaptureSession, agent_uuid: str) -> bool:
+    """True iff `cs` is a remote-agent session actually owned by the agent
+    claiming to report on it. Without this check, any authenticated agent
+    could inject stats/reports for a session_uuid belonging to a
+    *different* tenant's agent — session_uuid is a UUID4 (unguessable in
+    practice), but this is real defense-in-depth, not redundant: an agent
+    is only ever supposed to know the session_uuids the gateway itself
+    pushed to it via `start`, and this closes off any other path
+    (log scraping, a bug elsewhere) from being usable cross-tenant."""
+    if cs.agent_id is None:
+        return False  # a local (non-agent) session — no agent should ever report on it
+    agent = Agent.query.filter_by(agent_uuid=agent_uuid).first()
+    return agent is not None and agent.id == cs.agent_id
+
+
+def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_count: int,
+                          agent_uuid: str) -> None:
     """Persist a periodic progress snapshot an agent relayed for one of its
     active capture sessions. Writes straight into the same CaptureSession
     columns the local capture path already uses (capture/api.py's
@@ -389,12 +412,18 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
     GET /api/capture/sessions/<id> show live-ish progress for a remote
     session with zero changes to the report-reading side, matching the
     plan's 'same endpoints serve both local and remote captures' principle.
-    Best-effort: an unknown/already-stopped session_uuid is not an error,
-    just a stats event that arrived too late to matter."""
+    Best-effort: an unknown/already-stopped session_uuid, or one this
+    agent doesn't actually own, is not an error, just an event dropped
+    silently — either arrived too late to matter or is worth logging as
+    a possible cross-tenant probe, never worth crashing the connection over."""
     app = get_app()
     with app.app_context():
         cs = CaptureSession.query.filter_by(session_uuid=session_uuid).first()
         if cs is None or cs.status not in ("pending", "running"):
+            return
+        if not _session_owned_by_agent(cs, agent_uuid):
+            log.warning("agent %s sent session_stats for session %s it doesn't own — dropping",
+                        agent_uuid, session_uuid)
             return
         cs.bytes_captured = bytes_captured
         cs.rotation_count = max(cs.rotation_count, rotation_count)
@@ -402,7 +431,7 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
 
 
 def ingest_report(*, session_uuid: str, filename: str, report_text: str,
-                   pcap_filename: str | None) -> None:
+                   pcap_filename: str | None, agent_uuid: str) -> None:
     """Write a report an agent finished analyzing locally to the *same*
     REPORTS_DIR/<owner_user_id>/<project_id>/<filename> path the local
     upload-and-scan flow already uses, and create a ScanHistory row for
@@ -411,9 +440,10 @@ def ingest_report(*, session_uuid: str, filename: str, report_text: str,
     changes. engine_pid/engine_argv stay NULL (no local PID to reap —
     see recovery.py's agent_id-aware reaper scoping).
 
-    Best-effort: an unknown/deleted session_uuid or malformed report text
-    is logged and dropped, not raised — a stray late-arriving report from
-    a since-cleaned-up session shouldn't crash the gateway's event loop.
+    Best-effort: an unknown/deleted session_uuid, a session this agent
+    doesn't own, or malformed report text is logged and dropped, not
+    raised — a stray late-arriving report from a since-cleaned-up session
+    shouldn't crash the gateway's event loop.
     """
     try:
         json.loads(report_text)
@@ -422,23 +452,51 @@ def ingest_report(*, session_uuid: str, filename: str, report_text: str,
                      session_uuid, filename, len(report_text))
         return
 
+    # `filename` and `pcap_filename` arrive from an authenticated-but-not-
+    # trusted agent (the whole point of mTLS/credential auth in Phase 6 is
+    # to raise the bar on a stolen-credential attacker, not to make every
+    # field they send safe to use verbatim). Without this, a compromised
+    # agent could send filename="../../../../etc/cron.d/x" or an absolute
+    # path — os.path.join silently discards out_dir for an absolute
+    # second argument — and write arbitrary content to any path this
+    # process can write. Collapse to a bare basename and reject anything
+    # that isn't a plain, safe filename outright.
+    safe_filename = os.path.basename(filename or "")
+    if not safe_filename or safe_filename in (".", "..") or not safe_filename.endswith(".json"):
+        log.warning("session=%s rejecting unsafe report filename %r from agent %s",
+                     session_uuid, filename, agent_uuid)
+        return
+    if pcap_filename:
+        pcap_filename = os.path.basename(pcap_filename)
+
     app = get_app()
     with app.app_context():
         cs = CaptureSession.query.filter_by(session_uuid=session_uuid).first()
         if cs is None or cs.project_id is None:
             log.warning("session=%s unknown or project-less — dropping report %s",
-                         session_uuid, filename)
+                         session_uuid, safe_filename)
+            return
+        if not _session_owned_by_agent(cs, agent_uuid):
+            log.warning("agent %s sent report_complete for session %s it doesn't own — dropping",
+                        agent_uuid, session_uuid)
             return
         project = db.session.get(Project, cs.project_id)
         if project is None:
             log.warning("session=%s project %s gone — dropping report %s",
-                         session_uuid, cs.project_id, filename)
+                         session_uuid, cs.project_id, safe_filename)
             return
 
         owner_uid = project.user_id
         out_dir = os.path.join(config.REPORTS_DIR, str(owner_uid), str(project.id))
         os.makedirs(out_dir, exist_ok=True)
-        report_path = os.path.join(out_dir, filename)
+        report_path = os.path.join(out_dir, safe_filename)
+        # Belt-and-suspenders: confirm the resolved path is still actually
+        # inside out_dir even after basename-only normalization (defends
+        # against any future change to the sanitization above regressing
+        # this) before ever opening it for write.
+        if os.path.commonpath([os.path.realpath(out_dir), os.path.realpath(report_path)]) != os.path.realpath(out_dir):
+            log.warning("session=%s report path %r escaped out_dir — dropping", session_uuid, report_path)
+            return
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_text)
 

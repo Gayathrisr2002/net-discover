@@ -48,6 +48,7 @@ class StatsHub:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _subscribers: list[_Subscriber] = field(default_factory=list, init=False)
     _file_listeners: list[Callable[[str], None]] = field(default_factory=list, init=False)
+    _finished_listeners: list[Callable[[dict | None], None]] = field(default_factory=list, init=False)
     _last_frames: deque = field(default_factory=lambda: deque(maxlen=_REPLAY_BUFFER), init=False)
     _last_seen_files_total: int = field(default=0, init=False)
     _running: bool = field(default=False, init=False)
@@ -122,6 +123,18 @@ class StatsHub:
         with self._lock:
             self._file_listeners.append(fn)
 
+    def add_finished_listener(self, fn: Callable[[dict | None], None]) -> None:
+        """Registered fn is called exactly once when this hub's stream ends
+        for any reason — natural completion (max_duration_s/ring exhaustion
+        on capd's side), capd becoming unreachable, or a crash — with the
+        final stats frame (or None if there wasn't a clean one). This is
+        what lets a *self-expiring* session (nobody ever called the
+        explicit /stop endpoint) still get its CaptureSession DB row
+        finalized instead of showing status="running" forever even though
+        capd has already stopped it — see capture/api.py's registration."""
+        with self._lock:
+            self._finished_listeners.append(fn)
+
     # ── worker thread ────────────────────────────────────────
 
     def _run(self) -> None:
@@ -150,6 +163,20 @@ class StatsHub:
                     with sub.cond:
                         sub.closed = True
                         sub.cond.notify_all()
+                listeners = list(self._finished_listeners)
+            # Always fire, whether this hub ended naturally, via an
+            # explicit /stop, or by crashing — there's no reliable way to
+            # tell those apart here (an explicit stop_session() call races
+            # this same thread's own next stream_stats() poll noticing
+            # capd's session is already gone, so _stop_event isn't a safe
+            # signal either way). Safety against double-finalizing when
+            # stop_session() got there first is the registered listener's
+            # job (see capture/api.py's DB-status guard), not this hub's.
+            for fn in listeners:
+                try:
+                    fn(self._final_frame)
+                except Exception:
+                    log.exception("finished listener crashed for %s", self.session_uuid)
 
     def _handle_frame(self, frame: dict) -> None:
         files_closed: Iterable[str] = frame.get("files_closed") or ()

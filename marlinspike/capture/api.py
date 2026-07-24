@@ -194,12 +194,32 @@ def _merge_site_policy(policy: dict, site_policy: dict) -> dict:
             [i for i in proj_allow if i in set(site_allow)] if proj_allow is not None else list(site_allow)
         )
 
-    for field in ("max_session_duration_s", "max_total_bytes"):
-        proj_v = policy.get(field)
-        site_v = site_policy.get(field)
-        if isinstance(site_v, int) and site_v >= 0:
-            if not isinstance(proj_v, int) or proj_v <= 0 or site_v < proj_v:
-                merged[field] = site_v
+    # max_session_duration_s and max_total_bytes use DIFFERENT "0" semantics
+    # downstream (start_session's Gate 3 / Gate 4 / _apply_max_total_bytes_cap),
+    # so they can't share one merge rule:
+    #   - max_session_duration_s: 0 (or unset) means "no cap" — a value of
+    #     0 must be treated the same as "this site didn't set one," never
+    #     as a valid override, or a site setting {"max_session_duration_s":
+    #     0} (intending "no extra site restriction, defer to the project")
+    #     would flip an effective project cap into "unlimited," inverting
+    #     most-restrictive-wins. Confirmed real: a project editor could
+    #     create a site under someone's stricter project and set exactly
+    #     this to erase that project owner's duration cap.
+    #   - max_total_bytes: 0 is downstream-*rejected* outright (below
+    #     dumpcap's 1024-byte minimum ring), which is itself a legitimately
+    #     more-restrictive-than-any-cap outcome — no equivalent bug here,
+    #     so it keeps the same >=0 comparison as before.
+    site_dur = site_policy.get("max_session_duration_s")
+    if isinstance(site_dur, int) and site_dur > 0:
+        proj_dur = policy.get("max_session_duration_s")
+        if not isinstance(proj_dur, int) or proj_dur <= 0 or site_dur < proj_dur:
+            merged["max_session_duration_s"] = site_dur
+
+    proj_bytes = policy.get("max_total_bytes")
+    site_bytes = site_policy.get("max_total_bytes")
+    if isinstance(site_bytes, int) and site_bytes >= 0:
+        if not isinstance(proj_bytes, int) or proj_bytes <= 0 or site_bytes < proj_bytes:
+            merged["max_total_bytes"] = site_bytes
 
     proj_warn = policy.get("operator_warning")
     site_warn = site_policy.get("operator_warning")
@@ -301,6 +321,46 @@ def _serialize(s: CaptureSession) -> dict:
         "rotation_count": s.rotation_count,
         "error_tail": s.error_tail,
     }
+
+
+def _make_session_finalizer(app_obj, cs_id: int, interface: str, session_uuid: str):
+    """Build the StatsHub.add_finished_listener callback for one local
+    capture session. Runs in the hub's background thread (no request
+    context), so it opens its own app context to touch the DB.
+
+    Idempotent against racing with an explicit /stop request: only
+    transitions the row while it's still plainly "running" — if
+    stop_session() already moved it to "stopping"/"stopped"/"failed" (or
+    got there a moment later and overwrites these same fields with its
+    own equally-valid values from capd's stop response), this is a no-op
+    or a harmless redundant write, never a crash or data corruption. See
+    StatsHub._run()'s docstring/comment for why the hub can't reliably
+    tell "I ended because of an explicit stop" apart from "I ended on my
+    own" — that distinction is made safe here instead, by checking status.
+    """
+    def _on_finished(final_frame: dict | None) -> None:
+        with app_obj.app_context():
+            cs = db.session.get(CaptureSession, cs_id)
+            if cs is None or cs.status != "running":
+                return
+            if final_frame is not None:
+                cs.status = "stopped"
+                cs.bytes_captured = int(final_frame.get("bytes_total") or 0)
+                file_index = final_frame.get("file_index")
+                if file_index is not None:
+                    cs.rotation_count = max(cs.rotation_count, int(file_index))
+            else:
+                # Loop exited via CapdUnavailable/CapdError/an unhandled
+                # crash rather than a clean final frame — capd's own state
+                # for this session is unknown, so record it as failed
+                # rather than falsely claiming a clean stop.
+                cs.status = "failed"
+                cs.error_tail = "capture ended unexpectedly (capd unavailable or crashed)"
+            cs.stopped_at = datetime.now(timezone.utc)
+            db.session.commit()
+            manager.release_interface(interface, session_uuid)
+            manager.drop_hub(session_uuid)
+    return _on_finished
 
 
 # ── capd reachability ────────────────────────────────────────
@@ -408,6 +468,22 @@ def start_session():
         agent = _require_agent(body.get("agent_id"))
         if agent is None:
             return jsonify({"ok": False, "error": "Agent not found"}), 404
+        # project_id and agent_id are each independently ACL-checked above
+        # (caller must own/edit the project, and at least view the agent's
+        # site) but that alone doesn't mean they're the *same* deployment:
+        # a user with their own unrelated project plus only viewer access
+        # to someone else's site could otherwise pair their own (looser)
+        # project policy with that site's agent, bypassing the site
+        # owner's actual project's capture_policy entirely, and would also
+        # misattribute the resulting CaptureSession/report to the wrong
+        # project. A site is only ever supposed to run captures for the
+        # one project it's bound to (Site.project_id) — enforce that here.
+        # (A missing/invalid project_id itself is reported by the existing
+        # "valid project_id required" check further below, not here.)
+        if project is not None:
+            agent_site = Site.query.get(agent.site_id)
+            if agent_site is None or agent_site.project_id != project.id:
+                return jsonify({"ok": False, "error": "Agent not found"}), 404
 
     if not interface:
         return jsonify({"ok": False, "error": "interface required"}), 400
@@ -569,6 +645,20 @@ def start_session():
         hub.add_file_listener(consumer.make_listener(
             user_id=cs.user_id, project_id=cs.project_id,
             session_uuid=session_uuid, scan_profile="fast",
+        ))
+        # Finalizes the DB row (and releases the interface lock/hub) when
+        # this session ends on its own — e.g. max_duration_s elapses, or
+        # the ring fills and capd stops it — rather than only when someone
+        # calls the explicit /stop endpoint. Without this, a self-expiring
+        # session's CaptureSession row was stuck showing status="running"
+        # forever, even though capd had already stopped it (a real,
+        # confirmed bug: found by starting a bounded live capture and
+        # watching its DB status never leave "running" after it visibly
+        # finished). current_app must be captured now — the callback runs
+        # from the hub's background thread, outside any request context.
+        from flask import current_app
+        hub.add_finished_listener(_make_session_finalizer(
+            current_app._get_current_object(), cs.id, cs.interface, session_uuid,
         ))
         manager.register_hub(hub)
         hub.start()

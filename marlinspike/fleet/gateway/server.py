@@ -236,6 +236,18 @@ class GatewayServer:
         # cross-process state to share (unlike the Flask app's Redis-backed
         # login limiter).
         self._auth_attempts: dict[str, list[float]] = {}
+        # asyncio only holds a *weak* reference to a task created via
+        # create_task — nothing else referencing it means it can be
+        # garbage-collected mid-execution (a documented asyncio gotcha).
+        # _handle_event is dispatched this way per-frame, so every event
+        # task gets tracked here until it finishes.
+        self._background_tasks: set[asyncio.Task] = set()
+
+    def _spawn(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     def _auth_rate_limited(self, peer_ip: str) -> bool:
         now = time.monotonic()
@@ -439,7 +451,7 @@ class GatewayServer:
                 continue
 
             if msg_type == "event":
-                asyncio.create_task(self._handle_event(agent_uuid, conn, msg, loop))
+                self._spawn(self._handle_event(agent_uuid, conn, msg, loop))
                 continue
 
             if msg_type != "req":
@@ -497,32 +509,51 @@ class GatewayServer:
                     session_uuid=str(params.get("session_id", "")),
                     bytes_captured=int(params.get("bytes_captured") or 0),
                     rotation_count=int(params.get("rotation_count") or 0),
+                    agent_uuid=agent_uuid,
                 ))
             except Exception:
                 log.exception("failed to record session_stats event from agent %s", agent_uuid)
             return
 
         if method == "report_chunk":
-            filename = str(params.get("filename", ""))
-            chunk_index = int(params.get("chunk_index", 0))
-            data = str(params.get("data", ""))
+            try:
+                filename = str(params.get("filename", ""))
+                chunk_index = int(params.get("chunk_index", 0))
+                data = str(params.get("data", ""))
+            except (TypeError, ValueError):
+                log.warning("agent %s sent malformed report_chunk params — dropping", agent_uuid)
+                return
             if not (0 <= chunk_index < _MAX_REPORT_CHUNKS):
                 log.warning("agent %s sent out-of-range chunk_index=%d for %s — dropping report",
                             agent_uuid, chunk_index, filename)
                 conn.report_bytes -= sum(len(v) for v in conn.report_chunks.pop(filename, {}).values())
                 return
+            # Subtract any previous chunk already at this index before
+            # adding the new length — without this, resending the same
+            # chunk_index repeatedly inflates report_bytes without bound
+            # (real buffered memory stays flat, since the dict entry is
+            # simply overwritten) until it permanently exceeds
+            # _MAX_REPORT_BYTES_PER_CONN and every future report_chunk on
+            # this connection gets rejected, even for unrelated sessions,
+            # until the agent fully reconnects. A confirmed, real bug.
+            bucket = conn.report_chunks.setdefault(filename, {})
+            conn.report_bytes -= len(bucket.get(chunk_index, ""))
             if conn.report_bytes + len(data) > _MAX_REPORT_BYTES_PER_CONN:
                 log.warning("agent %s exceeded %d bytes of buffered report data — dropping %s",
                             agent_uuid, _MAX_REPORT_BYTES_PER_CONN, filename)
                 conn.report_bytes -= sum(len(v) for v in conn.report_chunks.pop(filename, {}).values())
                 return
-            conn.report_chunks.setdefault(filename, {})[chunk_index] = data
+            bucket[chunk_index] = data
             conn.report_bytes += len(data)
             return
 
         if method == "report_complete":
-            filename = str(params.get("filename", ""))
-            total_chunks = int(params.get("total_chunks") or 0)
+            try:
+                filename = str(params.get("filename", ""))
+                total_chunks = int(params.get("total_chunks") or 0)
+            except (TypeError, ValueError):
+                log.warning("agent %s sent malformed report_complete params — dropping", agent_uuid)
+                return
             chunks = conn.report_chunks.pop(filename, {})
             conn.report_bytes -= sum(len(v) for v in chunks.values())
             if not (0 < total_chunks <= _MAX_REPORT_CHUNKS) or len(chunks) != total_chunks or \
@@ -538,6 +569,7 @@ class GatewayServer:
                     filename=filename,
                     report_text=report_text,
                     pcap_filename=params.get("pcap_filename"),
+                    agent_uuid=agent_uuid,
                 ))
             except Exception:
                 log.exception("failed to ingest report %s from agent %s", filename, agent_uuid)
@@ -561,6 +593,18 @@ class GatewayServer:
                 resp = await asyncio.wait_for(fut, timeout=timeout_s)
             except asyncio.TimeoutError:
                 raise GatewayCommandError(f"agent {agent_uuid} did not respond to {method!r} within {timeout_s}s")
+            except asyncio.CancelledError:
+                # Distinct from wait_for's own timeout: this fires when
+                # something else (agent disconnected mid-request,
+                # heartbeat timeout, revoke) cancelled *this specific
+                # future* — see _handle_connection's cleanup, which
+                # cancels every entry in conn.pending. That's a normal,
+                # expected outcome here (the agent is simply gone), not a
+                # signal that this task itself should stop running, so it
+                # gets the same clean-error treatment as a timeout instead
+                # of escaping past the documented "every failure becomes
+                # {"ok": false}" contract.
+                raise GatewayCommandError(f"agent {agent_uuid} disconnected before responding to {method!r}")
         finally:
             conn.pending.pop(req_id, None)
 

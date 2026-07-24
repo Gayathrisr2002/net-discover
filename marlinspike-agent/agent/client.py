@@ -183,6 +183,21 @@ class AgentClient:
         self._write_lock: asyncio.Lock | None = None
         self._active_sessions: dict[str, asyncio.Task] = {}
         self._current_writer: asyncio.StreamWriter | None = None
+        # asyncio only holds a *weak* reference to a task created via
+        # create_task — several call sites below fire one off without
+        # storing it anywhere else (unlike reader_task/heartbeat_task/
+        # _active_sessions, which already retain what they need), so
+        # nothing stops it from being garbage-collected mid-execution — a
+        # documented asyncio gotcha, and a real risk for the longer-running
+        # ones (_scan_and_ship runs a real pcap analysis + a multi-chunk
+        # network send).
+        self._background_tasks: set[asyncio.Task] = set()
+
+    def _spawn(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     def _capd(self) -> CapdClient:
         return CapdClient(self.capd_socket_path)
@@ -231,7 +246,7 @@ class AgentClient:
                 raise AgentError(resp.get("error") or "auth rejected")
             log.info("authenticated as %s", self.agent_uuid)
 
-            asyncio.create_task(self._flush_spool())
+            self._spawn(self._flush_spool())
 
             reader_task = asyncio.create_task(self._reader_loop(reader, writer))
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(writer))
@@ -298,7 +313,7 @@ class AgentClient:
                 # A gateway-pushed command (start/stop/list_interfaces). Handle
                 # it as its own task so a slow capd round-trip never blocks
                 # reading the next frame (heartbeat responses, other commands).
-                asyncio.create_task(self._handle_command(writer, msg))
+                self._spawn(self._handle_command(writer, msg))
                 continue
 
     async def _handle_command(self, writer: asyncio.StreamWriter, msg: dict) -> None:
@@ -366,7 +381,7 @@ class AgentClient:
         # stop() call itself, after the reporter stopped polling, so it must
         # be picked up here or that last rotation's data never gets analyzed.
         for closed_path in resp.get("files_closed") or []:
-            asyncio.create_task(self._scan_and_ship(closed_path, session_id))
+            self._spawn(self._scan_and_ship(closed_path, session_id))
         return resp
 
     async def _stats_reporter(self, session_id: str) -> None:
@@ -389,7 +404,7 @@ class AgentClient:
                 if writer is None:
                     return
                 for closed_path in status.get("files_closed") or []:
-                    asyncio.create_task(self._scan_and_ship(closed_path, session_id))
+                    self._spawn(self._scan_and_ship(closed_path, session_id))
                 await _send_frame_locked(self._write_lock, writer, {
                     "type": "event", "method": "session_stats",
                     "params": {
@@ -436,8 +451,21 @@ class AgentClient:
         """Send a finished report upward. Never loses it: a link that's
         down (or drops mid-send) gets the report spooled to disk instead
         of dropped, and _flush_spool retries it on the next reconnect."""
+        # Capture writer AND lock together, once, and use only these local
+        # references for the whole send — never self._write_lock again
+        # inside the loop. A reconnect mid-send (large report, many
+        # chunks) replaces both self._current_writer and self._write_lock
+        # with a fresh pair for the new connection; re-reading
+        # self._write_lock on later iterations while still holding the
+        # OLD writer would send to an already-closed transport while
+        # locking out the NEW connection's legitimate traffic (heartbeat,
+        # pushed commands) behind a lock nothing else is using. Pairing
+        # them once means a mid-send reconnect instead fails cleanly on
+        # the stale writer (caught below, spooled) without ever touching
+        # the new connection's lock.
         writer = self._current_writer
-        if writer is None or self._write_lock is None:
+        lock = self._write_lock
+        if writer is None or lock is None:
             log.warning("session=%s no active connection — spooling report %s", session_id, filename)
             self._spool_report(session_id, filename, report_text, pcap_filename)
             return
@@ -446,14 +474,14 @@ class AgentClient:
             total_chunks = max(1, -(-len(report_text) // _REPORT_CHUNK_CHARS))  # ceil div
             for i in range(total_chunks):
                 chunk = report_text[i * _REPORT_CHUNK_CHARS:(i + 1) * _REPORT_CHUNK_CHARS]
-                await _send_frame_locked(self._write_lock, writer, {
+                await _send_frame_locked(lock, writer, {
                     "type": "event", "method": "report_chunk",
                     "params": {
                         "session_id": session_id, "filename": filename,
                         "chunk_index": i, "total_chunks": total_chunks, "data": chunk,
                     },
                 })
-            await _send_frame_locked(self._write_lock, writer, {
+            await _send_frame_locked(lock, writer, {
                 "type": "event", "method": "report_complete",
                 "params": {
                     "session_id": session_id, "filename": filename,

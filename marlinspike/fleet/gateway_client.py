@@ -90,6 +90,12 @@ class GatewayAdminClient:
             if resp is None or not resp.get("ok"):
                 return False
             return bool((resp.get("result") or {}).get("disconnected"))
+        except (TimeoutError, OSError):
+            # A connected-but-hung peer (partial admin-connection race,
+            # gateway overload) raises here same as an unreachable one —
+            # this call is already documented best-effort, so treat it the
+            # same way rather than letting a raw socket error escape.
+            return False
         finally:
             with contextlib.suppress(OSError):
                 sock.close()
@@ -111,6 +117,15 @@ class GatewayAdminClient:
             if not resp.get("ok"):
                 raise CapdError(resp.get("error") or f"{command_method} failed")
             return resp.get("result") or {}
+        except (TimeoutError, OSError) as exc:
+            # A connect that succeeded but then hung (unlike an outright
+            # connection failure, already wrapped into CapdUnavailable by
+            # _connect_tcp/_connect_unix) previously escaped as a raw
+            # socket.timeout/OSError — callers in capture/api.py only catch
+            # CapdUnavailable/CapdError, so this used to surface as an
+            # unhandled 500 and leave the CaptureSession row stuck in
+            # "pending"/"stopping" forever instead of being marked failed.
+            raise CapdUnavailable(f"gateway connection hung during {command_method}: {exc}") from exc
         finally:
             with contextlib.suppress(OSError):
                 sock.close()
