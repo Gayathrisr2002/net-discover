@@ -331,7 +331,6 @@
   "fleet.download_ca_cert": "Download gateway CA certificate",
   "fleet.gateway_host_not_configured": "This deployment hasn't set a gateway address for remote agents yet — ask whoever administers this server to set FLEET_GATEWAY_PUBLIC_HOST, then replace the bracketed placeholder above with the real address.",
   "fleet.health": "Health",
-  "fleet.insecure_skip_verify_note": "no CA configured on this deployment — testing only, never use on a real deployment",
   "fleet.issue_enrollment_token": "Rotate Enrollment Token",
   "fleet.issue_token_hint": "Generates this site's standing enrollment token. It does not expire and can be used to enroll any number of agents at this site until rotated.",
   "fleet.last_error": "Last error",

@@ -593,9 +593,15 @@ var FLEET = (function() {
       var caCertAvailable = !!(info && info.ca_cert_available);
       document.getElementById('fleet-ca-cert-available').style.display = caCertAvailable ? '' : 'none';
       document.getElementById('fleet-ca-cert-unavailable').style.display = caCertAvailable ? 'none' : '';
-      var caCertArg = caCertAvailable
-        ? '--ca-cert ./fleet-ca.crt'
-        : '--insecure-skip-verify   # {{ t("fleet.insecure_skip_verify_note") }}';
+      // No inline "# ..." comment here even when --insecure-skip-verify is
+      // shown — every line above it ends in a '\' continuation, and bash
+      // treats '#' as a comment that swallows the REST of the line,
+      // including that trailing backslash, which silently splits this
+      // into two commands and broke the whole point of a copy-paste-safe
+      // block (confirmed live: --credential-file then ran as its own,
+      // nonexistent command). The explanation belongs in the prose above
+      // the command (fleet.ca_cert_unavailable), never inside it.
+      var caCertArg = caCertAvailable ? '--ca-cert ./fleet-ca.crt' : '--insecure-skip-verify';
 
       document.getElementById('fleet-enroll-cmd').textContent =
         'sudo marlinspike-agent enroll \\\n' +

@@ -331,7 +331,6 @@
   "fleet.download_ca_cert": "Télécharger le certificat CA de la passerelle",
   "fleet.gateway_host_not_configured": "Ce déploiement n'a pas encore défini d'adresse de passerelle pour les agents distants — demandez à l'administrateur de ce serveur de définir FLEET_GATEWAY_PUBLIC_HOST, puis remplacez l'espace réservé entre chevrons ci-dessus par l'adresse réelle.",
   "fleet.health": "Santé",
-  "fleet.insecure_skip_verify_note": "aucune CA configurée sur ce déploiement — pour les tests uniquement, ne jamais utiliser sur un déploiement réel",
   "fleet.issue_enrollment_token": "Faire pivoter le jeton d'inscription",
   "fleet.issue_token_hint": "Génère le jeton d'inscription permanent de ce site. Il n'expire pas et peut servir à inscrire un nombre illimité d'agents sur ce site jusqu'à sa rotation.",
   "fleet.last_error": "Dernière erreur",
