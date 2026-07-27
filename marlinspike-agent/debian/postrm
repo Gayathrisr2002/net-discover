@@ -1,0 +1,20 @@
+#!/bin/sh
+# postrm for marlinspike-agent
+set -e
+
+case "$1" in
+  purge)
+    # /etc/marlinspike-agent holds the agent's credential file (a bearer
+    # secret + mTLS private key) -- only removed on purge, never on a
+    # plain remove/upgrade, matching Debian policy for sensitive config.
+    rm -rf /etc/marlinspike-agent
+    if getent passwd marlinspike-agent >/dev/null 2>&1; then
+      deluser --system marlinspike-agent >/dev/null 2>&1 || true
+    fi
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+esac
+
+exit 0

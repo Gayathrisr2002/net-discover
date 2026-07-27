@@ -32,17 +32,27 @@ def _get_audit():
 # ── Decorators ──
 
 
+def _session_invalidated() -> bool:
+    """True if the signed cookie's session_version no longer matches the
+    DB — i.e. the password was changed/reset (or another session-fixation
+    event happened) *after* this particular session was issued elsewhere,
+    and it should be force-logged-out. Shared by login_required and
+    admin_required so both actually enforce it identically."""
+    if "session_version" in session and "user_id" in session:
+        user = User.query.get(session["user_id"])
+        if user and getattr(user, "session_version", 1) != session["session_version"]:
+            return True
+    return False
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "user" not in session:
             return redirect(url_for("login_page"))
-        # Session invalidation: reject if session_version doesn't match DB
-        if "session_version" in session and "user_id" in session:
-            user = User.query.get(session["user_id"])
-            if user and getattr(user, "session_version", 1) != session["session_version"]:
-                session.clear()
-                return redirect(url_for("login_page"))
+        if _session_invalidated():
+            session.clear()
+            return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
 
@@ -77,6 +87,18 @@ def admin_required(f):
         if "user" not in session:
             if is_api:
                 return jsonify({"error": "Not authenticated"}), 401
+            return redirect(url_for("login_page"))
+        if _session_invalidated():
+            # Without this, a stolen admin session cookie stayed fully
+            # valid on every admin-only route indefinitely, even after the
+            # admin changed their own password specifically to invalidate
+            # it elsewhere — login_required's routes correctly rejected
+            # the stolen cookie, but admin_required's never re-checked the
+            # DB at all. Confirmed real: this decorator guards user
+            # management, the audit log, and admin presets.
+            session.clear()
+            if is_api:
+                return jsonify({"error": "Session expired"}), 401
             return redirect(url_for("login_page"))
         if session.get("role") != "admin":
             if is_api:

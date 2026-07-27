@@ -12,6 +12,7 @@ import — app.py registers this blueprint).
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import io
 import json
@@ -390,6 +391,28 @@ def _agent_tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
     info.uid = info.gid = 0
     info.uname = info.gname = ""
     return info
+
+
+@bp.route("/agent-package.deb", methods=["GET"])
+@login_required
+def download_agent_package_deb():
+    """Serve the pre-built marlinspike-agent .deb — install-by-double-click
+    (or `apt install ./file.deb`) for Debian/Ubuntu hosts, an alternative
+    to the pip-installable tarball above for operators who'd rather not
+    deal with a Python toolchain at all. Unlike the tarball, this is built
+    ONCE at image-build time (scripts/build_agent_deb.sh, invoked from the
+    Dockerfile) rather than per-request — building a .deb needs
+    fakeroot/dpkg-deb and never changes between requests against the same
+    image, so there's no reason to redo it on every download.
+    """
+    deb_dir = config.MARLINSPIKE_AGENT_DEB_DIR
+    matches = sorted(glob.glob(os.path.join(deb_dir, "marlinspike-agent_*_all.deb"))) if os.path.isdir(deb_dir) else []
+    if not matches:
+        return jsonify({"ok": False, "error": "agent .deb not available on this deployment"}), 404
+
+    audit("fleet.agent_package_deb_downloaded", target_type="site", target_id=None)
+    return send_file(matches[-1], mimetype="application/vnd.debian.binary-package", as_attachment=True,
+                      download_name=os.path.basename(matches[-1]))
 
 
 # ── Enrollment tokens ────────────────────────────────────────────

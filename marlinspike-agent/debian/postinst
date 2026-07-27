@@ -1,0 +1,42 @@
+#!/bin/sh
+# postinst for marlinspike-agent
+set -e
+
+case "$1" in
+  configure)
+    if ! getent passwd marlinspike-agent >/dev/null 2>&1; then
+      adduser --system --no-create-home --shell /usr/sbin/nologin \
+        --group marlinspike-agent
+    fi
+
+    mkdir -p /etc/marlinspike-agent
+    chown marlinspike-agent:marlinspike-agent /etc/marlinspike-agent
+    chmod 0700 /etc/marlinspike-agent
+
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+
+    cat <<'EOF'
+
+marlinspike-agent installed.
+
+Next steps:
+  1. Enroll with your fleet gateway (get a token from the Fleet page):
+       sudo marlinspike-agent enroll --gateway HOST:PORT --token TOKEN \
+           --ca-cert /path/to/fleet-ca.crt \
+           --credential-file /etc/marlinspike-agent/credential.json
+  2. The credential file above was just written by root (via sudo) --
+     the service itself runs as the unprivileged marlinspike-agent user,
+     so hand it ownership before starting:
+       sudo chown marlinspike-agent:marlinspike-agent \
+           /etc/marlinspike-agent/credential.json
+  3. Start it:
+       sudo systemctl enable --now marlinspike-agent
+
+See /usr/share/doc/marlinspike-agent/README.md for full details.
+EOF
+    ;;
+esac
+
+exit 0

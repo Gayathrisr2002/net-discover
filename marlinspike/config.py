@@ -54,6 +54,12 @@ REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 MARLINSPIKE_AGENT_SOURCE_DIR = os.environ.get(
     "MARLINSPIKE_AGENT_SOURCE_DIR", os.path.join(PROJECT_ROOT, "marlinspike-agent")
 )
+# Pre-built .deb (Debian/Ubuntu install-by-double-click alternative to the
+# pip-installable source tarball above) — built once at image-build time
+# via scripts/build_agent_deb.sh (Dockerfile), not per-request.
+MARLINSPIKE_AGENT_DEB_DIR = os.environ.get(
+    "MARLINSPIKE_AGENT_DEB_DIR", os.path.join(PROJECT_ROOT, "dist")
+)
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 SUBMISSIONS_DIR = os.path.join(DATA_DIR, "submissions")
 

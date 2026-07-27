@@ -2716,6 +2716,17 @@ def create_app():
         storage_uri=rate_limit_storage_uri,
     )
 
+    # Shared across all three upload entry points (api_project_upload,
+    # api_upload, upload_page_submit) so rotating between them doesn't
+    # multiply the effective rate limit. `limiter.limit(..., scope=...)`
+    # alone does NOT do this — flask-limiter only omits the endpoint name
+    # from the bucket key when a limit is built via shared_limit()
+    # specifically (plain .limit() with a scope= string still prefixes the
+    # endpoint, per flask_limiter._limits.Limit.scope_for's `self.shared`
+    # check) — confirmed by inspecting the actual Redis keys live, which
+    # still showed one counter per endpoint despite an earlier scope= fix.
+    pcap_upload_limit = limiter.shared_limit("10 per minute", scope="pcap_upload")
+
     # Ensure writable paths exist before database initialization.
     os.makedirs(config.DATA_DIR, exist_ok=True)
     os.makedirs(config.REPORTS_DIR, exist_ok=True)
@@ -3154,8 +3165,14 @@ def create_app():
         return redirect(url_for("login_page"))
 
     @app.route("/about")
+    @login_required
     def about_page():
-        return redirect(url_for("login_page"))
+        # Was a dead stub since the original baseline import ("return
+        # redirect(url_for('login_page'))" unconditionally, regardless of
+        # auth state) even though base.html carries a permanent nav link
+        # to it for every logged-in user — clicking it just bounced back
+        # to login. Confirmed real via a live navigational sweep.
+        return render_template("about.html", app_version=APP_VERSION)
 
     # ── Dashboard ────────────────────────────────────────────
 
@@ -4019,7 +4036,7 @@ def create_app():
 
     @app.route("/api/projects/<int:pid>/upload", methods=["POST"])
     @login_required
-    @limiter.limit("10 per minute")
+    @pcap_upload_limit
     def api_project_upload(pid):
         proj = _get_project_for_user(pid, "editor")
         if not proj:
@@ -5228,15 +5245,15 @@ def create_app():
         if not pcap_basename:
             return jsonify({"error": "No PCAP path recorded in report"}), 404
 
-        pid_for_path = project_id
-        if pid_for_path is None:
-            pid_for_path = _ensure_default_project(session["user_id"]).id
-        pcap_path = os.path.join(
-            config.UPLOADS_DIR,
-            str(session["user_id"]),
-            str(pid_for_path),
-            pcap_basename,
-        )
+        # user_uploads_dir resolves the *project owner's* uid (via
+        # _owner_uid_for_project), not the caller's own — same as
+        # user_reports_dir above. Building this path from
+        # session["user_id"] directly (the caller) instead broke
+        # extraction for every shared-project member who isn't the owner:
+        # it always looked in the wrong directory and 404'd (fails closed,
+        # not a leak, but a real correctness bug — same class already
+        # fixed elsewhere in this file, e.g. Finding #6).
+        pcap_path = os.path.join(user_uploads_dir(project_id), pcap_basename)
         if not os.path.isfile(pcap_path):
             return jsonify({"error": "Original PCAP not found"}), 404
 
@@ -5437,7 +5454,7 @@ def create_app():
 
     @app.route("/api/upload", methods=["POST"])
     @login_required
-    @limiter.limit("10 per minute")
+    @pcap_upload_limit
     def api_upload():
         return _handle_upload()
 
@@ -5489,7 +5506,7 @@ def create_app():
 
     @app.route("/upload", methods=["POST"])
     @login_required
-    @limiter.limit("10 per minute")
+    @pcap_upload_limit
     def upload_page_submit():
         payload, status = _upload_result_payload(_handle_upload())
         if payload.get("ok"):

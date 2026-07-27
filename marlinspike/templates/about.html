@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}MarlinSpike — {{ t('about.title') }}{% endblock %}
+
+{% block head %}
+<style nonce="{{ csp_nonce }}">
+.about-panel {
+  max-width: 640px;
+  margin: 40px auto;
+}
+.about-version {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 0.9em;
+  margin-bottom: 18px;
+}
+.about-section {
+  margin-bottom: 18px;
+}
+.about-section h3 {
+  font-size: 0.82em;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="ms-content">
+  <div class="panel about-panel">
+    <div class="panel-header">
+      <h2>MarlinSpike</h2>
+    </div>
+    <div class="panel-body">
+      <div class="about-version">v{{ app_version }}</div>
+
+      <div class="about-section">
+        <h3>{{ t('about.what_it_is') }}</h3>
+        <p>{{ t('about.description') }}</p>
+      </div>
+
+      <div class="about-section">
+        <h3>{{ t('about.license') }}</h3>
+        <p>{{ t('about.license_text') }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

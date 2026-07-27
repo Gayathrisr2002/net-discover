@@ -98,12 +98,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# System deps: tshark for PCAP dissection, libpq for psycopg2
+# System deps: tshark for PCAP dissection, libpq for psycopg2, fakeroot for
+# building the downloadable marlinspike-agent .deb below (dpkg-deb itself
+# is already present — this is a Debian-based image).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
-    tshark && \
+    tshark \
+    fakeroot && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt pyproject.toml LICENSE README.md ./
@@ -122,6 +125,11 @@ COPY migrations/ ./migrations/
 # Fleet page (marlinspike/fleet/api.py's /agent-package route) so an
 # operator doesn't need to separately clone the repo to deploy an agent.
 COPY marlinspike-agent/ ./marlinspike-agent/
+COPY scripts/build_agent_deb.sh ./scripts/build_agent_deb.sh
+# Built once at image-build time (not per-request — needs fakeroot/dpkg-deb,
+# and never changes between requests against the same image) so the
+# Fleet page's .deb download is always exactly what this image ships.
+RUN bash scripts/build_agent_deb.sh /app/dist
 
 COPY --from=mitre-builder /build/marlinspike-mitre/plugins/marlinspike_mitre ./plugins/marlinspike_mitre
 COPY --from=mitre-builder /build/marlinspike-mitre/rules/mitre ./rules/mitre

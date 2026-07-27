@@ -1,0 +1,14 @@
+#!/bin/sh
+# prerm for marlinspike-agent
+set -e
+
+case "$1" in
+  remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+      systemctl stop marlinspike-agent 2>/dev/null || true
+      systemctl disable marlinspike-agent 2>/dev/null || true
+    fi
+    ;;
+esac
+
+exit 0

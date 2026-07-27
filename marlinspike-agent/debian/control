@@ -1,0 +1,12 @@
+Package: marlinspike-agent
+Version: __VERSION__
+Section: net
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10), openssl
+Maintainer: MarlinSpike Project <noreply@localhost>
+Description: Remote sensor agent for MarlinSpike fleet management
+ Enrolls with a central MarlinSpike fleet gateway over TLS and maintains
+ an authenticated heartbeat connection. Relays live-capture control to a
+ local capd sidecar and ships analysis reports back to the central
+ console. Zero third-party Python dependencies (stdlib ssl/asyncio only).

@@ -70,6 +70,7 @@
         <h2>{{ t('fleet.sites') }}</h2>
         <div>
           <a class="btn btn-sm" href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
+          <a class="btn btn-sm" href="/api/fleet/agent-package.deb" download>{{ t('fleet.download_agent_deb') }}</a>
           <button class="btn btn-primary btn-sm" onclick="FLEET.showAddSite()">{{ t('fleet.add_site') }}</button>
         </div>
       </div>
@@ -159,6 +160,10 @@
           <p style="margin-top:10px;">
             <a href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
             — {{ t('fleet.download_agent_hint') }}
+          </p>
+          <p style="margin-top:4px;">
+            <a href="/api/fleet/agent-package.deb" download>{{ t('fleet.download_agent_deb') }}</a>
+            — {{ t('fleet.download_agent_deb_hint') }}
           </p>
         </div>
       </div>
