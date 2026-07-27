@@ -33,9 +33,13 @@ python -m capd validate-bpf "tcp port 502 or tcp port 102"
 
 # Run the daemon.
 sudo python -m capd serve --socket /var/run/marlinspike-capd.sock
-```
 
-## Protocol
+# The web app (or, on a remote sensor host, a locally installed
+# marlinspike-agent) connects as some other, unprivileged uid -- capd
+# only trusts its own uid (root) by default, so that other uid must be
+# explicitly allowed or every request from it fails with "unauthorized":
+sudo python -m capd serve --socket /var/run/marlinspike-capd.sock --allow-uid=1000
+```
 
 JSON over uds, length-prefixed (4-byte big-endian length, then UTF-8
 JSON). One request → one response, except `stats` which streams. See

@@ -75,6 +75,17 @@ class CapdClient:
 
     def list_interfaces(self, include_virtual: bool = False) -> list[Interface]:
         resp = self._call("list_interfaces", {"include_virtual": include_virtual})
+        # Unlike start()/stop() below, this never checked resp["ok"] -- a
+        # capd-side rejection (e.g. this process's uid not in capd's
+        # allowed_uids) sends back {"ok": False, "error": ...} with no
+        # "interfaces" key at all, which silently became an empty list
+        # here instead of a real error. Confirmed real: a systemd-deployed
+        # agent (dedicated system user, uid picked by the OS/adduser, not
+        # necessarily matching LIVE_CAPTURE_ALLOW_UID) got a silent empty
+        # interface list instead of a clear "unauthorized" error explaining
+        # why, making the actual misconfiguration very hard to diagnose.
+        if not resp.get("ok"):
+            raise CapdError(resp.get("error") or "capd list_interfaces failed")
         return [Interface.from_dict(d) for d in resp.get("interfaces", [])]
 
     def validate_bpf(self, filter_str: str, link_type: int = 1) -> tuple[bool, str | None]:

@@ -60,6 +60,15 @@ class CapdClient:
 
     def list_interfaces(self, include_virtual: bool = False) -> list[Interface]:
         resp = self._call("list_interfaces", {"include_virtual": include_virtual})
+        # Unlike start()/stop() below, this never checked resp["ok"] -- a
+        # capd-side rejection (e.g. the caller's uid not in capd's
+        # allowed_uids) sends back {"ok": False, "error": ...} with no
+        # "interfaces" key at all, which silently became an empty list
+        # here instead of a real error, making a real misconfiguration
+        # (or any other capd-side failure) very hard to diagnose. Same
+        # bug also fixed in the vendored copy, agent/capd_client.py.
+        if not resp.get("ok"):
+            raise CapdError(resp.get("error") or "capd list_interfaces failed")
         return [Interface.from_dict(d) for d in resp.get("interfaces", [])]
 
     def validate_bpf(self, filter_str: str, link_type: int = 1) -> tuple[bool, str | None]:

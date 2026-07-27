@@ -70,6 +70,23 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now marlinspike-agent
 ```
 
+### Required: allow this agent's uid on the local capd
+
+capd only ever trusts its own effective uid (root) unless told otherwise
+— it has no idea the `marlinspike-agent` system user above even exists.
+Without this step, every remote-capture-control request (list
+interfaces, start/stop) fails with a capd `"unauthorized"` error, since
+this agent relays those commands to capd over the *local* unix socket,
+not the central gateway.
+
+```bash
+id -u marlinspike-agent   # note this uid
+```
+
+Pass that uid to capd's own `serve` invocation on this same host, e.g.
+in `marlinspike-capd`'s systemd unit or docker-compose command:
+`--allow-uid=<uid-from-above>`. See `marlinspike-capd/README.md`.
+
 ## Protocol
 
 Length-prefixed JSON over TLS (4-byte big-endian length, then UTF-8 JSON
