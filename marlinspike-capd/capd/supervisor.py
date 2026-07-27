@@ -167,7 +167,23 @@ class CaptureSupervisor:
     # ── stats ────────────────────────────────────────────────
 
     def poll(self) -> CaptureStats:
-        return self._snapshot(running=self.is_running(), finalize=False)
+        # finalize=(not running), not always False: a session that ends on
+        # its own (dumpcap's own `-a duration:N` timer elapses, or it
+        # simply exits/crashes) — as opposed to an explicit stop() RPC,
+        # which already passes finalize=True — was never detected as
+        # having a final closed file here. Both the local StatsHub loop
+        # and the remote agent's session_stats reporter only ever call
+        # poll() (never stop()) to observe an in-progress session, so for
+        # any capture that self-expires without an explicit /stop request,
+        # the last active file was never marked closed, its report never
+        # got generated, and this was true for BOTH local and remote
+        # captures. Confirmed real: a remote max_duration_s capture, run to
+        # natural completion with no explicit stop, correctly showed
+        # status="stopped" but never produced a report at all. Safe to
+        # finalize repeatedly — _closed_emitted already makes this
+        # idempotent per file.
+        running = self.is_running()
+        return self._snapshot(running=running, finalize=not running)
 
     def _snapshot(self, running: bool, finalize: bool = False) -> CaptureStats:
         out_dir = Path(self.cfg.output_dir)
