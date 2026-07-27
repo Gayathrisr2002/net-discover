@@ -54,10 +54,32 @@ services:
       # this container must never have fleet-ca.key (the CA's private
       # signing key) on its filesystem at all, only the public cert it
       # serves for download (fleet/api.py's /ca-cert route).
+      #
+      # IMPORTANT: run scripts/gen_dev_tls_cert.sh (or otherwise place a
+      # real fleet-ca.crt at this path) BEFORE the *first* `docker compose
+      # up` of this service — a single-file bind mount of a path that
+      # doesn't exist yet makes Docker silently create an empty directory
+      # there instead of a file, which then breaks cert generation with a
+      # confusing "Is a directory" error until that bogus directory is
+      # manually removed. This used to only be a fleet-gateway prerequisite;
+      # it now applies to `app` too.
       - ./certs/fleet-ca.crt:/certs/fleet-ca.crt:ro
     networks:
       - internal
     mem_limit: 3g
+    healthcheck:
+      # Lets fleet-gateway (below) wait for this container to be up AND
+      # past its own startup-time Alembic migration (create_app() runs
+      # `flask_migrate.upgrade()` before the server starts listening) —
+      # fleet-gateway has no migration logic of its own, so without this
+      # a fresh `docker compose --profile fleet up` could have it querying
+      # tables that don't exist yet. No dedicated /health route exists, so
+      # this just confirms the process is actually serving requests.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/login', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # Live-capture sidecar (Linux only). Off by default — opt in with:
   #   docker compose --profile capture up -d
@@ -151,6 +173,13 @@ services:
       db:
         condition: service_healthy
       ratelimit:
+        condition: service_healthy
+      # This process has no migration logic of its own (see gateway/db.py's
+      # get_app()) — it relies entirely on app's create_app() having
+      # already brought the schema to head. Without this, a fresh
+      # `docker compose --profile fleet up` has no ordering guarantee
+      # between the two and can hit "relation does not exist" errors.
+      app:
         condition: service_healthy
     networks:
       - internal

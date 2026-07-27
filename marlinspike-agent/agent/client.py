@@ -269,6 +269,21 @@ class AgentClient:
             for task in self._active_sessions.values():
                 task.cancel()
             self._active_sessions.clear()
+            # Also cancel background tasks (_flush_spool, _scan_and_ship)
+            # tied to *this* connection — previously only _active_sessions
+            # was cancelled here, so a _flush_spool still mid-send when the
+            # link drops kept running uncancelled. run_forever() only
+            # calls _run_once() again (spawning a fresh _flush_spool) after
+            # this finally block fully completes, so without this, two
+            # overlapping _flush_spool tasks could both list the spool
+            # directory and both ship the same report — the gateway has no
+            # idempotency check on report ingestion, so that produced a
+            # duplicate ScanHistory row for one real capture. _ship_report
+            # already treats CancelledError as "link gone" and re-spools
+            # (see its except clause), so cancelling here is safe — any
+            # in-flight report just waits for the next reconnect instead.
+            for task in list(self._background_tasks):
+                task.cancel()
             self._current_writer = None
             writer.close()
             try:

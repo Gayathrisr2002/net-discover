@@ -6,7 +6,7 @@ Covers:
 * POST with correct token accepted (200)
 * GET never requires the token
 * Token rotates on login (session fixation guard)
-* @csrf_exempt-decorated view bypasses token check
+* /login itself is CSRF-protected (no exemption — see login-CSRF fix)
 * csrf_token() exposed in Jinja template context
 """
 
@@ -189,19 +189,42 @@ def test_post_origin_alone_passes_when_no_token(client, monkeypatch):
     assert resp.status_code == 200
 
 
-# ── @csrf_exempt bypasses token check ────────────────────────────────────────
+# ── login is CSRF-protected like any other state-changing POST ───────────────
+# /login used to be @csrf_exempt, which (since exempt views skip the
+# Origin/Referer fallback too, not just the token check) left it with zero
+# CSRF protection — a classic login-CSRF hole (an attacker's auto-submitting
+# cross-origin form could log a victim into the attacker's own account). The
+# login form now carries a real hidden _csrf field (login.html), so the
+# route no longer needs the exemption.
 
 
-def test_csrf_exempt_view_bypasses_check(client):
-    """The login POST is @csrf_exempt — it must not be blocked by the CSRF gate."""
-    # POST /login with no token and no Origin: should either reach the view
-    # (bad-creds → 200 with error rendered) or redirect, not 403.
+def test_login_without_token_or_origin_rejected(client):
+    """POST /login with no CSRF token and no Origin/Referer must be rejected."""
     resp = client.post(
         "/login",
         data={"username": "nobody", "password": "wrong"},
         follow_redirects=False,
     )
-    # 200 (form re-render with error) or redirect — never 403
+    assert resp.status_code == 403
+
+
+def test_login_with_correct_token_reaches_view(client):
+    """POST /login with the session's own CSRF token passes the gate (bad
+    creds still render the login page with an error, never a 403). Sent as
+    a header rather than the multipart _csrf field the real form uses —
+    validate_csrf() itself doesn't care which of the two carried it, and
+    this sidesteps the test client's own multipart-encoding quirks."""
+    with client.session_transaction() as sess:
+        import secrets
+        token = secrets.token_urlsafe(32)
+        sess["_csrf"] = token
+
+    resp = client.post(
+        "/login",
+        data={"username": "nobody", "password": "wrong"},
+        headers={"X-CSRF-Token": token},
+        follow_redirects=False,
+    )
     assert resp.status_code != 403
 
 
@@ -224,10 +247,12 @@ def test_token_rotates_on_login(app, client):
         pre_token = secrets.token_urlsafe(32)
         sess["_csrf"] = pre_token
 
-    # Perform a successful login
+    # Perform a successful login — must carry the token now that /login is
+    # no longer csrf_exempt, or the request never reaches the view at all.
     client.post(
         "/login",
         data={"username": "csrf_test_user", "password": "Passw0rd!"},
+        headers={"X-CSRF-Token": pre_token},
         follow_redirects=False,
     )
 

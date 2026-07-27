@@ -54,7 +54,6 @@ from marlinspike.auth import (
     cleanup_expired_tokens,
     create_reset_token,
     create_user,
-    csrf_exempt,
     login_required,
     use_reset_token,
     validate_reset_token,
@@ -3064,7 +3063,13 @@ def create_app():
 
     @app.route("/login", methods=["POST"])
     @limiter.limit("5 per minute")
-    @csrf_exempt  # no session token exists before login; rate-limiting is the guard here
+    # NOT csrf_exempt: a per-session CSRF token IS already minted on every
+    # GET /login (csrf_token() in login.html's <meta> tag), it just wasn't
+    # wired into the plain form — exempting this route skipped the
+    # Origin/Referer fallback too, leaving a real login-CSRF hole (an
+    # attacker's auto-submitting cross-origin form could log a victim into
+    # the attacker's own account). Fixed by giving the form a real hidden
+    # _csrf field (same pattern as upload_simple.html's fallback form).
     def login_submit():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -5384,6 +5389,15 @@ def create_app():
     def api_report_delete(filename):
         safe_name = os.path.basename(filename)
         project_id = request.args.get("project_id", None, type=int)
+        # Deleting is mutating, so (unlike read routes that resolve via
+        # user_reports_dir alone, which only requires viewer access) this
+        # needs an explicit editor+ check — matching every other delete
+        # route in this file (e.g. api_project_file_delete above). Without
+        # it, a read-only viewer could permanently destroy report/analysis
+        # data a project owner shared for viewing only.
+        _, resolved_pid = _owner_uid_for_project(project_id)
+        if not _get_project_for_user(resolved_pid, "editor"):
+            return jsonify({"ok": False, "error": "Project not found"}), 404
         path = os.path.join(user_reports_dir(project_id), safe_name)
         if os.path.isfile(path):
             os.unlink(path)

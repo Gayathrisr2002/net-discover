@@ -308,7 +308,8 @@ body {
   {% if error %}
   <div class="login-error">{{ error }}</div>
   {% endif %}
-  <form method="POST" action="/login">
+  <form method="POST" action="/login" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <div class="login-field">
       <label for="login-username">{{ t('login.username') }}</label>
       <input type="text" id="login-username" name="username" autocomplete="username" autofocus required>
