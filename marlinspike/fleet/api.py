@@ -96,6 +96,28 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _mint_standing_token(site_id: int, created_by: int) -> str:
+    """Mint a fresh standing (reusable, non-expiring) enrollment token for a
+    site, revoking any previously active standing token first — a site has
+    at most one live standing token at a time, so "rotate" means "replace",
+    not "add another". Returns the raw token (shown once, hashed at rest).
+    """
+    AgentEnrollmentToken.query.filter_by(
+        site_id=site_id, is_standing=True, revoked_at=None
+    ).update({"revoked_at": datetime.now(timezone.utc)})
+
+    raw_token = secrets.token_urlsafe(32)
+    token = AgentEnrollmentToken(
+        site_id=site_id,
+        token_hash=_hash_token(raw_token),
+        is_standing=True,
+        created_by=created_by,
+    )
+    db.session.add(token)
+    db.session.commit()
+    return raw_token
+
+
 def _force_disconnect(agent_uuid: str) -> None:
     """Best-effort: drop this agent's live gateway connection right now
     (Phase 6.2), instead of leaving a revoked/rotated agent connected
@@ -129,7 +151,46 @@ def _serialize_site(site: Site, *, agent_count: int | None = None) -> dict:
     }
 
 
+# Health-badge thresholds against the resource percentages in a heartbeat
+# — deliberately conservative (a small remote OT box legitimately runs hot
+# sometimes) so the badge only flags something actually worth a look.
+_RESOURCE_WARN_PCT = 75.0
+_RESOURCE_CRIT_PCT = 90.0
+
+
+def _compute_health(agent: Agent) -> str | None:
+    """Derived, not stored: a one-word verdict for the Fleet UI's health
+    badge, computed fresh from the same snapshot _serialize_agent already
+    exposes field-by-field. None means "nothing to assess yet" (an agent
+    that's revoked, or has never connected) — the UI must not render that
+    as healthy.
+    """
+    if agent.status in ("revoked", "pending"):
+        return None
+    if agent.status != "online":
+        return "offline"
+    if agent.last_error or agent.capd_reachable is False:
+        return "critical"
+    resource_values = [v for v in (agent.cpu_percent, agent.memory_percent, agent.disk_percent)
+                        if v is not None]
+    if any(v >= _RESOURCE_CRIT_PCT for v in resource_values):
+        return "critical"
+    if any(v >= _RESOURCE_WARN_PCT for v in resource_values):
+        return "warning"
+    return "healthy"
+
+
 def _serialize_agent(agent: Agent) -> dict:
+    now = datetime.now(timezone.utc)
+    seconds_since_heartbeat = None
+    if agent.last_seen_at is not None:
+        last_seen = agent.last_seen_at
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+        seconds_since_heartbeat = (now - last_seen).total_seconds()
+
+    current_agent_version = config.current_agent_version()
+
     return {
         "id": agent.id,
         "agent_uuid": agent.agent_uuid,
@@ -137,10 +198,23 @@ def _serialize_agent(agent: Agent) -> dict:
         "name": agent.name,
         "status": agent.status,
         "agent_version": agent.agent_version,
+        "version_mismatch": (
+            bool(agent.agent_version) and current_agent_version is not None
+            and agent.agent_version != current_agent_version
+        ),
         "os_info": agent.os_info,
         "last_seen_at": agent.last_seen_at.isoformat() if agent.last_seen_at else None,
+        "seconds_since_heartbeat": seconds_since_heartbeat,
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "revoked_at": agent.revoked_at.isoformat() if agent.revoked_at else None,
+        "health": _compute_health(agent),
+        "cpu_percent": agent.cpu_percent,
+        "memory_percent": agent.memory_percent,
+        "disk_percent": agent.disk_percent,
+        "uptime_s": agent.uptime_s,
+        "capd_reachable": agent.capd_reachable,
+        "capture_active": agent.capture_active,
+        "last_error": agent.last_error,
     }
 
 
@@ -188,9 +262,15 @@ def create_site():
         db.session.rollback()
         return jsonify({"ok": False, "error": "A site with that name already exists in this project"}), 409
 
+    raw_token = _mint_standing_token(site.id, session["user_id"])
+
     audit("fleet.site_created", target_type="site", target_id=str(site.id),
           detail=f"project_id={project_id} name={name!r}")
-    return jsonify({"ok": True, "site": _serialize_site(site, agent_count=0)}), 201
+    return jsonify({
+        "ok": True,
+        "site": _serialize_site(site, agent_count=0),
+        "enrollment_token": raw_token,
+    }), 201
 
 
 @bp.route("/sites/<int:site_id>", methods=["GET"])
@@ -420,36 +500,26 @@ def download_agent_package_deb():
 @bp.route("/sites/<int:site_id>/enrollment-tokens", methods=["POST"])
 @login_required
 def issue_enrollment_token(site_id):
-    """Issue a one-time enrollment token for a new agent at this site.
-
-    The raw token is returned exactly once, to the authenticated, already-
-    authorized caller who requested it — unlike auth.py's password-reset
-    token (deliberately never returned in a response, since an unauthenticated
-    party can trigger that flow for someone else's account), this token is
-    minted on-demand by a site editor/owner for their own use, so returning
-    it directly here is the correct and intended UX (same shape as e.g. a
-    personal access token shown once at creation).
+    """Rotate this site's standing enrollment token: revoke whichever one is
+    currently active and mint a fresh one, returned exactly once to the
+    authenticated, already-authorized caller who requested it — unlike
+    auth.py's password-reset token (deliberately never returned in a
+    response, since an unauthenticated party can trigger that flow for
+    someone else's account), this token is minted on-demand by a site
+    editor/owner for their own use, so returning it directly here is the
+    correct and intended UX (same shape as e.g. a personal access token
+    shown once at creation). The token is reusable — every existing
+    enrolled agent keeps working; only *future* enrollments need the new
+    value.
     """
     site = _get_site_for_user(site_id, "editor")
     if not site:
         return jsonify({"ok": False, "error": "Site not found"}), 404
 
-    raw_token = secrets.token_urlsafe(32)
-    token = AgentEnrollmentToken(
-        site_id=site_id,
-        token_hash=_hash_token(raw_token),
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=ENROLLMENT_TOKEN_TTL_MINUTES),
-        created_by=session["user_id"],
-    )
-    db.session.add(token)
-    db.session.commit()
+    raw_token = _mint_standing_token(site_id, session["user_id"])
 
     audit("fleet.enrollment_token_issued", target_type="site", target_id=str(site_id))
-    return jsonify({
-        "ok": True,
-        "token": raw_token,
-        "expires_at": token.expires_at.isoformat(),
-    }), 201
+    return jsonify({"ok": True, "token": raw_token}), 201
 
 
 # ── Agents ────────────────────────────────────────────────────────

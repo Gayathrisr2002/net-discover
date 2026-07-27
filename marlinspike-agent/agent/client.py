@@ -40,6 +40,7 @@ import struct
 
 from . import consumer
 from .capd_client import CapdClient, CapdError, CapdUnavailable, Interface
+from .hoststats import HostStats
 
 log = logging.getLogger("marlinspike-agent")
 
@@ -192,6 +193,8 @@ class AgentClient:
         # ones (_scan_and_ship runs a real pcap analysis + a multi-chunk
         # network send).
         self._background_tasks: set[asyncio.Task] = set()
+        self._hoststats = HostStats()
+        self._last_error: str | None = None
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
@@ -292,7 +295,19 @@ class AgentClient:
     async def _heartbeat_loop(self, writer: asyncio.StreamWriter) -> None:
         while True:
             await asyncio.sleep(self.heartbeat_interval_s)
-            await self._send_request(writer, "heartbeat", {})
+            loop = asyncio.get_running_loop()
+            capd_reachable = await loop.run_in_executor(None, self._capd().is_reachable)
+            await self._send_request(writer, "heartbeat", {
+                "cpu_percent": self._hoststats.cpu_percent(),
+                "memory_percent": self._hoststats.memory_percent(),
+                "disk_percent": self._hoststats.disk_percent(
+                    self.staging_dir if os.path.isdir(self.staging_dir) else "/"
+                ),
+                "uptime_s": self._hoststats.uptime_s(),
+                "capd_reachable": capd_reachable,
+                "capture_active": bool(self._active_sessions),
+                "last_error": self._last_error,
+            })
 
     # ── demux incoming frames ────────────────────────────────────
 
@@ -339,15 +354,18 @@ class AgentClient:
                                            "error": f"unknown method: {method}"})
                 return
         except (CapdError, CapdUnavailable) as exc:
+            self._last_error = str(exc)
             await _send_frame_locked(self._write_lock, writer,
                                       {"type": "res", "id": req_id, "ok": False, "error": str(exc)})
             return
         except Exception:
             log.exception("command %s crashed", method)
+            self._last_error = f"{method}: internal agent error"
             await _send_frame_locked(self._write_lock, writer,
                                       {"type": "res", "id": req_id, "ok": False, "error": "internal agent error"})
             return
 
+        self._last_error = None
         await _send_frame_locked(self._write_lock, writer,
                                   {"type": "res", "id": req_id, "ok": True, "result": result})
 

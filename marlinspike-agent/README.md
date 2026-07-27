@@ -5,9 +5,10 @@ it holds a persistent, authenticated TLS connection to the central fleet
 gateway (`marlinspike/fleet/gateway/`) so the site can be managed from one
 console instead of running a separate MarlinSpike instance per location.
 
-**Phase 2 scope** (this package, as it stands today): enroll once with a
-one-time token, then heartbeat forever, reconnecting automatically if the
-link drops. No capture control or report shipping yet — those are Phase 3
+**Phase 2 scope** (this package, as it stands today): enroll once with your
+site's standing enrollment token (reusable for enrolling any number of
+agents, from the Fleet page), then heartbeat forever, reconnecting
+automatically if the link drops. No capture control or report shipping yet — those are Phase 3
 (relay start/stop to the local `capd` sidecar) and Phase 4 (run the
 analysis engine locally, ship only the resulting JSON report), added as
 new methods on this same connection, not a new protocol.

@@ -254,13 +254,18 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
         token = AgentEnrollmentToken.query.filter_by(token_hash=token_hash).with_for_update().first()
         if token is None:
             raise GatewayAuthError("invalid enrollment token")
-        if token.used_at is not None:
-            raise GatewayAuthError("enrollment token already used")
         now = datetime.now(timezone.utc)
-        if token.expires_at is not None and token.expires_at.replace(tzinfo=timezone.utc) < now:
-            raise GatewayAuthError("enrollment token expired")
-
-        token.used_at = now
+        if token.is_standing:
+            # Reusable — never checks/sets used_at or expires_at. Only an
+            # explicit rotation (api.py:_mint_standing_token) ends its life.
+            if token.revoked_at is not None:
+                raise GatewayAuthError("enrollment token revoked")
+        else:
+            if token.used_at is not None:
+                raise GatewayAuthError("enrollment token already used")
+            if token.expires_at is not None and token.expires_at.replace(tzinfo=timezone.utc) < now:
+                raise GatewayAuthError("enrollment token expired")
+            token.used_at = now
 
         if token.agent_id is not None:
             # Credential rotation, not a new enrollment: same agent_uuid,
@@ -303,16 +308,21 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
         db.session.add(cred)
         db.session.commit()
 
-        from marlinspike import __version__ as gateway_version
         from marlinspike.audit import audit
         audit("fleet.agent_enrolled", target_type="agent", target_id=str(agent.id),
               detail=f"site_id={token.site_id} name={agent.name!r}")
         # Purely informational (see server.py's wire compatibility contract
         # docstring) — a version mismatch is never itself a reason to
         # reject an agent, just something worth an operator noticing.
-        if agent_version and agent_version != gateway_version:
-            log.info("agent %s enrolled with agent_version=%s (gateway is %s)",
-                      agent.agent_uuid, agent_version, gateway_version)
+        # Compared against this deployment's bundled agent source
+        # (config.current_agent_version), not this app's own __version__ —
+        # those are two independently-versioned packages that are almost
+        # never equal, which used to make this check fire on every single
+        # enrollment regardless of whether the agent was actually stale.
+        current_agent_version = config.current_agent_version()
+        if agent_version and current_agent_version is not None and agent_version != current_agent_version:
+            log.info("agent %s enrolled with agent_version=%s (current agent release is %s)",
+                      agent.agent_uuid, agent_version, current_agent_version)
         _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
 
         return result
@@ -356,8 +366,31 @@ def authenticate_agent(*, agent_uuid: str, raw_credential: str,
         return {"agent_id": agent.id}
 
 
-def record_heartbeat(*, agent_uuid: str) -> None:
-    """Update last_seen_at (and flip back to online if it had lapsed).
+def _safe_float(value) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def record_heartbeat(*, agent_uuid: str, cpu_percent: float | None = None,
+                      memory_percent: float | None = None, disk_percent: float | None = None,
+                      uptime_s: int | None = None, capd_reachable: bool | None = None,
+                      capture_active: bool | None = None, last_error: str | None = None) -> None:
+    """Update last_seen_at (and flip back to online if it had lapsed), plus
+    the health snapshot carried in this heartbeat's params — all optional
+    and simply overwritten in place (see models.py:Agent), never
+    historized. An older agent that only ever sends bare {} params (pre
+    health-snapshot agent_version) leaves every one of these None, which
+    is exactly what a fresh, never-heartbeated row already looks like — no
+    special-casing needed here for version skew.
     Best-effort — a missing/revoked agent here just means a stale
     connection is about to be dropped; nothing to raise for the caller."""
     app = get_app()
@@ -368,6 +401,18 @@ def record_heartbeat(*, agent_uuid: str) -> None:
         agent.last_seen_at = datetime.now(timezone.utc)
         was_online = agent.status == "online"
         agent.status = "online"
+        # Defensively cast/clamp rather than trust the wire values as-is —
+        # this is reachable by anything holding a valid (possibly
+        # compromised) agent credential, and a malformed/oversized value
+        # here should degrade to "unknown" on the dashboard, not raise or
+        # bloat the row.
+        agent.cpu_percent = _safe_float(cpu_percent)
+        agent.memory_percent = _safe_float(memory_percent)
+        agent.disk_percent = _safe_float(disk_percent)
+        agent.uptime_s = _safe_int(uptime_s)
+        agent.capd_reachable = bool(capd_reachable) if capd_reachable is not None else None
+        agent.capture_active = bool(capture_active) if capture_active is not None else None
+        agent.last_error = str(last_error)[:2000] if last_error else None
         db.session.commit()
         # Only publish on an actual transition — every heartbeat publishing
         # would just be noise the SSE endpoint filters right back out, and

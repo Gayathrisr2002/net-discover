@@ -368,14 +368,41 @@ class Agent(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     revoked_at = db.Column(db.DateTime, nullable=True)
 
+    # Health snapshot — all populated from the agent's own heartbeat params
+    # (gateway/db.py:record_heartbeat) and simply overwritten each time, not
+    # historized: this is "what does this agent look like right now", not a
+    # metrics timeseries. NULL for every one of these means either the
+    # agent hasn't heartbeated yet or it predates this feature (an older
+    # agent_version that sends bare {} heartbeat params) — the UI must
+    # render that as "unknown", not zero.
+    cpu_percent = db.Column(db.Float, nullable=True)
+    memory_percent = db.Column(db.Float, nullable=True)
+    disk_percent = db.Column(db.Float, nullable=True)
+    uptime_s = db.Column(db.Integer, nullable=True)
+    capd_reachable = db.Column(db.Boolean, nullable=True)
+    capture_active = db.Column(db.Boolean, nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+
     site = db.relationship("Site", backref="agents")
 
 
 class AgentEnrollmentToken(db.Model):
-    """One-time token used to enroll a new agent at a site.
+    """Token used to enroll a new agent at a site, or (via ``agent_id``) to
+    rotate an existing agent's credential.
 
-    Mirrors PasswordResetToken's hash-at-rest / expire / single-use shape —
-    reuse auth.py's token hashing helpers rather than re-deriving them.
+    Two lifecycles share this table:
+    - Standing site-enrollment token (``is_standing=True``): long-lived,
+      reusable across any number of agents at the site. Never expires and
+      is never marked used_at — only ``revoked_at`` ends its life, set when
+      an owner/editor rotates it (see api.py:_mint_standing_token). This is
+      the one an operator gets from the Fleet page and pastes into
+      ``marlinspike-agent enroll``.
+    - One-time rotation token (``agent_id`` set, ``is_standing=False``):
+      mirrors PasswordResetToken's hash-at-rest / expire / single-use shape
+      — reuse auth.py's token hashing helpers rather than re-deriving them.
+      Used only to recover one specific already-enrolled agent's
+      credential (api.py:rotate_agent_credential), not for general
+      enrollment.
     """
 
     __tablename__ = "agent_enrollment_tokens"
@@ -388,13 +415,16 @@ class AgentEnrollmentToken(db.Model):
     # reuses this existing Agent row (same agent_uuid, name, history) and
     # just replaces its credential/cert, rather than enrolling a brand new
     # agent — see gateway/db.py:enroll_agent. NULL for an ordinary
-    # first-time enrollment token.
+    # first-time enrollment token (standing or one-time).
     agent_id = db.Column(
         db.Integer, db.ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True
     )
     token_hash = db.Column(db.String(64), unique=True, nullable=False)
-    expires_at = db.Column(db.DateTime, nullable=False)
+    # NULL for a standing token (it never expires by time).
+    expires_at = db.Column(db.DateTime, nullable=True)
     used_at = db.Column(db.DateTime, nullable=True)
+    is_standing = db.Column(db.Boolean, nullable=False, default=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 

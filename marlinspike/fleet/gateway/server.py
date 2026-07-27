@@ -461,6 +461,7 @@ class GatewayServer:
             req_id = msg.get("id")
 
             if method == "heartbeat":
+                params = msg.get("params") or {}
                 # Throttle the DB round-trips (revocation check + write),
                 # not the reply: a legitimate agent heartbeats every
                 # DEFAULT_HEARTBEAT_INTERVAL_S (30s) so this never engages
@@ -482,7 +483,14 @@ class GatewayServer:
                         await _send_frame(conn.writer, _res(req_id, ok=False, error="revoked"))
                         return
                     await loop.run_in_executor(None, functools.partial(
-                        db.record_heartbeat, agent_uuid=agent_uuid
+                        db.record_heartbeat, agent_uuid=agent_uuid,
+                        cpu_percent=params.get("cpu_percent"),
+                        memory_percent=params.get("memory_percent"),
+                        disk_percent=params.get("disk_percent"),
+                        uptime_s=params.get("uptime_s"),
+                        capd_reachable=params.get("capd_reachable"),
+                        capture_active=params.get("capture_active"),
+                        last_error=params.get("last_error"),
                     ))
                     if self.admin_host and self.admin_port:
                         # Refresh the registry TTL (Phase 6.5) on the same

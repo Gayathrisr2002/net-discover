@@ -19,7 +19,9 @@ Individual asset directories may also be overridden directly via env vars
 compatibility with code that does ``config.BASE_DIR``.
 """
 
+import functools
 import os
+import re
 import sys
 
 
@@ -60,6 +62,31 @@ MARLINSPIKE_AGENT_SOURCE_DIR = os.environ.get(
 MARLINSPIKE_AGENT_DEB_DIR = os.environ.get(
     "MARLINSPIKE_AGENT_DEB_DIR", os.path.join(PROJECT_ROOT, "dist")
 )
+@functools.lru_cache(maxsize=1)
+def current_agent_version() -> "str | None":
+    """Read marlinspike-agent's own __version__ straight from its bundled
+    source tree (MARLINSPIKE_AGENT_SOURCE_DIR) — this is the version this
+    deployment's Fleet page currently hands out via the download routes,
+    the correct baseline for detecting a stale-agent warning (comparing
+    against this app's *own* __version__ instead, as fleet/gateway/db.py's
+    enrollment log line once did, compares two independently-versioned
+    packages and is basically never equal). Same technique
+    scripts/build_agent_deb.sh already uses (there, via tomllib on
+    pyproject.toml) to name/version the .deb. Cached for the life of the
+    process — this file doesn't change between deployments of the same
+    running instance. Returns None if the source tree isn't present at
+    this path.
+    """
+    init_path = os.path.join(MARLINSPIKE_AGENT_SOURCE_DIR, "agent", "__init__.py")
+    try:
+        with open(init_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
+    return match.group(1) if match else None
+
+
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 SUBMISSIONS_DIR = os.path.join(DATA_DIR, "submissions")
 

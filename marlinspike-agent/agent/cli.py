@@ -85,8 +85,8 @@ def _cmd_enroll(args: argparse.Namespace) -> int:
         creds.save(args.credential_file)
     except OSError as exc:
         # By this point the enroll RPC has ALREADY succeeded server-side —
-        # the one-time token is consumed and a real credential has been
-        # minted. A save failure here (e.g. /etc/marlinspike-agent not
+        # a real credential has been minted for this agent. A save failure
+        # here (e.g. /etc/marlinspike-agent not
         # created yet — see README's systemd setup) used to just lose that
         # credential silently, leaving a "phantom" enrolled-but-unusable
         # agent recoverable only via an admin rotate-credential action.

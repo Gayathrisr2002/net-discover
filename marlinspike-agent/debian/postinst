@@ -22,10 +22,13 @@ case "$1" in
 marlinspike-agent installed.
 
 Next steps:
-  1. Enroll with your fleet gateway (get a token from the Fleet page):
-       sudo marlinspike-agent enroll --gateway HOST:PORT --token TOKEN \
+  1. Enroll with your fleet gateway (get the exact command, with your site's
+     real gateway address and token already filled in, from the Fleet page):
+       sudo marlinspike-agent enroll --gateway <your-gateway-host>:<port> --token <your-enrollment-token> \
            --ca-cert /path/to/fleet-ca.crt \
            --credential-file /etc/marlinspike-agent/credential.json
+     Replace <your-gateway-host>:<port> and <your-enrollment-token> below --
+     these are placeholders, not literal values to copy.
   2. The credential file above was just written by root (via sudo) --
      the service itself runs as the unprivileged marlinspike-agent user,
      so hand it ownership before starting:
