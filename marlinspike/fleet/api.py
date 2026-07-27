@@ -495,6 +495,44 @@ def download_agent_package_deb():
                       download_name=os.path.basename(matches[-1]))
 
 
+@bp.route("/ca-cert", methods=["GET"])
+@login_required
+def download_ca_cert():
+    """Serve the fleet CA's public certificate (fleet-ca.crt) — what a
+    remote agent needs to pass as ``--ca-cert`` to verify the gateway's
+    TLS listener. Not a secret (it's a CA certificate, never the private
+    key — see config.FLEET_CA_CERT's docstring), just previously only
+    reachable by copying the file off the server by hand. 404s (rather
+    than erroring) when no CA is configured for this deployment — the
+    same graceful-degradation posture as mTLS being entirely optional.
+    """
+    ca_cert_path = config.FLEET_CA_CERT
+    if not ca_cert_path or not os.path.isfile(ca_cert_path):
+        return jsonify({"ok": False, "error": "fleet CA certificate not available on this deployment"}), 404
+
+    audit("fleet.ca_cert_downloaded", target_type="site", target_id=None)
+    return send_file(ca_cert_path, mimetype="application/x-x509-ca-cert", as_attachment=True,
+                      download_name="fleet-ca.crt")
+
+
+@bp.route("/gateway-info", methods=["GET"])
+@login_required
+def gateway_info():
+    """Deployment-wide, non-secret settings the Fleet page needs to render
+    a ready-to-copy enroll command instead of a bracket-placeholder one:
+    where the gateway is actually reachable from a remote agent (operator-
+    configured — see config.FLEET_GATEWAY_PUBLIC_HOST's docstring, this is
+    deliberately never auto-detected) and whether a CA cert is available
+    to download.
+    """
+    return jsonify({
+        "ok": True,
+        "gateway_host": config.FLEET_GATEWAY_PUBLIC_HOST or None,
+        "gateway_port": config.FLEET_GATEWAY_PUBLIC_PORT,
+        "ca_cert_available": bool(config.FLEET_CA_CERT and os.path.isfile(config.FLEET_CA_CERT)),
+    })
+
+
 # ── Enrollment tokens ────────────────────────────────────────────
 
 @bp.route("/sites/<int:site_id>/enrollment-tokens", methods=["POST"])

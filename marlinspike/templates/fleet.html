@@ -39,6 +39,27 @@
   font-size: 0.82em;
   margin-top: 8px;
 }
+.fleet-install-steps p { margin: 0; }
+.fleet-install-steps strong { display: block; margin-bottom: 4px; }
+.fleet-cmd-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+}
+.fleet-cmd {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+  margin: 0;
+}
 .modal-field {
   display: flex;
   flex-direction: column;
@@ -160,14 +181,41 @@
         <div id="fleet-token-result" style="display:none;">
           <div class="fleet-token-box" id="fleet-token-value"></div>
           <div class="fleet-token-warning">{{ t('fleet.token_shown_once') }}</div>
-          <p style="margin-top:10px;">
-            <a href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
-            — {{ t('fleet.download_agent_hint') }}
-          </p>
-          <p style="margin-top:4px;">
-            <a href="/api/fleet/agent-package.deb" download>{{ t('fleet.download_agent_deb') }}</a>
-            — {{ t('fleet.download_agent_deb_hint') }}
-          </p>
+
+          <div class="fleet-install-steps">
+            <p style="margin-top:14px;"><strong>{{ t('fleet.step_1_install') }}</strong></p>
+            <p>
+              <a href="/api/fleet/agent-package.deb" download>{{ t('fleet.download_agent_deb') }}</a>
+              — {{ t('fleet.download_agent_deb_hint') }}
+            </p>
+            <p style="margin-top:4px;">
+              <a href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
+              — {{ t('fleet.download_agent_hint') }}
+            </p>
+
+            <p style="margin-top:14px;"><strong>{{ t('fleet.step_2_ca_cert') }}</strong></p>
+            <p id="fleet-ca-cert-available" style="display:none;">
+              <a href="/api/fleet/ca-cert" download>{{ t('fleet.download_ca_cert') }}</a>
+            </p>
+            <p id="fleet-ca-cert-unavailable" style="display:none; color: var(--text-dim);">
+              {{ t('fleet.ca_cert_unavailable') }}
+            </p>
+
+            <p style="margin-top:14px;"><strong>{{ t('fleet.step_3_enroll') }}</strong></p>
+            <div class="fleet-cmd-box">
+              <pre class="fleet-cmd" id="fleet-enroll-cmd"></pre>
+              <button class="btn btn-sm" onclick="FLEET.copyEnrollCmd()">{{ t('common.copy') }}</button>
+            </div>
+            <div class="fleet-token-warning" id="fleet-gateway-host-warning" style="display:none;">
+              {{ t('fleet.gateway_host_not_configured') }}
+            </div>
+
+            <p style="margin-top:14px;"><strong>{{ t('fleet.step_4_start') }}</strong></p>
+            <div class="fleet-cmd-box">
+              <pre class="fleet-cmd">sudo chown marlinspike-agent:marlinspike-agent /etc/marlinspike-agent/credential.json
+sudo systemctl enable --now marlinspike-agent</pre>
+            </div>
+          </div>
         </div>
       </div>
       <div class="ms-modal-footer">
@@ -494,11 +542,8 @@ var FLEET = (function() {
         msModal.close('modal-add-site');
         loadSites();
         selectedSiteId = d.site.id;
-        document.getElementById('fleet-token-pending').style.display = 'none';
-        document.getElementById('fleet-token-result').style.display = '';
-        document.getElementById('fleet-issue-token-confirm').style.display = 'none';
-        document.getElementById('fleet-token-value').textContent = d.enrollment_token;
         msModal.open('modal-issue-token');
+        _showTokenResult(d.enrollment_token);
       } else {
         msToast(d.error || '{{ t("common.failed") }}', true);
       }
@@ -520,14 +565,65 @@ var FLEET = (function() {
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok) {
-          document.getElementById('fleet-token-value').textContent = d.token;
-          document.getElementById('fleet-token-pending').style.display = 'none';
-          document.getElementById('fleet-token-result').style.display = '';
-          document.getElementById('fleet-issue-token-confirm').style.display = 'none';
+          _showTokenResult(d.token);
         } else {
           msToast(d.error || '{{ t("common.failed") }}', true);
         }
       });
+  }
+
+  // Populates the token modal's result panel: the raw token, CA-cert
+  // download availability, and a ready-to-copy enroll command — falls
+  // back to bracket placeholders (never a guessed value) when the
+  // gateway's externally-reachable address isn't configured server-side
+  // (see config.FLEET_GATEWAY_PUBLIC_HOST).
+  function _showTokenResult(rawToken) {
+    document.getElementById('fleet-token-pending').style.display = 'none';
+    document.getElementById('fleet-token-result').style.display = '';
+    document.getElementById('fleet-issue-token-confirm').style.display = 'none';
+    document.getElementById('fleet-token-value').textContent = rawToken;
+
+    fetchGatewayInfo().then(function(info) {
+      var gatewayAddr = info && info.gateway_host
+        ? info.gateway_host + ':' + info.gateway_port
+        : '<your-gateway-host>:<port>';
+      document.getElementById('fleet-gateway-host-warning').style.display =
+        (info && info.gateway_host) ? 'none' : '';
+
+      var caCertAvailable = !!(info && info.ca_cert_available);
+      document.getElementById('fleet-ca-cert-available').style.display = caCertAvailable ? '' : 'none';
+      document.getElementById('fleet-ca-cert-unavailable').style.display = caCertAvailable ? 'none' : '';
+      var caCertArg = caCertAvailable
+        ? '--ca-cert ./fleet-ca.crt'
+        : '--insecure-skip-verify   # {{ t("fleet.insecure_skip_verify_note") }}';
+
+      document.getElementById('fleet-enroll-cmd').textContent =
+        'sudo marlinspike-agent enroll \\\n' +
+        '  --gateway ' + gatewayAddr + ' \\\n' +
+        '  --token ' + rawToken + ' \\\n' +
+        '  ' + caCertArg + ' \\\n' +
+        '  --credential-file /etc/marlinspike-agent/credential.json';
+    });
+  }
+
+  function copyEnrollCmd() {
+    var text = document.getElementById('fleet-enroll-cmd').textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(function() {
+        msToast('{{ t("common.copy") }}', 'success');
+      });
+    }
+  }
+
+  var _gatewayInfoPromise = null;
+  function fetchGatewayInfo() {
+    if (!_gatewayInfoPromise) {
+      _gatewayInfoPromise = fetch('/api/fleet/gateway-info')
+        .then(function(r) { return r.json(); })
+        .then(function(d) { return d.ok ? d : null; })
+        .catch(function() { return null; });
+    }
+    return _gatewayInfoPromise;
   }
 
   // ── site members ────────────────────────────────────────────
@@ -592,6 +688,7 @@ var FLEET = (function() {
     createSite: createSite,
     showIssueToken: showIssueToken,
     doIssueToken: doIssueToken,
+    copyEnrollCmd: copyEnrollCmd,
     showMembers: showMembers,
     addMember: addMember,
     doRotateCredential: doRotateCredential,

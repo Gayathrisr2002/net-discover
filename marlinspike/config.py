@@ -299,14 +299,28 @@ FLEET_STATUS_REDIS_CHANNEL = "fleet:agent_status"
 # signing each agent's enrollment-time CSR into a short-lived-identity
 # client cert (marlinspike/fleet/gateway/db.py:_sign_csr) and verifying
 # every reconnecting agent's client cert against this same CA
-# (build_ssl_context's ca_cert_path). Only ever read by the gateway
-# process/container — the app container has no /certs mount and never
-# needs the CA key. Unset (the default) => mTLS issuance/verification is
-# skipped entirely and enrollment falls back to bearer-credential-only
-# auth, so existing dev/test deployments without a CA configured keep
-# working unchanged.
+# (build_ssl_context's ca_cert_path). FLEET_CA_KEY (the private signing
+# key) is only ever read by the gateway process/container — the app
+# container has no key material at all. FLEET_CA_CERT (the public
+# certificate, not a secret) is also read by the app container so the
+# Fleet page can serve it for download (fleet/api.py's /ca-cert route) —
+# the same file, mounted read-only into both containers. Unset (the
+# default) => mTLS issuance/verification is skipped entirely and
+# enrollment falls back to bearer-credential-only auth, and the download
+# route 404s, so existing dev/test deployments without a CA configured
+# keep working unchanged.
 FLEET_CA_CERT = os.environ.get("FLEET_CA_CERT", "")
 FLEET_CA_KEY = os.environ.get("FLEET_CA_KEY", "")
+
+# Externally-reachable address of the fleet gateway, as a remote agent
+# would dial it — deliberately NOT auto-detected (the box the app runs on
+# has no reliable way to know its own public IP/hostname or whatever
+# NAT/port-forward a real deployment puts in front of it). Blank by
+# default: the Fleet page's enrollment instructions fall back to a
+# bracket-placeholder command until an operator sets this once, rather
+# than showing a guessed address that might be wrong.
+FLEET_GATEWAY_PUBLIC_HOST = os.environ.get("FLEET_GATEWAY_PUBLIC_HOST", "")
+FLEET_GATEWAY_PUBLIC_PORT = os.environ.get("FLEET_GATEWAY_PUBLIC_PORT", "8765")
 
 # Horizontal gateway scaling (Phase 6.5). A single gateway process holds
 # every connected agent's live socket in its own memory (GatewayServer._connections)

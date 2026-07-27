@@ -29,6 +29,17 @@ services:
       - LIVE_CAPTURE_ENABLED=${LIVE_CAPTURE_ENABLED:-true}
       - LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock
       - FLEET_GATEWAY_ADMIN_SOCKET=/var/run/marlinspike-fleet-gateway/admin.sock
+      # Public cert only (no key) — lets the Fleet page serve fleet-ca.crt
+      # for download (fleet/api.py's /ca-cert route) so an operator
+      # enrolling a real remote agent doesn't have to copy the file off
+      # this host by hand.
+      - FLEET_CA_CERT=${FLEET_CA_CERT:-/certs/fleet-ca.crt}
+      # Blank by default — set this to wherever fleet-gateway is actually
+      # reachable from a remote agent (see marlinspike/config.py) to get
+      # a ready-to-copy enroll command on the Fleet page instead of a
+      # placeholder one.
+      - FLEET_GATEWAY_PUBLIC_HOST=${FLEET_GATEWAY_PUBLIC_HOST:-}
+      - FLEET_GATEWAY_PUBLIC_PORT=${FLEET_GATEWAY_PUBLIC_PORT:-8765}
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +50,11 @@ services:
       - capd-socket:/var/run/marlinspike-capd
       - capd-captures:/var/lib/marlinspike/captures:ro
       - fleet-admin-socket:/var/run/marlinspike-fleet-gateway
+      # Single-file mount, deliberately not the whole ./certs directory —
+      # this container must never have fleet-ca.key (the CA's private
+      # signing key) on its filesystem at all, only the public cert it
+      # serves for download (fleet/api.py's /ca-cert route).
+      - ./certs/fleet-ca.crt:/certs/fleet-ca.crt:ro
     networks:
       - internal
     mem_limit: 3g
