@@ -329,6 +329,7 @@
   "fleet.download_agent_deb_hint": "pour Debian/Ubuntu : lancez « sudo apt install ./marlinspike-agent_*.deb », ou double-cliquez dessus dans un gestionnaire de fichiers.",
   "fleet.download_agent_hint": "pour les autres hôtes Linux : extrayez l'archive puis lancez « pip install -e . » (un environnement virtuel ou --break-system-packages peut être requis sur les distributions récentes).",
   "fleet.download_ca_cert": "Télécharger le certificat CA de la passerelle",
+  "fleet.gateway_host_auto_detected_warning": "Cette adresse a été déduite de la façon dont vous consultez cette page en ce moment — correcte si votre agent accède à ce serveur de la même façon, mais incorrecte si vous passez par un tunnel/VPN/redirection de port. Vérifiez qu'elle est bien accessible depuis l'agent distant, ou demandez à un administrateur de définir explicitement FLEET_GATEWAY_PUBLIC_HOST.",
   "fleet.gateway_host_not_configured": "Ce déploiement n'a pas encore défini d'adresse de passerelle pour les agents distants — demandez à l'administrateur de ce serveur de définir FLEET_GATEWAY_PUBLIC_HOST, puis remplacez l'espace réservé entre chevrons ci-dessus par l'adresse réelle.",
   "fleet.health": "Santé",
   "fleet.issue_enrollment_token": "Faire pivoter le jeton d'inscription",

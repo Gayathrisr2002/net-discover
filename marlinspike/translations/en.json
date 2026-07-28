@@ -329,6 +329,7 @@
   "fleet.download_agent_deb_hint": "for Debian/Ubuntu: run 'sudo apt install ./marlinspike-agent_*.deb', or double-click it in a file manager.",
   "fleet.download_agent_hint": "for other Linux hosts: extract it and run 'pip install -e .' (a virtualenv or --break-system-packages may be required on newer distros).",
   "fleet.download_ca_cert": "Download gateway CA certificate",
+  "fleet.gateway_host_auto_detected_warning": "This address was guessed from how you're browsing this page right now — correct if your agent reaches this server the same way, but wrong if you're using a tunnel/VPN/port-forward. Verify it's actually reachable from the remote agent, or ask an administrator to set FLEET_GATEWAY_PUBLIC_HOST explicitly.",
   "fleet.gateway_host_not_configured": "This deployment hasn't set a gateway address for remote agents yet — ask whoever administers this server to set FLEET_GATEWAY_PUBLIC_HOST, then replace the bracketed placeholder above with the real address.",
   "fleet.health": "Health",
   "fleet.issue_enrollment_token": "Rotate Enrollment Token",

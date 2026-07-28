@@ -20,6 +20,7 @@ import os
 import secrets
 import tarfile
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, jsonify, request, send_file, session, stream_with_context
 
@@ -515,19 +516,46 @@ def download_ca_cert():
                       download_name="fleet-ca.crt")
 
 
+# Hostnames auto-detection must never guess from — a remote agent
+# reaching the gateway via these would almost always be wrong (loopback
+# is only "correct" if the agent happens to run on this exact box), and
+# a confidently-wrong auto-filled value is worse than the honest
+# bracket-placeholder fallback: the placeholder visibly says "fill this
+# in", a wrong-but-plausible-looking IP does not.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
 @bp.route("/gateway-info", methods=["GET"])
 @login_required
 def gateway_info():
     """Deployment-wide, non-secret settings the Fleet page needs to render
     a ready-to-copy enroll command instead of a bracket-placeholder one:
-    where the gateway is actually reachable from a remote agent (operator-
-    configured — see config.FLEET_GATEWAY_PUBLIC_HOST's docstring, this is
-    deliberately never auto-detected) and whether a CA cert is available
-    to download.
+    where the gateway is actually reachable from a remote agent, and
+    whether a CA cert is available to download.
+
+    config.FLEET_GATEWAY_PUBLIC_HOST (operator-configured) always wins
+    when set. Otherwise, fall back to the host this very request came in
+    on (request.host) — in the overwhelmingly common case, an operator
+    browsing the Fleet page and a remote agent both reach this deployment
+    at the same address, just on different ports (5001 vs the gateway's).
+    This is a best-effort guess, not a guarantee: an operator who reaches
+    this page over a tunnel/VPN/port-forward with a different externally-
+    reachable address will still need FLEET_GATEWAY_PUBLIC_HOST set
+    explicitly — gateway_host_auto_detected tells the UI to soften its
+    wording accordingly rather than presenting a guess as gospel.
     """
+    auto_detected = False
+    gateway_host = config.FLEET_GATEWAY_PUBLIC_HOST or None
+    if not gateway_host:
+        detected = urlsplit(f"//{request.host}").hostname
+        if detected and detected not in _LOOPBACK_HOSTS:
+            gateway_host = detected
+            auto_detected = True
+
     return jsonify({
         "ok": True,
-        "gateway_host": config.FLEET_GATEWAY_PUBLIC_HOST or None,
+        "gateway_host": gateway_host,
+        "gateway_host_auto_detected": auto_detected,
         "gateway_port": config.FLEET_GATEWAY_PUBLIC_PORT,
         "ca_cert_available": bool(config.FLEET_CA_CERT and os.path.isfile(config.FLEET_CA_CERT)),
     })

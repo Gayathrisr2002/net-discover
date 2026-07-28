@@ -587,8 +587,23 @@ var FLEET = (function() {
       var gatewayAddr = info && info.gateway_host
         ? info.gateway_host + ':' + info.gateway_port
         : '<your-gateway-host>:<port>';
-      document.getElementById('fleet-gateway-host-warning').style.display =
-        (info && info.gateway_host) ? 'none' : '';
+      var warningEl = document.getElementById('fleet-gateway-host-warning');
+      if (!info || !info.gateway_host) {
+        // Nothing usable at all (e.g. this page was reached over
+        // loopback) — same strong "you must fill this in" warning as before.
+        warningEl.textContent = '{{ t("fleet.gateway_host_not_configured") }}';
+        warningEl.style.display = '';
+      } else if (info.gateway_host_auto_detected) {
+        // Guessed from the host this request came in on — right in the
+        // common case (operator and agent reach this deployment at the
+        // same address), but wrong for anyone browsing over a tunnel/VPN
+        // with a different externally-reachable address. Soft warning,
+        // not a "fill this in" demand, since there IS a real value here.
+        warningEl.textContent = '{{ t("fleet.gateway_host_auto_detected_warning") }}';
+        warningEl.style.display = '';
+      } else {
+        warningEl.style.display = 'none';
+      }
 
       var caCertAvailable = !!(info && info.ca_cert_available);
       document.getElementById('fleet-ca-cert-available').style.display = caCertAvailable ? '' : 'none';
