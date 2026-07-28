@@ -138,12 +138,17 @@ services:
   # default — opt in with:
   #   docker compose --profile fleet up -d
   # Same image as `app` (needs the same models/migrations, nothing else),
-  # different command. Reachable from outside the docker network (remote
-  # agents dial in), unlike `app`'s localhost-only port — so ./certs must
-  # hold a real TLS cert for any non-local deployment. For local testing:
+  # different command. Starts automatically with the rest of the stack —
+  # remote sensor agents enrolling in is a core part of this deployment,
+  # not an opt-in extra. Reachable from outside the docker network (remote
+  # agents dial in) on its own port (8765) regardless of APP_BIND_HOST
+  # above — so ./certs must hold a real TLS cert. Run this ONCE before
+  # the first `docker compose up` (or any time after — restart:
+  # unless-stopped means this container keeps retrying with backoff on
+  # its own, so it self-heals on its next attempt without a manual
+  # restart once the certs actually exist):
   #   scripts/gen_dev_tls_cert.sh
   fleet-gateway:
-    profiles: ["fleet"]
     build:
       context: .
       args:
