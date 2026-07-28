@@ -240,6 +240,7 @@ class CapdServer:
             "drops": sup.final_drops,
             "bytes_total": stats.bytes_total,
             "files_closed": stats.files_closed,
+            "files_lost_count": stats.files_lost_count,
         }
 
     def _reap_if_finished(self, session_id: str, stats) -> None:
@@ -275,6 +276,7 @@ class CapdServer:
             "file_index": stats.file_index,
             "files_closed": stats.files_closed,
             "running": stats.running,
+            "files_lost_count": stats.files_lost_count,
         }
 
     async def _stream_stats(self, client_sock: socket.socket, session_id: str, interval_s: float) -> None:
@@ -296,6 +298,7 @@ class CapdServer:
                 "file_index": stats.file_index,
                 "files_closed": stats.files_closed,
                 "running": stats.running,
+                "files_lost_count": stats.files_lost_count,
             }
             self._reap_if_finished(session_id, stats)
             try:

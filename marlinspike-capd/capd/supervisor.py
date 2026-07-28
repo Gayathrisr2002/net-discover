@@ -32,6 +32,24 @@ DEFAULT_FILES = 10
 _PKTS_RE = re.compile(r"Packets captured:\s*(\d+)")
 _DROPS_RE = re.compile(r"Packets dropped:\s*(\d+)")
 
+# dumpcap's ring-buffer filename sequence number (cap_00177_<ts>.pcapng ->
+# 177). Confirmed empirically (a real `-b files:N` ring capture, N small,
+# under enough traffic to force many rotations): this index increments
+# forever and never wraps back to reuse 1..N — only the *files on disk*
+# get evicted once the ring cap is exceeded, the numbering itself doesn't
+# reset. That's what makes gap detection below reliable: any jump in this
+# number bigger than +1 between two polls means dumpcap's own eviction
+# deleted one or more intermediate files before either poll ever observed
+# them on disk — the only case (rotation outpacing the poll interval,
+# combined with a small ring_files) this class can't recover from, only
+# detect and report.
+_SEQ_RE = re.compile(r"cap_(\d+)_")
+
+
+def _seq_of(path: str) -> int | None:
+    m = _SEQ_RE.search(os.path.basename(path))
+    return int(m.group(1)) if m else None
+
 # How long to wait after spawning dumpcap before confirming it's actually
 # alive. An interface that vanished between server.py's pre-flight check
 # and this exec, a capability/permission rejection, or a BPF/DLT mismatch
@@ -63,6 +81,13 @@ class CaptureStats:
     file_index: int
     files_closed: list[str]
     running: bool
+    # Cumulative count of rotation files dumpcap's own ring eviction
+    # deleted before any poll ever observed them on disk — see _SEQ_RE's
+    # docstring. 0 in the overwhelming common case (poll interval keeps up
+    # with the actual rotation rate); a nonzero value means real capture
+    # data was lost to a too-small ring_files/poll-interval combination,
+    # not a bug in this class itself.
+    files_lost_count: int = 0
 
 
 class CaptureSupervisor:
@@ -93,6 +118,13 @@ class CaptureSupervisor:
         self._previous_active: str | None = None
         self._closed_emitted: list[str] = []
         self._chmod_done: set[str] = set()
+        # Highest ring-buffer sequence number accounted for so far (either
+        # emitted as closed, or currently the active file) — see _SEQ_RE.
+        # Used to detect a gap: dumpcap's own eviction outpacing our poll
+        # interval, silently deleting one or more intermediate files
+        # before any poll ever saw them exist.
+        self._highest_seq_accounted_for: int = 0
+        self._files_lost_count: int = 0
 
         # Authoritative tallies (parsed from dumpcap exit output).
         self.final_packets: int | None = None
@@ -239,6 +271,31 @@ class CaptureSupervisor:
                     else:
                         self._chmod_done.add(f)
 
+            # Detect a gap: dumpcap's own ring eviction outpacing this
+            # poll, deleting one or more intermediate files before this or
+            # any previous poll ever saw them exist on disk. Must run
+            # before the files_closed accounting below (which only ever
+            # reports files it can actually see) — this is the only place
+            # that can detect data that's already gone, since it compares
+            # against the ever-increasing ring sequence number rather than
+            # just this poll's file listing.
+            seqs = [s for s in (_seq_of(f) for f in files) if s is not None]
+            if seqs:
+                lowest_seq = min(seqs)
+                if lowest_seq > self._highest_seq_accounted_for + 1:
+                    gap = lowest_seq - self._highest_seq_accounted_for - 1
+                    self._files_lost_count += gap
+                    log.warning(
+                        "session=%s rotation outpaced polling — %d capture "
+                        "file(s) (sequence %d-%d) were evicted by dumpcap's "
+                        "own ring before ever being observed; their data is "
+                        "unrecoverable. Consider a larger ring_files or a "
+                        "shorter poll interval.",
+                        self.cfg.session_id, gap,
+                        self._highest_seq_accounted_for + 1, lowest_seq - 1,
+                    )
+                self._highest_seq_accounted_for = max(self._highest_seq_accounted_for, max(seqs))
+
             # Detect rotation: anything we previously saw as "active" but
             # which is no longer the newest file is closed and ready for
             # the consumer to ingest.
@@ -272,6 +329,7 @@ class CaptureSupervisor:
                 bps = max(0.0, (bytes_total - self._last_poll_bytes) / (now - self._last_poll_ts))
             self._last_poll_ts = now
             self._last_poll_bytes = bytes_total
+            files_lost_count = self._files_lost_count
 
         return CaptureStats(
             ts=now,
@@ -281,6 +339,7 @@ class CaptureSupervisor:
             file_index=len(files),
             files_closed=newly_closed,
             running=running,
+            files_lost_count=files_lost_count,
         )
 
     # ── internal ─────────────────────────────────────────────
