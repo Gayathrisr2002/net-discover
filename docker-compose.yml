@@ -20,7 +20,17 @@ services:
       # PORT as configurable, which had zero effect under compose (it
       # only appeared to work because the hardcoded value matched
       # config.py's own default).
-      - "127.0.0.1:${PORT:-5001}:${PORT:-5001}"
+      #
+      # APP_BIND_HOST defaults to 127.0.0.1 (localhost-only) deliberately
+      # — this is an authenticated admin web app with no TLS termination
+      # of its own, so exposing it beyond loopback is an explicit,
+      # per-deployment opt-in, not a default anyone gets by just running
+      # `docker compose up`. Set APP_BIND_HOST=0.0.0.0 (in your own .env,
+      # never here) to reach it from elsewhere on your network — if you
+      # do, also set SESSION_COOKIE_SECURE=false, or login will silently
+      # fail: browsers refuse to send a Secure-flagged cookie back over
+      # plain HTTP to anything other than localhost.
+      - "${APP_BIND_HOST:-127.0.0.1}:${PORT:-5001}:${PORT:-5001}"
     environment:
       - DATABASE_URL=postgresql://marlinspike:${DB_PASSWORD}@db:5432/marlinspike
       - SECRET_KEY=${SECRET_KEY}
