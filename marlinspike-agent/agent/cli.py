@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import platform
+import re
 import sys
 
 from . import __version__
@@ -36,13 +37,28 @@ log = logging.getLogger("marlinspike-agent")
 
 
 def _split_host_port(hostport: str) -> tuple[str, int]:
+    # Users instinctively type a URL here (http://host:port) — that's the
+    # muscle-memory format for nearly every other network address they
+    # ever type, even though this flag wants a bare HOST:PORT pair (it's
+    # a raw TLS socket, not an HTTP endpoint). Silently strip a scheme
+    # prefix rather than let it flow into rpartition(":") below, which
+    # otherwise "successfully" splits "http://localhost:8765" into
+    # host="http://localhost", port=8765 — a value that passes int(port)
+    # but sends asyncio.open_connection() a hostname getaddrinfo can
+    # never resolve, surfacing as a confusing socket.gaierror deep in a
+    # traceback instead of a clear, immediate error here.
+    original = hostport
+    hostport = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", hostport)
     if ":" not in hostport:
-        raise SystemExit(f"--gateway must be HOST:PORT, got {hostport!r}")
+        raise SystemExit(f"--gateway must be HOST:PORT, got {original!r}")
     host, _, port = hostport.rpartition(":")
     try:
-        return host, int(port)
+        port_int = int(port)
     except ValueError:
-        raise SystemExit(f"--gateway must be HOST:PORT, got {hostport!r}")
+        raise SystemExit(f"--gateway must be HOST:PORT, got {original!r}")
+    if not host:
+        raise SystemExit(f"--gateway must be HOST:PORT, got {original!r}")
+    return host, port_int
 
 
 def _cmd_enroll(args: argparse.Namespace) -> int:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marlinspike-agent"
-version = "0.3.0"
+version = "0.3.1"
 description = "Remote sensor agent for MarlinSpike fleet management. Enrolls with the central fleet gateway over TLS and maintains an authenticated heartbeat connection. Phase 3+ adds capture control and report shipping over the same connection."
 readme = "README.md"
 requires-python = ">=3.10"
