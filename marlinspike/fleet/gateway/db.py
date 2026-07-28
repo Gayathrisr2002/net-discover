@@ -505,11 +505,26 @@ def ingest_report(*, session_uuid: str, filename: str, report_text: str,
     shouldn't crash the gateway's event loop.
     """
     try:
-        json.loads(report_text)
+        parsed_report = json.loads(report_text)
     except (json.JSONDecodeError, UnicodeDecodeError):
         log.warning("session=%s dropping malformed report %s (%d bytes)",
                      session_uuid, filename, len(report_text))
         return
+
+    # Valid JSON alone doesn't mean the agent's engine actually finished its
+    # chain — MarlinSpikeReport serializes 'topology' (default {}) starting
+    # from Stage 1's very first intermediate save, long before Stage 3
+    # actually populates it. Without this check, an agent-side engine crash
+    # right after an early intermediate save still produced valid-but-
+    # incomplete JSON, which got ingested and marked "completed" with zero
+    # findings — a real scan silently reported as clean instead of failed.
+    # Same completion signal as recovery.py's report_complete().
+    completed_stages = (
+        parsed_report.get("completed_stages")
+        or (parsed_report.get("results") or {}).get("completed_stages")
+        or []
+    ) if isinstance(parsed_report, dict) else []
+    report_is_complete = "Risk Surface Report" in completed_stages
 
     # `filename` and `pcap_filename` arrive from an authenticated-but-not-
     # trusted agent (the whole point of mTLS/credential auth in Phase 6 is
@@ -561,8 +576,7 @@ def ingest_report(*, session_uuid: str, filename: str, report_text: str,
 
         node_count = edge_count = 0
         try:
-            parsed = json.loads(report_text)
-            topology = parsed.get("topology") or parsed
+            topology = parsed_report.get("topology") or parsed_report
             node_count = len(topology.get("nodes") or [])
             edge_count = len(topology.get("edges") or [])
         except Exception:
@@ -577,7 +591,11 @@ def ingest_report(*, session_uuid: str, filename: str, report_text: str,
             command="chain",
             scan_profile="fast",
             pcap_source=pcap_filename,
-            status="completed",
+            status="completed" if report_is_complete else "failed",
+            error_tail=None if report_is_complete else (
+                "agent's engine did not finish its full chain (last completed "
+                f"stage: {completed_stages[-1] if completed_stages else 'none'})"
+            ),
             started_at=cs.started_at or now,
             completed_at=now,
             report_path=report_path,
@@ -586,7 +604,8 @@ def ingest_report(*, session_uuid: str, filename: str, report_text: str,
         )
         db.session.add(sh)
         db.session.commit()
-        log.info("session=%s ingested report -> %s (ScanHistory id=%s)", session_uuid, report_path, sh.id)
+        log.info("session=%s ingested %s report -> %s (ScanHistory id=%s)",
+                  session_uuid, sh.status, report_path, sh.id)
 
 
 def is_agent_revoked(*, agent_uuid: str) -> bool:

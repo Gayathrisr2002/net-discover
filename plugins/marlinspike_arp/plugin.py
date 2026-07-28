@@ -22,6 +22,13 @@ from . import CONTRACT_VERSION, PLUGIN_ID, PLUGIN_VERSION
 
 DEFAULT_RULES_PATH = Path(__file__).resolve().parents[2] / "rules" / "arp" / "base.yaml"
 
+# Cap on claimed_ips actually serialized into a finding — ip_count still
+# reflects the true total. Without this, a MAC spoofing hundreds of
+# thousands of distinct (attacker-controlled) IPs produces a multi-hundred-
+# MB finding from a tiny capture; only the human-readable "detail" string
+# was ever truncated before this.
+MAX_CLAIMED_IPS_SERIALIZED = 1000
+
 # OUI prefixes that are always router-class (factory default, expandable via rule pack)
 _BUILTIN_ROUTER_OUIS: list[str] = []
 
@@ -251,24 +258,44 @@ def _build_ip_mac_index(
 
 
 def _first_seen(convs: list[dict]) -> str:
-    """Return the earliest timestamp string across a list of conversations."""
-    timestamps: list[str] = []
+    """Return the earliest timestamp string across a list of conversations.
+
+    conv["first_seen"] (tshark's own frame.time-formatted string, what
+    engine.py's Conversation dataclass actually populates) and a
+    conv["timestamps"] fallback (raw epoch floats, for a conv shape that
+    doesn't have first_seen set) are two incompatible string formats —
+    sorting them together lexicographically previously put an epoch-float
+    string like "1700000000.0" ahead of a frame.time string like "Jul 27,
+    2026 ..." purely because '1' < 'J' as characters, regardless of actual
+    chronological order. Each group is now only ever sorted against
+    itself; the first_seen group takes priority whenever it has entries.
+    """
+    first_seen_group: list[str] = []
+    epoch_group: list[str] = []
     for conv in convs:
-        ts = str(conv.get("first_seen") or conv.get("timestamps") or "").strip()
-        if ts:
-            # timestamps may be a list or a single value
-            if ts.startswith("["):
-                try:
-                    items = json.loads(ts)
-                    timestamps.extend(str(t) for t in items if t)
-                except (json.JSONDecodeError, TypeError):
-                    timestamps.append(ts)
-            else:
-                timestamps.append(ts)
-    timestamps = [t for t in timestamps if t]
-    if not timestamps:
+        fs = conv.get("first_seen")
+        if fs:
+            first_seen_group.append(str(fs).strip())
+            continue
+        ts_raw = conv.get("timestamps")
+        if isinstance(ts_raw, list):
+            epoch_group.extend(str(t) for t in ts_raw if t)
+        elif ts_raw:
+            epoch_group.append(str(ts_raw).strip())
+
+    first_seen_group = [t for t in first_seen_group if t]
+    if first_seen_group:
+        return sorted(first_seen_group)[0]
+
+    epoch_group = [t for t in epoch_group if t]
+    if not epoch_group:
         return ""
-    return sorted(timestamps)[0]
+    try:
+        # Numeric sort, not lexicographic — this fallback path only ever
+        # carries epoch floats when it's actually exercised.
+        return str(min(float(t) for t in epoch_group))
+    except (TypeError, ValueError):
+        return sorted(epoch_group)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +382,7 @@ def _detect_mac_claims_many_ips(
         findings.append({
             "category": "ARP_MAC_CLAIMS_MANY_IPS",
             "mac": mac,
-            "claimed_ips": ips,
+            "claimed_ips": ips[:MAX_CLAIMED_IPS_SERIALIZED],
             "ip_count": len(ips),
             "attack_techniques": CATEGORY_ATTACK["ARP_MAC_CLAIMS_MANY_IPS"],
             "severity": "HIGH",

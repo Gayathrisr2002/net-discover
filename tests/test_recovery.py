@@ -104,16 +104,47 @@ def test_report_complete_invalid_json(tmp_path):
     assert not recovery.report_complete(str(p))
 
 
-def test_report_complete_valid_topology(tmp_path):
+def test_report_complete_final_stage_recorded(tmp_path):
+    """A report whose completed_stages reaches the chain's last stage
+    ("Risk Surface Report", per engine.py's main()) is complete."""
     p = tmp_path / "ok.json"
-    p.write_text(json.dumps({"topology": {"nodes": [], "edges": []}}))
+    p.write_text(json.dumps({
+        "topology": {"nodes": [], "edges": []},
+        "completed_stages": ["Capture Ingestion", "Protocol Dissection",
+                              "Topology Construction", "Risk Surface Report"],
+    }))
     assert recovery.report_complete(str(p))
 
 
-def test_report_complete_results_topology(tmp_path):
+def test_report_complete_final_stage_recorded_nested(tmp_path):
     p = tmp_path / "nested.json"
-    p.write_text(json.dumps({"results": {"topology": {"nodes": [{"id": "a"}], "edges": []}}}))
+    p.write_text(json.dumps({"results": {
+        "topology": {"nodes": [{"id": "a"}], "edges": []},
+        "completed_stages": ["Capture Ingestion", "Risk Surface Report"],
+    }}))
     assert recovery.report_complete(str(p))
+
+
+def test_report_complete_stage1_only_is_not_complete(tmp_path):
+    """Regression test: MarlinSpikeReport serializes 'topology' (default
+    {}) starting from Stage 1's very first intermediate save, long before
+    Stage 3 actually populates it — a run that crashed right after Stage 1
+    must not be treated as a completed scan just because 'topology' is
+    present."""
+    p = tmp_path / "stage1_only.json"
+    p.write_text(json.dumps({
+        "topology": {},
+        "completed_stages": ["Capture Ingestion"],
+    }))
+    assert not recovery.report_complete(str(p))
+
+
+def test_report_complete_no_completed_stages_field(tmp_path):
+    """A report with no completed_stages field at all (e.g. a very old
+    format) must not be treated as complete just because 'topology' exists."""
+    p = tmp_path / "no_stages.json"
+    p.write_text(json.dumps({"topology": {"nodes": [], "edges": []}}))
+    assert not recovery.report_complete(str(p))
 
 
 def test_report_complete_none_or_empty():
@@ -156,7 +187,9 @@ def test_reap_dead_pid_with_report_marks_completed(app, app_ctx, user, tmp_path)
     """PID is dead but engine wrote complete report → ingest + mark completed."""
     report_path = tmp_path / "good.json"
     report_path.write_text(json.dumps({
-        "topology": {"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": [{"src": "n1", "dst": "n2"}]}
+        "topology": {"nodes": [{"id": "n1"}, {"id": "n2"}], "edges": [{"src": "n1", "dst": "n2"}]},
+        "completed_stages": ["Capture Ingestion", "Protocol Dissection",
+                              "Topology Construction", "Risk Surface Report"],
     }))
     run_store.record_start(
         "rec-finished",

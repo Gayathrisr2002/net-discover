@@ -64,7 +64,11 @@ def _past_deadline(run_id):
 
 def test_past_deadline_but_report_complete_is_completed_not_failed(app, app_ctx, user, tmp_path, monkeypatch):
     report = tmp_path / "good.json"
-    report.write_text(json.dumps({"topology": {"nodes": [{"id": "n1"}], "edges": []}}))
+    report.write_text(json.dumps({
+        "topology": {"nodes": [{"id": "n1"}], "edges": []},
+        "completed_stages": ["Capture Ingestion", "Protocol Dissection",
+                              "Topology Construction", "Risk Surface Report"],
+    }))
     monkeypatch.setattr("marlinspike.enrich.run_all", lambda rp: {})
 
     run_store.record_start(

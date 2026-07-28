@@ -32,6 +32,13 @@ from . import CONTRACT_VERSION, PLUGIN_ID, PLUGIN_VERSION
 
 DEFAULT_RULES_PATH = Path(__file__).resolve().parents[2] / "rules" / "apt" / "base.yaml"
 
+# Cap on distinct_target_ips actually serialized into a finding — target_count
+# still reflects the true total. Without this, a crafted capture where one
+# host touches hundreds of thousands of distinct (spoofable) destination IPs
+# produces a multi-hundred-MB finding from a tiny input file; only the
+# human-readable "detail" string was ever truncated before this.
+MAX_TARGET_IPS_SERIALIZED = 1000
+
 
 CATEGORY_ATTACK = {
     "APT_LATERAL_MOVEMENT_SMB":   ["T1021.002", "T1570"],
@@ -339,7 +346,7 @@ def _detect_lateral_fanout(
         findings.append({
             "category": category,
             "src_ip": src,
-            "distinct_target_ips": targets,
+            "distinct_target_ips": targets[:MAX_TARGET_IPS_SERIALIZED],
             "target_count": len(targets),
             "first_seen": first_seen,
             "attack_techniques": CATEGORY_ATTACK[category],
@@ -427,7 +434,7 @@ def _detect_ot_recon(
             "category": "APT_OT_RECONNAISSANCE",
             "src_ip": src,
             "src_role": src_role or "unknown",
-            "distinct_target_ips": targets,
+            "distinct_target_ips": targets[:MAX_TARGET_IPS_SERIALIZED],
             "target_count": len(targets),
             "ot_protocols": sorted(protos_by_src[src]),
             "attack_techniques": CATEGORY_ATTACK["APT_OT_RECONNAISSANCE"],

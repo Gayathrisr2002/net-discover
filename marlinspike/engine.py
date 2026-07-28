@@ -1872,7 +1872,7 @@ class CaptureIngestor:
             try:
                 result = subprocess.run(
                     ["capinfos", "-T", "-M", path],
-                    capture_output=True, text=True, timeout=30
+                    capture_output=True, text=True, errors="replace", timeout=30
                 )
                 if result.returncode != 0:
                     raise FileNotFoundError("capinfos not found")
@@ -1882,7 +1882,15 @@ class CaptureIngestor:
                     raise ValueError("Invalid capinfos output")
 
                 fields = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
-                packet_count = int(fields.get("Number of packets", 0))
+                try:
+                    packet_count = int(fields.get("Number of packets", 0))
+                except (ValueError, TypeError):
+                    # A misaligned TSV row (e.g. an embedded tab in a
+                    # PCAPNG interface-description comment, itself
+                    # attacker-controlled free text) could map this field
+                    # to non-numeric text — degrade to 0 rather than crash
+                    # the whole engine before Stage 1 even completes.
+                    packet_count = 0
                 raw_dur = fields.get("Capture duration (seconds)", "0")
                 try:
                     duration = float(raw_dur)
@@ -2011,6 +2019,17 @@ class OTProtocolDissector:
     # If the capture exceeds this, arp_observations_truncated is set True on the report.
     ARP_OBS_CAP = 10000
 
+    # Maximum distinct (src_mac, dst_mac, protocol, port) conversation
+    # entries tracked in a single scan. Unlike the port-scan collapse above
+    # (which only fires per fixed mac_pair once its own port count crosses
+    # collapse_threshold), a capture where an attacker rotates/spoofs MAC
+    # addresses per packet defeats that heuristic entirely — every packet
+    # looks like a brand-new (mac_pair, port) with nothing to collapse
+    # against — and conv_map grows one entry per packet, unbounded. Once
+    # this cap is hit, every further genuinely-new key is folded into one
+    # shared overflow conversation instead of growing conv_map further.
+    CONV_MAP_CAP = 50000
+
     def __init__(self, pcap_path: str, chunk_size: int = 0, collapse_threshold: int = 50):
         self.pcap_path = pcap_path
         self.chunk_size = chunk_size
@@ -2063,8 +2082,19 @@ class OTProtocolDissector:
                "-o", "tcp.desegment_tcp_streams:FALSE",
                "-o", "ip.defragment:FALSE"] + field_args
 
+        # errors="replace": several free-text fields tshark reflects here
+        # (LLDP system name, CDP device ID, BACnet object name, PROFINET
+        # station name, DNS query name, ...) come straight from packet
+        # payload bytes, which aren't guaranteed valid UTF-8. Without this,
+        # one invalid-UTF-8 byte anywhere raises UnicodeDecodeError mid-
+        # iteration below, caught by the broad except further down, which
+        # just kills the subprocess and silently stops processing every
+        # packet after that point — with no truncation flag anywhere on
+        # the report, a crafted PCAP with one bad byte early on produces a
+        # false-negative "clean" result. Invalid bytes now just become the
+        # U+FFFD replacement character in that one field instead.
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, bufsize=1)
+                                text=True, errors="replace", bufsize=1)
         try:
             for line in proc.stdout:
                 line = line.rstrip("\n")
@@ -2111,6 +2141,13 @@ class OTProtocolDissector:
                     if len(pair_ports[pair_key]) >= self.collapse_threshold:
                         key = (src_mac, dst_mac, "Port Scan", 0)
                         collapsed_count += 1
+
+                if key not in conv_map and len(conv_map) >= self.CONV_MAP_CAP:
+                    if not getattr(self, "_conv_map_cap_hit", False):
+                        self._conv_map_cap_hit = True
+                        print(f"  [!] {self.CONV_MAP_CAP:,} unique conversations reached — "
+                              f"further distinct conversations are merged into one overflow entry")
+                    key = ("(overflow)", "(overflow)", "Truncated Conversations", 0)
 
                 conv = conv_map[key]
                 conv["packet_count"] += 1
@@ -3491,7 +3528,16 @@ class TopologyBuilder:
                         node.system_name = station
                     pn_vendor = pn.get("vendor_id", "")
                     if pn_vendor:
-                        pn_vid = int(pn_vendor, 0) if pn_vendor.startswith("0x") else int(pn_vendor) if pn_vendor.isdigit() else 0
+                        # Guarded like the CIP vendor_id/device_type parses
+                        # above — pn_vendor is attacker-controlled (a
+                        # PROFINET DCP frame field); an invalid-hex value
+                        # after "0x" used to raise an uncaught ValueError
+                        # here with no top-level handler in main(),
+                        # crashing the whole engine process.
+                        try:
+                            pn_vid = int(pn_vendor, 0) if pn_vendor.startswith("0x") else int(pn_vendor) if pn_vendor.isdigit() else 0
+                        except (TypeError, ValueError):
+                            pn_vid = 0
                         if pn_vid in PROFINET_VENDOR_ID_MAP:
                             node.vendor = PROFINET_VENDOR_ID_MAP[pn_vid]
                         elif pn_vid and node.vendor == "Unknown":

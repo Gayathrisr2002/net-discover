@@ -40,7 +40,15 @@ def _session_invalidated() -> bool:
     admin_required so both actually enforce it identically."""
     if "session_version" in session and "user_id" in session:
         user = User.query.get(session["user_id"])
-        if user and getattr(user, "session_version", 1) != session["session_version"]:
+        if user is None:
+            # Account was deleted out from under this live session (e.g.
+            # an admin removing a compromised user) — `if user and ...`
+            # used to short-circuit to False here, treating a deleted
+            # user's session as NOT invalidated, so it lingered until some
+            # other request happened to dereference the (now-gone) row and
+            # crashed instead of cleanly logging out.
+            return True
+        if getattr(user, "session_version", 1) != session["session_version"]:
             return True
     return False
 
@@ -125,9 +133,20 @@ def create_user(username, password, role="user", upload_limit_mb=None):
     return user
 
 
+# Precomputed once at import time (never matches any real password) so a
+# nonexistent username still pays the same check_password_hash cost as a
+# real one below — otherwise a nonexistent username short-circuits after
+# only a fast indexed lookup while an existing one additionally pays the
+# full (deliberately slow) hash-verification cost, and that timing gap is
+# enough to enumerate valid usernames via /login response timing.
+_DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
+
+
 def verify_user(username, password):
     user = User.query.filter_by(username=username).first()
-    if user and check_password_hash(user.password_hash, password):
+    password_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
+    password_ok = check_password_hash(password_hash, password)
+    if user and password_ok:
         return user
     return None
 

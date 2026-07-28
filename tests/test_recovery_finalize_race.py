@@ -60,7 +60,11 @@ def user(app_ctx):
 
 def _report(tmp_path):
     p = tmp_path / "good.json"
-    p.write_text(json.dumps({"topology": {"nodes": [{"id": "n1"}], "edges": []}}))
+    p.write_text(json.dumps({
+        "topology": {"nodes": [{"id": "n1"}], "edges": []},
+        "completed_stages": ["Capture Ingestion", "Protocol Dissection",
+                              "Topology Construction", "Risk Surface Report"],
+    }))
     return str(p)
 
 

@@ -2882,8 +2882,13 @@ def create_app():
         picked = normalise_locale(locale)
         session["locale"] = picked
         nxt = request.args.get("next") or request.referrer or url_for("dashboard")
-        # Same-host redirect only.
-        if urlparse(nxt).netloc and urlparse(nxt).netloc != request.host:
+        # Same-host redirect only. Reject any backslash outright: browsers
+        # normalize '\' to '/' during navigation (WHATWG URL spec), but
+        # Python's urlparse doesn't treat '\' as a delimiter at all, so
+        # e.g. '/\evil.com' parses here with an *empty* netloc (passing
+        # the check below) even though a real browser resolves it to
+        # protocol-relative //evil.com and navigates off-site.
+        if "\\" in nxt or (urlparse(nxt).netloc and urlparse(nxt).netloc != request.host):
             nxt = url_for("dashboard")
         return redirect(nxt)
 
@@ -6008,10 +6013,20 @@ def create_app():
         user = User.query.get(session["user_id"])
         for field in ("full_name", "company", "phone", "address"):
             if field in body:
-                val = body[field].strip() if body[field] else None
+                raw = body[field]
+                # `if raw else None` only guards falsy values — a non-string
+                # JSON value (int, list, dict) is still truthy and used to
+                # reach .strip() below uncaught, crashing this route with a
+                # 500 instead of a clean validation error.
+                if raw is not None and not isinstance(raw, str):
+                    return jsonify({"ok": False, "error": f"{field} must be a string"}), 400
+                val = raw.strip() if raw else None
                 setattr(user, field, val or None)
         if "email" in body:
-            email_val = body["email"].strip() if body["email"] else None
+            raw_email = body["email"]
+            if raw_email is not None and not isinstance(raw_email, str):
+                return jsonify({"ok": False, "error": "email must be a string"}), 400
+            email_val = raw_email.strip() if raw_email else None
             if email_val and User.query.filter(User.email == email_val, User.id != user.id).first():
                 return jsonify({"ok": False, "error": "Email already in use"}), 409
             user.email = email_val or None

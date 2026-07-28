@@ -242,11 +242,20 @@ def _client() -> CapdClient:
 _MEMBER_ROLE_RANK: dict[str, int] = {"viewer": 1, "editor": 2, "owner": 3}
 
 
-def _require_agent(agent_id) -> Agent | None:
-    """Return the agent if it exists, isn't revoked, and the caller can at
-    least view the site it belongs to (owner or SiteMember) — the same ACL
-    shape as _require_project, just via Site/SiteMember instead of Project/
-    ProjectMember."""
+def _require_agent(agent_id, min_role: str = "viewer") -> Agent | None:
+    """Return the agent if it exists, isn't revoked, and the caller has at
+    least ``min_role`` on the site it belongs to (owner or SiteMember) —
+    the same ACL shape as _require_project, just via Site/SiteMember
+    instead of Project/ProjectMember.
+
+    Default is "viewer" for the read-only list_interfaces call site.
+    Starting/stopping an actual capture is mutating and must pass
+    min_role="editor" explicitly — every other mutating fleet action
+    (revoke, rotate-credential, policy edits) already requires editor+;
+    leaving this at the default viewer level let a site member explicitly
+    granted read-only access still start/stop live captures on that
+    site's agents.
+    """
     try:
         aid = int(agent_id)
     except (TypeError, ValueError):
@@ -261,7 +270,7 @@ def _require_agent(agent_id) -> Agent | None:
     if site.created_by == uid:
         return agent
     member = SiteMember.query.filter_by(site_id=site.id, user_id=uid).first()
-    if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get("viewer", 1):
+    if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get(min_role, 1):
         return agent
     return None
 
@@ -465,7 +474,8 @@ def start_session():
     # local capd (Phase 3). agent_id is None is the untouched default path.
     agent = None
     if body.get("agent_id") is not None:
-        agent = _require_agent(body.get("agent_id"))
+        # editor+, not the default viewer — starting a capture is mutating.
+        agent = _require_agent(body.get("agent_id"), min_role="editor")
         if agent is None:
             return jsonify({"ok": False, "error": "Agent not found"}), 404
         # project_id and agent_id are each independently ACL-checked above

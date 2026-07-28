@@ -14,11 +14,19 @@ services:
     container_name: marlinspike-app
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5001:5001"
+      # PORT is also forwarded into the container's environment below —
+      # config.py/app.py bind to it, so both sides must move together.
+      # Previously hardcoded to 5001:5001 while .env.example documented
+      # PORT as configurable, which had zero effect under compose (it
+      # only appeared to work because the hardcoded value matched
+      # config.py's own default).
+      - "127.0.0.1:${PORT:-5001}:${PORT:-5001}"
     environment:
       - DATABASE_URL=postgresql://marlinspike:${DB_PASSWORD}@db:5432/marlinspike
       - SECRET_KEY=${SECRET_KEY}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - PORT=${PORT:-5001}
+      - HOST=${HOST:-0.0.0.0}
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - RATELIMIT_STORAGE_URI=${RATELIMIT_STORAGE_URI:-redis://ratelimit:6379/0}
       - MARLINSPIKE_DPI_BIN=/usr/local/bin/marlinspike-dpi
@@ -75,7 +83,7 @@ services:
       # a fresh `docker compose --profile fleet up` could have it querying
       # tables that don't exist yet. No dedicated /health route exists, so
       # this just confirms the process is actually serving requests.
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/login', timeout=3)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${PORT:-5001}/login', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -105,7 +113,13 @@ services:
       - serve
       - --socket=/var/run/marlinspike-capd/marlinspike-capd.sock
       - --capture-root=/var/lib/marlinspike/captures
-      - --allow-uid=${LIVE_CAPTURE_ALLOW_UID:-0}
+      # Default matches the app container's uid (1000, set in the
+      # Dockerfile) — .env.example documents this explicitly since it's
+      # what actually needs to match for the app to connect to capd's
+      # socket. The old default of 0 (root) contradicted that documented
+      # requirement: a hand-built .env missing this line silently denied
+      # the app's connections with no error pointing at the UID mismatch.
+      - --allow-uid=${LIVE_CAPTURE_ALLOW_UID:-1000}
     mem_limit: 256m
 
   # Fleet gateway (Phase 2 of the distributed-agent architecture). Off by

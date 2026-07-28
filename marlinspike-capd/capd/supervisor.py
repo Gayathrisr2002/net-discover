@@ -32,6 +32,16 @@ DEFAULT_FILES = 10
 _PKTS_RE = re.compile(r"Packets captured:\s*(\d+)")
 _DROPS_RE = re.compile(r"Packets dropped:\s*(\d+)")
 
+# How long to wait after spawning dumpcap before confirming it's actually
+# alive. An interface that vanished between server.py's pre-flight check
+# and this exec, a capability/permission rejection, or a BPF/DLT mismatch
+# dumpcap itself rejects all make it exit almost immediately having
+# written zero files. Without this check, start() reported success
+# regardless, and the resulting "capture" silently showed a clean
+# status="stopped" with 0 bytes on its first poll — the real cause sat
+# unseen in dumpcap's own stderr the whole time.
+_STARTUP_LIVENESS_GRACE_S = 0.3
+
 
 @dataclass
 class CaptureConfig:
@@ -128,6 +138,17 @@ class CaptureSupervisor:
         )
         self._stderr_thread.start()
 
+        time.sleep(_STARTUP_LIVENESS_GRACE_S)
+        if self._proc.poll() is not None:
+            exit_code = self._proc.returncode
+            self._stderr_thread.join(timeout=1.0)
+            with self._lock:
+                reason = "\n".join(self._stderr_buf).strip()
+            self._proc = None
+            raise RuntimeError(
+                reason or f"dumpcap exited immediately with code {exit_code}"
+            )
+
     def stop(self, timeout: float = 5.0) -> CaptureStats:
         if self._proc is None:
             return self._snapshot(running=False)
@@ -190,54 +211,67 @@ class CaptureSupervisor:
         files = sorted(glob.glob(str(out_dir / "cap_*.pcapng")))
         active = files[-1] if files else None
 
-        # dumpcap creates capture files 0600 (root-owned, since this process
-        # runs as root). The web app reads this directory as a different,
-        # non-root user — without this, every file is unreadable to it and
-        # the scan consumer.py queues for each rotated file fails silently
-        # (permission denied, logged but never surfaced to the user).
-        for f in files:
-            if f not in self._chmod_done:
-                try:
-                    os.chmod(f, 0o644)
-                except OSError:
-                    pass
-                else:
-                    self._chmod_done.add(f)
+        # Everything below reads-then-mutates self._chmod_done/
+        # _previous_active/_closed_emitted (rotation detection) and
+        # _last_poll_ts/_last_poll_bytes (bps calc) — held under one lock
+        # end-to-end, not just around the getsize() calls as before.
+        # poll() runs on the stats-loop thread while stop() can run
+        # concurrently on an RPC-handling thread (a user clicking Stop
+        # while the stats stream is live is the ordinary case, not an
+        # edge case); without a single lock spanning the whole check-
+        # then-append sequence, both could see the same rotated file as
+        # "not yet closed" at once and both report it in their own
+        # CaptureStats — double-processing one rotation (duplicate engine
+        # subprocess spawn, duplicate shipped report for the same pcap).
+        with self._lock:
+            # dumpcap creates capture files 0600 (root-owned, since this
+            # process runs as root). The web app reads this directory as
+            # a different, non-root user — without this, every file is
+            # unreadable to it and the scan consumer.py queues for each
+            # rotated file fails silently (permission denied, logged but
+            # never surfaced to the user).
+            for f in files:
+                if f not in self._chmod_done:
+                    try:
+                        os.chmod(f, 0o644)
+                    except OSError:
+                        pass
+                    else:
+                        self._chmod_done.add(f)
 
-        # Detect rotation: anything we previously saw as "active" but
-        # which is no longer the newest file is closed and ready for the
-        # consumer to ingest.
-        newly_closed: list[str] = []
-        if self._previous_active and self._previous_active != active:
-            if self._previous_active not in self._closed_emitted:
-                newly_closed.append(self._previous_active)
-                self._closed_emitted.append(self._previous_active)
-        for f in files:
-            if f != active and f not in self._closed_emitted:
-                newly_closed.append(f)
-                self._closed_emitted.append(f)
-        # On finalize, the active file itself is closed.
-        if finalize and active and active not in self._closed_emitted:
-            newly_closed.append(active)
-            self._closed_emitted.append(active)
+            # Detect rotation: anything we previously saw as "active" but
+            # which is no longer the newest file is closed and ready for
+            # the consumer to ingest.
+            newly_closed: list[str] = []
+            if self._previous_active and self._previous_active != active:
+                if self._previous_active not in self._closed_emitted:
+                    newly_closed.append(self._previous_active)
+                    self._closed_emitted.append(self._previous_active)
+            for f in files:
+                if f != active and f not in self._closed_emitted:
+                    newly_closed.append(f)
+                    self._closed_emitted.append(f)
+            # On finalize, the active file itself is closed.
+            if finalize and active and active not in self._closed_emitted:
+                newly_closed.append(active)
+                self._closed_emitted.append(active)
 
-        self._previous_active = active
+            self._previous_active = active
 
-        # Bytes total = closed files (final size) + active file (current size).
-        bytes_total = 0
-        for f in files:
-            with self._lock:
+            # Bytes total = closed files (final size) + active file (current size).
+            bytes_total = 0
+            for f in files:
                 try:
                     bytes_total += os.path.getsize(f)
                 except OSError:
                     pass
 
-        now = time.time()
-        bps = 0.0
-        if self._last_poll_ts and now > self._last_poll_ts:
-            bps = max(0.0, (bytes_total - self._last_poll_bytes) / (now - self._last_poll_ts))
-        self._last_poll_ts = now
-        self._last_poll_bytes = bytes_total
+            now = time.time()
+            bps = 0.0
+            if self._last_poll_ts and now > self._last_poll_ts:
+                bps = max(0.0, (bytes_total - self._last_poll_bytes) / (now - self._last_poll_ts))
+            self._last_poll_ts = now
+            self._last_poll_bytes = bytes_total
 
         return CaptureStats(
             ts=now,

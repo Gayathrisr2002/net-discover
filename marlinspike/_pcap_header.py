@@ -145,7 +145,12 @@ def _read_pcap(f: BinaryIO) -> CaptureSummary:
 
         # Cap incl_len defensively — a malformed file could claim a huge
         # payload and we don't want to seek to negative or astronomical offsets.
-        if incl_len > snaplen * 4 + 1 << 20 and incl_len > 1 << 24:
+        # Parens matter: `<<` binds looser than `+` in Python, so the
+        # original `snaplen * 4 + 1 << 20` parsed as
+        # `(snaplen * 4 + 1) << 20` — at snaplen's max realistic value this
+        # requires incl_len > ~275GB, impossible for a 32-bit field, so the
+        # guard could never actually fire.
+        if incl_len > (snaplen * 4 + (1 << 20)) and incl_len > (1 << 24):
             raise ValueError(
                 f"pcap record claims absurd payload length {incl_len} — file corrupt?"
             )
@@ -228,9 +233,44 @@ def _read_pcapng(f: BinaryIO) -> CaptureSummary:
             break
 
         body_len = block_len - 12  # block_type + block_len + trailing block_len
-        body = f.read(body_len)
+
+        # Only read as much of the body as this block type actually
+        # inspects (mirroring _read_pcap's seek-past-payload discipline
+        # above) — never the whole declared block_len, which is an
+        # attacker-controlled 32-bit field. Reading the full body
+        # unconditionally let one inflated block force a multi-GB single
+        # read() in what's supposed to be an O(1)-memory, headers-only
+        # validator (EPB/PB in particular carry the actual captured
+        # packet bytes after their small fixed header, which this parser
+        # never needs).
+        if block_type == _BLOCK_IDB:
+            # Options can follow the fixed 8-byte header; real captures
+            # never have more than a few hundred bytes of them, so this
+            # cap is generous, not tight — anything beyond it just isn't
+            # scanned for if_tsresol and falls back to the microsecond
+            # default, a benign degradation, not a correctness bug.
+            read_len = min(body_len, 4096)
+        elif block_type == _BLOCK_EPB:
+            read_len = min(body_len, 20)
+        elif block_type == _BLOCK_PB:
+            read_len = min(body_len, 12)
+        else:
+            # SPB carries no per-block metadata this parser uses, and any
+            # unrecognised block type is skipped entirely regardless
+            # (PCAPNG's forward-compatibility rule, noted below) — neither
+            # needs a single byte of its body read.
+            read_len = 0
+
+        body = f.read(read_len) if read_len else b""
+        if len(body) < read_len:
+            break  # truncated mid-block
+        try:
+            f.seek(body_len - len(body), os.SEEK_CUR)
+        except OSError:
+            break
+
         trailing = f.read(4)
-        if len(body) < body_len or len(trailing) < 4:
+        if len(trailing) < 4:
             break
 
         if block_type == _BLOCK_IDB:

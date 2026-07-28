@@ -231,6 +231,14 @@ def run(
 
 _CVE_RE = re.compile(r"CVE-\d{4}-\d+", re.IGNORECASE)
 
+# Cap on distinct (vendor, product) asset terms actually searched against
+# the catalog. _extract_report_terms already dedupes by (vendor, product),
+# but that dedup set itself has no size limit — a crafted capture with many
+# thousands of distinct fake device identity responses (spoofable protocol-
+# identity strings, e.g. fake CIP Identity replies) would otherwise drive
+# O(assets x catalog_size) matching cost per scan.
+MAX_ASSETS_SEARCHED = 500
+
 
 def _extract_report_terms(
     report: dict[str, Any],
@@ -316,6 +324,12 @@ def run_report(
 
     asset_terms, bare_cves, extract_warnings = _extract_report_terms(report)
     warnings.extend(extract_warnings)
+    if len(asset_terms) > MAX_ASSETS_SEARCHED:
+        warnings.append(
+            f"{len(asset_terms)} distinct assets found — only the first "
+            f"{MAX_ASSETS_SEARCHED} were matched against the catalog"
+        )
+        asset_terms = asset_terms[:MAX_ASSETS_SEARCHED]
 
     # Track all advisory IDs seen to deduplicate all_advisories
     seen_advisory_ids: set[str] = set()

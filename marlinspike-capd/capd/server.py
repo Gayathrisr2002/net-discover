@@ -148,9 +148,19 @@ class CapdServer:
         session_id = str(params.get("session_id", "")).strip()
         interface = str(params.get("interface", "")).strip()
         bpf_filter = str(params.get("bpf", "") or params.get("bpf_filter", ""))
-        filesize_kb = int(params.get("ring_filesize_kb") or params.get("filesize_kb") or 200_000)
-        files = int(params.get("ring_files") or params.get("files") or 10)
-        max_duration_s = int(params.get("max_duration_s") or 0)
+        # A malformed value here (e.g. a non-numeric string) used to raise
+        # ValueError/TypeError uncaught — isolated to this one connection
+        # by _handle_client's outer except (it doesn't crash the daemon or
+        # affect other sessions), but the socket just closed with no
+        # {"ok": false, "error": ...} response, so the caller
+        # (marlinspike/capture/client.py) saw a generic "capd closed
+        # connection" instead of the actual, specific cause.
+        try:
+            filesize_kb = int(params.get("ring_filesize_kb") or params.get("filesize_kb") or 200_000)
+            files = int(params.get("ring_files") or params.get("files") or 10)
+            max_duration_s = int(params.get("max_duration_s") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "ring_filesize_kb, ring_files, and max_duration_s must be integers"}
 
         if not session_id:
             return {"ok": False, "error": "session_id required"}
@@ -232,6 +242,23 @@ class CapdServer:
             "files_closed": stats.files_closed,
         }
 
+    def _reap_if_finished(self, session_id: str, stats) -> None:
+        """Remove a self-expired session's supervisor once its terminal
+        state (running=False) has actually been observed and returned to
+        a caller. _stop_session already does this for an explicit stop —
+        without this, a session that ends on its own (max_duration_s
+        elapsed, or the process just died), the documented, intended way
+        to run a bounded capture, left its finished CaptureSupervisor
+        permanently in self._sessions for the life of this privileged
+        (root) process, growing without bound until it's OOM-killed,
+        taking down every other in-progress capture on the host with it.
+        Safe to call unlocked from either call site below: both are plain
+        synchronous code with no `await` between reading self._sessions
+        and this pop, so nothing else on the event loop can interleave.
+        """
+        if not stats.running:
+            self._sessions.pop(session_id, None)
+
     def _session_status(self, session_id: str) -> dict:
         """One-shot, non-streaming snapshot — for a caller that just wants
         a periodic poll (e.g. a fleet agent relaying summarized progress to
@@ -240,6 +267,7 @@ class CapdServer:
         if sup is None:
             return {"ok": False, "error": f"unknown session: {session_id}"}
         stats = sup.poll()
+        self._reap_if_finished(session_id, stats)
         return {
             "ok": True,
             "session_id": session_id,
@@ -269,6 +297,7 @@ class CapdServer:
                 "files_closed": stats.files_closed,
                 "running": stats.running,
             }
+            self._reap_if_finished(session_id, stats)
             try:
                 await _send_json_async(client_sock, frame)
             except (BrokenPipeError, ConnectionResetError):

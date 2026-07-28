@@ -147,11 +147,12 @@ def _live_argv_matches(actual: list[str], expected: list[str]) -> bool:
 
 
 def report_complete(report_path: str | None) -> bool:
-    """True if the engine finished writing its report.
+    """True if the engine actually finished its full chain, not just
+    started writing a report.
 
-    We use a structural check (``json.load`` succeeds and ``topology``
-    key is present) rather than just file existence, because the engine
-    may have died mid-write and left a truncated file.
+    We use a structural check (``json.load`` succeeds and the chain's
+    final stage is recorded) rather than just file existence, because the
+    engine may have died mid-write and left a truncated file.
     """
     if not report_path or not os.path.isfile(report_path):
         return False
@@ -160,8 +161,17 @@ def report_complete(report_path: str | None) -> bool:
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return False
-    # The engine writes 'topology' at the top level (or nested under 'results').
-    return "topology" in data or "results" in data
+    # `"topology" in data` used to be the check here, but MarlinSpikeReport
+    # serializes `topology` (default {}) on every intermediate save
+    # starting from Stage 1 — long before Stage 3 ("Topology Construction")
+    # actually populates it — so a run that crashed right after Stage 1
+    # still passed this check and got recovered as "completed" with zero
+    # findings. "Risk Surface Report" is the last stage engine.py's chain
+    # command appends to completed_stages (engine.py's main(), right
+    # before its final report.save()) — only present if every stage
+    # actually ran to completion, not merely started.
+    completed_stages = data.get("completed_stages") or data.get("results", {}).get("completed_stages") or []
+    return "Risk Surface Report" in completed_stages
 
 
 def _ingest_completed_report(rec: ScanHistory) -> None:

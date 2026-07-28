@@ -363,23 +363,39 @@ class GatewayServer:
         finally:
             if agent_uuid is not None:
                 async with self._connections_lock:
-                    if self._connections.get(agent_uuid) is conn:
+                    is_current = self._connections.get(agent_uuid) is conn
+                    if is_current:
                         del self._connections[agent_uuid]
                 if conn is not None:
                     for fut in conn.pending.values():
                         if not fut.done():
                             fut.cancel()
-                if self.admin_host and self.admin_port:
+                # Only touch the DB/Redis registry if this was still the
+                # *current* connection for this agent (same identity
+                # check already guarding the dict delete above) — if the
+                # agent reconnected before this stale socket's own read
+                # loop noticed the drop, a newer connection may have
+                # already replaced this one here and registered its own
+                # instance. Without this guard, this stale connection's
+                # cleanup ran unconditionally: it could flip a genuinely-
+                # online agent back to "offline" (self-correcting only on
+                # the new connection's next heartbeat, up to 30s later)
+                # and, in a multi-instance deployment, delete the NEW
+                # connection's Redis registry entry out from under it —
+                # causing push_command to fail with "agent not connected"
+                # even though it actually is, just on a different instance.
+                if is_current:
+                    if self.admin_host and self.admin_port:
+                        try:
+                            await loop.run_in_executor(None, functools.partial(
+                                db.unregister_agent_instance, agent_uuid=agent_uuid
+                            ))
+                        except Exception:
+                            log.exception("failed to unregister instance for agent %s", agent_uuid)
                     try:
-                        await loop.run_in_executor(None, functools.partial(
-                            db.unregister_agent_instance, agent_uuid=agent_uuid
-                        ))
+                        await loop.run_in_executor(None, functools.partial(db.mark_offline, agent_uuid=agent_uuid))
                     except Exception:
-                        log.exception("failed to unregister instance for agent %s", agent_uuid)
-                try:
-                    await loop.run_in_executor(None, functools.partial(db.mark_offline, agent_uuid=agent_uuid))
-                except Exception:
-                    log.exception("failed to mark agent %s offline", agent_uuid)
+                        log.exception("failed to mark agent %s offline", agent_uuid)
                 log.info("agent %s disconnected (%s)", agent_uuid, peer)
             writer.close()
             try:
@@ -596,8 +612,22 @@ class GatewayServer:
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         conn.pending[req_id] = fut
         try:
-            async with conn.write_lock:
-                await _send_frame(conn.writer, {"type": "req", "id": req_id, "method": method, "params": params})
+            try:
+                async with conn.write_lock:
+                    await _send_frame(conn.writer, {"type": "req", "id": req_id, "method": method, "params": params})
+            except (ConnectionError, OSError) as exc:
+                # A broken agent-facing socket (drain() can raise on a
+                # reset transport) used to propagate straight out of
+                # push_command uncaught — past the caller's own
+                # `except GatewayCommandError` in _handle_admin_connection,
+                # which then got swallowed by *that* function's own outer
+                # `except (..., ConnectionResetError, BrokenPipeError):
+                # pass`, silently tearing down the unrelated admin
+                # connection (Flask <-> gateway) instead of returning a
+                # clean per-command error for just this one push.
+                raise GatewayCommandError(
+                    f"agent {agent_uuid} disconnected before receiving {method!r}: {exc}"
+                )
             try:
                 resp = await asyncio.wait_for(fut, timeout=timeout_s)
             except asyncio.TimeoutError:
