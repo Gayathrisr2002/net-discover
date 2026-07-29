@@ -31,9 +31,12 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 # credential.json is written by `marlinspike-agent enroll` (run manually,
 # once, as setup) and only read here. The capd socket dir needs read+write
-# for the unix-socket connect (Phase 3: relaying capture commands).
+# for the unix-socket connect (Phase 3: relaying capture commands) — the
+# leading '-' makes this tolerant of capd not being installed on this box
+# at all (it's a separate, optional package); without it, systemd's
+# namespace setup fails outright with 226/NAMESPACE if the path is missing.
 ReadOnlyPaths=/etc/marlinspike-agent
-ReadWritePaths=/var/run/marlinspike-capd
+ReadWritePaths=-/var/run/marlinspike-capd
 
 # This user must be in the group that owns /var/run/marlinspike-capd's
 # socket (or the socket's mode must allow it) — see marlinspike-capd's own

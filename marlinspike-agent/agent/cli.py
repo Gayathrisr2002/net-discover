@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import platform
 import re
 import sys
@@ -63,7 +64,15 @@ def _split_host_port(hostport: str) -> tuple[str, int]:
 
 def _cmd_enroll(args: argparse.Namespace) -> int:
     host, port = _split_host_port(args.gateway)
-    ssl_context = build_ssl_context(ca_cert=args.ca_cert, insecure_skip_verify=args.insecure_skip_verify)
+    # Resolve to an absolute path now, at enroll time: this gets persisted
+    # into credential.json and read back later by `run`, which under
+    # systemd (marlinspike-agent.service) starts from a different working
+    # directory than wherever the operator happened to type `enroll` from
+    # (typically ~/Downloads) — a relative path here silently resolves to
+    # the wrong file, or nothing at all, once ProtectHome=true hides /home
+    # from the sandboxed run.
+    ca_cert = os.path.abspath(args.ca_cert) if args.ca_cert else None
+    ssl_context = build_ssl_context(ca_cert=ca_cert, insecure_skip_verify=args.insecure_skip_verify)
     os_info = f"{platform.system()} {platform.release()}"
 
     # Always generate a local keypair + CSR and offer it — cheap (one
@@ -92,7 +101,7 @@ def _cmd_enroll(args: argparse.Namespace) -> int:
     client_cert_pem = result.get("client_cert_pem")
     creds = AgentCredentials(
         gateway_host=host, gateway_port=port,
-        ca_cert=args.ca_cert, insecure_skip_verify=args.insecure_skip_verify,
+        ca_cert=ca_cert, insecure_skip_verify=args.insecure_skip_verify,
         agent_uuid=result["agent_uuid"], credential=result["credential"],
         client_cert_pem=client_cert_pem,
         client_key_pem=client_key_pem if client_cert_pem else None,
