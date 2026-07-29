@@ -1,4 +1,60 @@
 services:
+  # One-shot: generates ./certs (fleet CA + gateway TLS cert) on first
+  # startup if it's empty, so a fresh clone works with a single `docker
+  # compose up` — no separate manual scripts/gen_dev_tls_cert.sh step to
+  # remember (a real source of confusion: app/fleet-gateway crash-looping
+  # with a bare FileNotFoundError and no obvious cause until someone
+  # realizes the certs were never generated).
+  #
+  # Deliberately NOT a certificate baked into the image or committed to
+  # the repo — every deployment that ever clones this repo would then
+  # share the exact same private key, letting anyone who's seen the
+  # source code impersonate the gateway or mint fraudulent agent client
+  # certs. Generating a fresh one per deployment, at first run, is the
+  # only way to get both convenience and a real per-deployment key.
+  #
+  # gen_dev_tls_cert.sh is already idempotent (reuses an existing CA
+  # rather than regenerating it, so it's harmless to re-run on every
+  # `docker compose up`) — the explicit file check below just avoids the
+  # redundant work and log noise on every ordinary startup. Mounted at
+  # /app/certs (not /certs) because the script resolves its own output
+  # directory relative to its own location on disk.
+  certs-init:
+    build:
+      context: .
+      args:
+        MARLINSPIKE_DPI_REPO: ${MARLINSPIKE_DPI_REPO:-https://github.com/eris-ot/marlinspike-dpi.git}
+        MARLINSPIKE_DPI_REF: ${MARLINSPIKE_DPI_REF:-326bdbb744a7b8f71295381fd209d9587dc09a3b}
+        MARLINSPIKE_MITRE_REPO: ${MARLINSPIKE_MITRE_REPO:-https://github.com/eris-ot/marlinspike-mitre.git}
+        MARLINSPIKE_MITRE_REF: ${MARLINSPIKE_MITRE_REF:-c3583ec2d189b8cde69f2160da6a5e8e5b643f7b}
+        MARLINSPIKE_MALWARE_REPO: ${MARLINSPIKE_MALWARE_REPO:-https://github.com/eris-ot/marlinspike-malware.git}
+        MARLINSPIKE_MALWARE_REF: ${MARLINSPIKE_MALWARE_REF:-4a008211cad7e56609e8a667b95f1c09b790c1b4}
+        MARLINSPIKE_MALWARE_RULES_REPO: ${MARLINSPIKE_MALWARE_RULES_REPO:-https://github.com/eris-ot/marlinspike-malware-rules.git}
+        MARLINSPIKE_MALWARE_RULES_REF: ${MARLINSPIKE_MALWARE_RULES_REF:-99cbe9358d0a5047d9b5e57a7e4ff5eafdee9bd4}
+    container_name: marlinspike-certs-init
+    restart: "no"
+    # Root only for this one-shot init step, not the long-running app/
+    # fleet-gateway containers: on a completely fresh checkout, ./certs
+    # doesn't exist yet, so Docker creates the bind-mount target as a
+    # root-owned directory before this container even starts — the
+    # normal non-root uid (1000) everything else runs as can't write
+    # into that. gen_dev_tls_cert.sh's own trailing `chmod 644` on every
+    # generated file is what actually makes them readable by the non-root
+    # app/fleet-gateway containers afterward, regardless of who owns them.
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -f /app/certs/fleet-ca.crt ] && [ -f /app/certs/gateway.crt ] && [ -f /app/certs/gateway.key ]; then
+          echo "certs already present, skipping generation"
+        else
+          bash /app/scripts/gen_dev_tls_cert.sh marlinspike-fleet-gateway
+        fi
+    volumes:
+      - ./certs:/app/certs
+    networks:
+      - internal
+
   app:
     build:
       context: .
@@ -65,6 +121,14 @@ services:
         condition: service_healthy
       ratelimit:
         condition: service_healthy
+      # Guarantees certs/fleet-ca.crt actually exists as a real file
+      # before this container's own single-file mount of it below ever
+      # gets created — without this ordering, Docker would silently
+      # create an empty *directory* at that path instead on a completely
+      # fresh checkout, breaking cert generation later with a confusing
+      # "Is a directory" error.
+      certs-init:
+        condition: service_completed_successfully
     volumes:
       - marlinspike-data:/app/data
       - capd-socket:/var/run/marlinspike-capd
@@ -73,16 +137,9 @@ services:
       # Single-file mount, deliberately not the whole ./certs directory —
       # this container must never have fleet-ca.key (the CA's private
       # signing key) on its filesystem at all, only the public cert it
-      # serves for download (fleet/api.py's /ca-cert route).
-      #
-      # IMPORTANT: run scripts/gen_dev_tls_cert.sh (or otherwise place a
-      # real fleet-ca.crt at this path) BEFORE the *first* `docker compose
-      # up` of this service — a single-file bind mount of a path that
-      # doesn't exist yet makes Docker silently create an empty directory
-      # there instead of a file, which then breaks cert generation with a
-      # confusing "Is a directory" error until that bogus directory is
-      # manually removed. This used to only be a fleet-gateway prerequisite;
-      # it now applies to `app` too.
+      # serves for download (fleet/api.py's /ca-cert route). Safe now
+      # that certs-init (above) always runs first and guarantees a real
+      # file exists at this path.
       - ./certs/fleet-ca.crt:/certs/fleet-ca.crt:ro
     networks:
       - internal
@@ -134,20 +191,14 @@ services:
       - --allow-uid=${LIVE_CAPTURE_ALLOW_UID:-1000}
     mem_limit: 256m
 
-  # Fleet gateway (Phase 2 of the distributed-agent architecture). Off by
-  # default — opt in with:
-  #   docker compose --profile fleet up -d
-  # Same image as `app` (needs the same models/migrations, nothing else),
+  # Fleet gateway (Phase 2 of the distributed-agent architecture). Same
+  # image as `app` (needs the same models/migrations, nothing else),
   # different command. Starts automatically with the rest of the stack —
   # remote sensor agents enrolling in is a core part of this deployment,
   # not an opt-in extra. Reachable from outside the docker network (remote
   # agents dial in) on its own port (8765) regardless of APP_BIND_HOST
-  # above — so ./certs must hold a real TLS cert. Run this ONCE before
-  # the first `docker compose up` (or any time after — restart:
-  # unless-stopped means this container keeps retrying with backoff on
-  # its own, so it self-heals on its next attempt without a manual
-  # restart once the certs actually exist):
-  #   scripts/gen_dev_tls_cert.sh
+  # above. certs-init (above) generates its TLS cert automatically before
+  # this ever starts — nothing to run by hand anymore.
   fleet-gateway:
     build:
       context: .
@@ -170,12 +221,12 @@ services:
       # limiting, distinct channel name, no keyspace collision.
       - RATELIMIT_STORAGE_URI=${RATELIMIT_STORAGE_URI:-redis://ratelimit:6379/0}
       # Phase 6: mTLS. Only this container ever reads FLEET_CA_KEY (the app
-      # container has no /certs mount at all) — it's what lets the gateway
-      # act as a tiny internal CA, signing each agent's enrollment-time CSR
-      # (marlinspike/fleet/gateway/db.py:_sign_csr). Missing files here
-      # degrade gracefully to bearer-credential-only auth (see
-      # build_ssl_context's warning), so this is safe to leave as-is until
-      # scripts/gen_dev_tls_cert.sh has actually been (re-)run.
+      # container's own /certs mount is a single read-only file, the
+      # public fleet-ca.crt only — never this key) — it's what lets the
+      # gateway act as a tiny internal CA, signing each agent's
+      # enrollment-time CSR (marlinspike/fleet/gateway/db.py:_sign_csr).
+      # certs-init (above) guarantees these files exist before this
+      # container ever starts.
       - FLEET_CA_CERT=${FLEET_CA_CERT:-/certs/fleet-ca.crt}
       - FLEET_CA_KEY=${FLEET_CA_KEY:-/certs/fleet-ca.key}
     ports:
@@ -208,10 +259,15 @@ services:
       # This process has no migration logic of its own (see gateway/db.py's
       # get_app()) — it relies entirely on app's create_app() having
       # already brought the schema to head. Without this, a fresh
-      # `docker compose --profile fleet up` has no ordering guarantee
-      # between the two and can hit "relation does not exist" errors.
+      # `docker compose up` has no ordering guarantee between the two
+      # and can hit "relation does not exist" errors.
       app:
         condition: service_healthy
+      # Also transitively guaranteed via app (above), listed explicitly
+      # so this dependency doesn't silently break if app's own chain is
+      # ever refactored.
+      certs-init:
+        condition: service_completed_successfully
     networks:
       - internal
     mem_limit: 256m
