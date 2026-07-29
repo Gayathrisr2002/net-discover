@@ -28,11 +28,24 @@ OUT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/certs"
 mkdir -p "$OUT_DIR"
 
 if [[ ! -f "$OUT_DIR/fleet-ca.crt" || ! -f "$OUT_DIR/fleet-ca.key" ]]; then
+  # -addext basicConstraints/keyUsage: openssl req -x509's implicit
+  # defaults (whatever the local openssl.cnf's [v3_ca] section happens to
+  # specify, if anything) are not reliable across OpenSSL versions/distros
+  # — confirmed real: a self-signed CA generated without these explicit
+  # extensions was accepted by this same OpenSSL version for *signing*
+  # (openssl x509 -req -CA doesn't check this), but rejected by a
+  # different host's TLS client during actual chain *verification* with
+  # "CA cert does not include key usage extension" — OpenSSL 3.x enforces
+  # keyCertSign on the signing CA strictly during verification, even
+  # though it never checked it while producing the chain in the first
+  # place.
   openssl req -x509 -newkey rsa:4096 -nodes \
     -keyout "$OUT_DIR/fleet-ca.key" \
     -out "$OUT_DIR/fleet-ca.crt" \
     -days 3650 \
-    -subj "/CN=marlinspike-fleet-ca"
+    -subj "/CN=marlinspike-fleet-ca" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign"
   echo "Generated new fleet CA: $OUT_DIR/fleet-ca.crt"
 else
   echo "Reusing existing fleet CA: $OUT_DIR/fleet-ca.crt"
@@ -55,13 +68,24 @@ openssl req -newkey rsa:2048 -nodes \
   -out "$GW_CSR" \
   -subj "/CN=marlinspike-fleet-gateway"
 
+# basicConstraints/keyUsage/extendedKeyUsage: standard, explicit
+# extensions for a TLS server leaf cert (CA:FALSE — this is not itself a
+# CA, unlike fleet-ca.crt above) — set explicitly for the same reason as
+# the CA cert's own extensions above, rather than relying on
+# openssl.cnf defaults that vary by distro/OpenSSL version.
 openssl x509 -req \
   -in "$GW_CSR" \
   -CA "$OUT_DIR/fleet-ca.crt" -CAkey "$OUT_DIR/fleet-ca.key" -CAcreateserial \
   -out "$OUT_DIR/gateway.crt" \
   -days 365 \
   -copy_extensions none \
-  -extfile <(echo "subjectAltName=${SAN}")
+  -extfile <(cat <<EXT
+subjectAltName=${SAN}
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+EXT
+)
 
 # 644 rather than the usual 600: these files are bind-mounted read-only
 # into the fleet-gateway container, which reads them as uid 1000 (not
