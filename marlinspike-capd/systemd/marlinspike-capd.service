@@ -30,8 +30,18 @@ SystemCallFilter=@system-service
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
 
 # Writable paths.
+#
+# RuntimeDirectoryMode=0755, not the more obvious 0750: server.py's own
+# accept loop deliberately chmods the socket file itself to 0666 and
+# relies on SO_PEERCRED + --allow-uid as the real authorization boundary
+# (see capd/server.py) — a 0750 directory would block that boundary from
+# ever being reached at all, since a consuming uid (the web app, or a
+# remote marlinspike-agent) can't even traverse to the socket to attempt
+# a connection, let alone get SO_PEERCRED-checked. This was hit for real:
+# an --allow-uid'd uid still got a plain connect() failure, not
+# "unauthorized", until this was loosened to match server.py's own model.
 RuntimeDirectory=marlinspike-capd
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=0755
 StateDirectory=marlinspike/captures
 StateDirectoryMode=0750
 ReadWritePaths=/var/run/marlinspike-capd /var/lib/marlinspike/captures

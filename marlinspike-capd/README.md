@@ -21,6 +21,16 @@ pip install -e ./marlinspike-capd
 
 `dumpcap` (Wireshark) and `libpcap` must be present on the host.
 
+On Debian/Ubuntu, `dumpcap` ships non-setuid and is only executable by
+`root` or members of the `wireshark` group (`dpkg -L wireshark-common`
+installs it `rwxr-x---`-ish — no execute bit for "other"). If capd runs
+as its own unprivileged system user (as `systemd/install.sh` sets up),
+that user needs adding to the `wireshark` group, or every capture
+attempt fails with a confusing `RuntimeError: dumpcap not found on
+PATH` — despite `which dumpcap`/`dumpcap --version` working fine as
+root. `systemd/install.sh` does this automatically if the `wireshark`
+group exists.
+
 ## CLI
 
 ```bash
