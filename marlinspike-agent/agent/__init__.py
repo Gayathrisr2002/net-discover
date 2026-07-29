@@ -1,15 +1,17 @@
-"""marlinspike-agent — remote sensor agent (Phase 2: transport + auth + heartbeat only).
+"""marlinspike-agent — remote sensor agent.
 
 Deployed at a remote site, this process holds a persistent, authenticated
-TLS connection to the central fleet gateway (marlinspike/fleet/gateway/).
-Phase 2 scope is deliberately narrow: enroll once, then heartbeat forever.
-No capture control (Phase 3) or report shipping (Phase 4) yet — those add
-methods to the same connection, not a new one.
+TLS connection to the central fleet gateway (marlinspike/fleet/gateway/),
+relays live-capture control to a local capd sidecar, runs the analysis
+engine locally on each rotated capture, and ships the resulting report
+upward.
 
-Zero third-party dependencies (stdlib ssl/socket/asyncio only) — this
-mirrors marlinspike-capd's own minimal-dependency posture, and this
-package must be installable on a bare remote box with nothing else from
-the MarlinSpike suite present.
+This package's own transport layer (client.py/certs.py/credential_store.py)
+has zero third-party dependencies (stdlib ssl/socket/asyncio only) — this
+mirrors marlinspike-capd's own minimal-dependency posture. Running actual
+scans (agent/consumer.py) needs the marlinspike analysis engine + tshark
+present too; the .deb (scripts/build_agent_deb.sh) bundles the former and
+depends on the latter via apt, so nothing beyond `apt install` is needed.
 """
 
-__version__ = "0.3.3"
+__version__ = "0.3.5"

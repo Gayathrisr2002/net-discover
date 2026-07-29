@@ -17,7 +17,8 @@ whoever picks this up next.
 
 ## 1. What this proves
 
-A remote sensor host, with nothing but `marlinspike-agent` installed, can:
+A remote sensor host, with `marlinspike-agent` and `marlinspike-capd`
+installed via `apt install ./*.deb` (either order) and nothing else, can:
 
 1. Enroll itself against a central MarlinSpike server over mTLS, using a
    one-time site enrollment token.
@@ -25,14 +26,19 @@ A remote sensor host, with nothing but `marlinspike-agent` installed, can:
    online/offline status on the Fleet page.
 3. Have a live packet capture started and stopped on it *from the central
    console* — the operator never touches the remote host directly.
-4. Run the **full analysis engine locally** on each rotated capture and ship
-   only the resulting JSON report back to the server — not the raw PCAP.
+4. Run the **full analysis engine locally** on each rotated capture — the
+   engine, its plugins, rule packs, and `tshark` are all either bundled into
+   the agent's own `.deb` or pulled in automatically as an apt dependency,
+   with no separate manual install step — and ship only the resulting JSON
+   report back to the server, never the raw PCAP.
 5. Have that report land in the server's normal Reports page, in the right
    project, indistinguishable from a locally-uploaded-and-scanned capture.
 
 Every one of these was exercised for real on the same physical box acting as
 both the MarlinSpike server and the remote agent — not simulated, not
-mocked. See §3 for the actual commands and output.
+mocked — and re-verified from a genuinely clean `apt purge` + reinstall in
+both possible install orders (agent-then-capd and capd-then-agent). See §3
+for the actual commands and output.
 
 ## 2. Bugs found and fixed to get here
 
@@ -56,14 +62,29 @@ plan:
 | 12 | Live capture "disabled" on the server itself | the `capd` sidecar was opt-in (`docker compose --profile capture up`), separate from the `LIVE_CAPTURE_ENABLED` flag that actually gates it | `capd` now starts with the rest of the stack by default (`0600786`) |
 | 13 | No easy way to get `marlinspike-capd` onto a remote sensor host | only a manual `pip install` + `systemd/install.sh` path existed | added a downloadable, pre-built `.deb` (`scripts/build_capd_deb.sh`, `0600786`), mirroring the agent's own `.deb` |
 | 14 | A stopped-then-restarted agent kept getting `unauthorized` after re-enrolling | the running process held the *old* (now-revoked) credential in memory — re-running `enroll` writes a fresh `credential.json`, but a live process never re-reads it | not a bug — `systemctl restart marlinspike-agent` after any re-enrollment (revoke, rotate-credential) picks up the current file |
-| 15 | Agent-side scan failed: `No module named marlinspike` | **the single biggest gap found** — the agent needs the full `marlinspike` engine package (+ `tshark`) installed locally to run its analysis chain, and nothing packages that for a remote host today | worked around manually for this validation (see §3); **this is the top item in §4**, not yet fixed properly |
+| 15 | Agent-side scan failed: `No module named marlinspike` | the agent needs the full `marlinspike` engine package (+ `tshark`) installed locally to run its analysis chain, and nothing packaged that for a remote host | **fixed** — the engine (`marlinspike/`, `plugins/`, `rules/`, `presets/`, `oui.json`) is now bundled straight into the agent's own `.deb`, and `tshark` is an apt `Depends` (see §4.1) |
+| 16 | Even after bundling the engine, scans still failed with a plain `FileNotFoundError` reading the rotated PCAP — capture start/stop over the RPC socket worked fine | `capd`'s `StateDirectoryMode=0750` (deliberately group-restricted — unlike the RPC socket's directory, this one holds actual captured traffic) blocked the agent user from reading files it didn't have group membership for; a manual `usermod` done earlier in this session didn't survive a `.deb` reinstall recreating the system user from scratch | both `.deb`s' `postinst` now wire the group membership automatically, each covering the install order where it's the *second* package installed (so it can see both users/groups already exist) |
+| 17 | Docker image build failed outright: `cp: cannot stat '/app/data/oui.json'` once the engine got bundled | the Dockerfile copies `oui.json` (and MITRE's plugin/rules) into the image *after* the step that builds the agent `.deb`, so at build time the file the bundler wanted simply didn't exist yet | reordered the three `COPY` steps to land before the `.deb` build (`Dockerfile`) |
 
 ## 3. How this was actually verified (reproducible)
 
 On a single box running both the server stack (`docker compose up -d`) and a
-bare-metal `marlinspike-agent` + `marlinspike-capd`:
+bare-metal `marlinspike-agent` + `marlinspike-capd`, from a genuinely clean
+`apt purge` of both packages first:
 
 ```bash
+# 0. Install both .debs (either order — verified both ways), download from
+#    the Fleet page or /api/fleet/agent-package.deb and /capd-package.deb
+sudo apt install ./marlinspike-capd_*_all.deb
+sudo apt install ./marlinspike-agent_*_all.deb
+# tshark pulled in automatically (agent's apt Depends); each package's
+# postinst wires the other's group membership automatically too
+
+# capd still needs one manual step (see §4.3 — not yet automated):
+id -u marlinspike-agent
+sudo systemctl edit --full marlinspike-capd   # add --allow-uid=<that uid>
+sudo systemctl daemon-reload && sudo systemctl enable --now marlinspike-capd
+
 # 1. Enroll + start the agent
 sudo marlinspike-agent enroll --gateway <server-ip>:8765 --token <token> \
     --ca-cert ./fleet-ca.crt --name my-agent \
@@ -75,11 +96,11 @@ sudo systemctl enable --now marlinspike-agent
 # 2. Start a live capture on it from the server's API (same as the UI does)
 curl -X POST http://<server>:5001/api/capture/sessions \
     -d '{"project_id":1,"agent_id":<id>,"interface":"enp2s0"}'
-# -> real bytes/packets accumulate (~2.7MB / 2,775 packets over ~20s in one run)
+# -> real bytes/packets accumulate (~1.9MB / 1,964 packets over ~17s in one run)
 
 # 3. Stop it, and the agent scans + ships the report on its own
 sudo journalctl -u marlinspike-agent -f
-# -> "scan complete: ..." then "shipped report ... (50517 bytes, 1 chunks)"
+# -> "scan complete: ..." then "shipped report ... (50516 bytes, 1 chunks)"
 ```
 
 Confirmed server-side afterward:
@@ -88,41 +109,38 @@ Confirmed server-side afterward:
 SELECT id, agent_id, status, pcap_source FROM scan_history ORDER BY id DESC LIMIT 1;
 --  id | agent_id |  status   |           pcap_source
 -- ----+----------+-----------+---------------------------------
---   1 |        1 | completed | cap_00001_20260729155014.pcapng
+--   2 |        3 | completed | cap_00001_20260729171904.pcapng
 ```
 
 ...and the same report visible through `/api/reports?project_id=1`, exactly
-like a manually-uploaded PCAP would be.
+like a manually-uploaded PCAP would be. This was re-run from a clean-slate
+`apt purge` + reinstall in both possible package-install orders
+(agent-then-capd and capd-then-agent) to confirm the automatic group-wiring
+in §2's bug #16 actually covers both cases, not just the one first tried.
 
 ## 4. Known gaps — the actual punch list for future work
 
 Ranked by how much they block real deployment, most important first.
 
-### 4.1 No packaging for the agent-side analysis engine (critical)
+### 4.1 ~~No packaging for the agent-side analysis engine~~ — fixed
 
-`marlinspike-agent/agent/consumer.py` explicitly documents that a remote
-agent host needs the full `marlinspike` Python package (`engine.py` +
-`plugins/` + `rules/` + `presets/`) *and* `tshark` installed and importable
-locally, to run `python -m marlinspike ... chain` on each rotated capture.
-Nothing today builds or ships that for a bare remote host — `marlinspike-agent`
-and `marlinspike-capd` both have proper `.deb`s; the engine itself has none.
+`marlinspike-agent/agent/consumer.py` documents that a remote agent host
+needs the full `marlinspike` Python package (`engine.py` + `plugins/` +
+`rules/` + `presets/`) *and* `tshark` installed and importable locally, to
+run `python -m marlinspike ... chain` on each rotated capture. Previously
+nothing built or shipped that for a bare remote host.
 
-For this validation, the engine's package tree was manually copied to
-`/opt/marlinspike-engine` and wired in via a systemd drop-in
-(`PYTHONPATH`/`MARLINSPIKE_PROJECT_ROOT`), and `tshark` was installed
-separately with `apt-get install tshark` (present on the server image's
-Dockerfile, but not assumed on a bare agent host). This is not a
-repeatable, supportable install path.
-
-**Recommended fix:** a `scripts/build_engine_deb.sh` (or a plain tarball,
-mirroring `build_agent_deb.sh`'s approach) that packages `marlinspike/`,
-`plugins/`, `rules/`, `presets/`, `data/oui.json` as their own installable
-unit, declares `tshark` as a Depends, and is downloadable from the Fleet
-page alongside the agent and capd `.deb`s. `engine.py` and `__main__.py`
-are confirmed to have zero Flask/SQLAlchemy/DB imports (verified directly:
-`python3 -c "import marlinspike.engine"` succeeds with no web-app
-dependencies installed) — so this genuinely can be a lightweight package,
-not a repackaging of the whole web app.
+Fixed: `scripts/build_agent_deb.sh` now bundles `marlinspike/`, `plugins/`,
+`rules/`, `presets/`, and `oui.json` straight into the agent's own `.deb`
+under `/usr/lib/marlinspike-agent/engine`, and `debian/control` adds
+`tshark` as a `Depends`. `agent/consumer.py`'s `_scan_env()` adds that
+bundled path to the scan subprocess's `PYTHONPATH` automatically when
+present, with zero effect on a source/pip install where it's absent.
+`engine.py`/`__main__.py` have zero Flask/SQLAlchemy/DB imports at
+runtime (`marlinspike/__init__.py` lazy-loads those via `__getattr__`),
+confirmed directly — so this is genuinely a lightweight bundle, not a
+repackaging of the whole web app (1.7MB `.deb`, MITRE catalog included).
+Verified end-to-end from a clean install with no manual staging step (§3).
 
 ### 4.2 TLS CA is dev-grade by design
 
@@ -134,14 +152,17 @@ generates.
 
 ### 4.3 `--allow-uid` still needs a manual systemd edit
 
-Both the source-install (`systemd/install.sh`) and the new `.deb`'s
-`postinst` print instructions to manually `systemctl edit --full` and add
+Both the source-install (`systemd/install.sh`) and the `.deb`'s `postinst`
+print instructions to manually `systemctl edit --full` and add
 `--allow-uid=<uid>` — there's no automated way for the installer to know
 which uid needs access (the web app's container uid, or `marlinspike-agent`'s
 uid, depending on deployment). A config-file-driven approach (capd reads an
 allow-list file instead of a command-line flag) would let both `.deb`
 postinst scripts wire this up automatically instead of leaving it as a
-manual step every single time.
+manual step every single time. Note this is a distinct concern from bug
+#16's fix above — that one is filesystem group membership for *reading
+already-captured files*, already automated; this one is the RPC socket's
+own uid allow-list, still manual.
 
 ### 4.4 No visibility into *why* an online agent's capture fails
 
@@ -153,7 +174,16 @@ broken there. Surfacing agent-side capd reachability (the agent already
 knows this — see `client.py`'s `list_interfaces` relay) as a status badge
 next to the agent would close a real diagnostic gap.
 
-### 4.5 Environment resets during this validation
+### 4.5 Group-membership fixes need a service restart to take effect
+
+Bug #16's automatic `postinst` group wiring only helps a process that
+starts *after* the group membership change — if `marlinspike-agent` was
+already running when `marlinspike-capd` gets installed afterward, the
+already-running agent process won't see its new group membership until
+restarted. `capd`'s `postinst` prints a reminder when it detects this
+case, but it's still a manual restart, not automatic.
+
+### 4.6 Environment resets during this validation
 
 Multiple times during this session, the Docker stack, the systemd units,
 or the repo checkout itself were found reset/recreated with no action
@@ -182,6 +212,11 @@ root plus each sub-package:
 
 Beyond the automated suite, §3's live end-to-end run (enroll → heartbeat →
 remote capture start/stop → local scan → report shipped → visible in
-Reports) was re-verified after every code change in this pass, including a
-full `docker compose build && docker compose up -d` from a clean image to
-confirm nothing regressed for a brand-new deployment.
+Reports) was re-verified after every code change in this pass, including:
+
+- a full `docker compose build && docker compose up -d` from a clean image
+  to confirm nothing regressed for a brand-new deployment, and
+- a genuinely clean `apt purge` of both `marlinspike-agent` and
+  `marlinspike-capd`, reinstalling from freshly-built `.deb`s in both
+  possible install orders, to confirm bug #16's fix actually covers both
+  directions rather than just the one first tried.

@@ -13,6 +13,18 @@ case "$1" in
     chown marlinspike-agent:marlinspike-agent /etc/marlinspike-agent
     chmod 0700 /etc/marlinspike-agent
 
+    # If marlinspike-capd is already installed on this host, this agent
+    # needs read access to the state directory it writes rotated PCAPs
+    # into (StateDirectoryMode=0750, group-restricted — not the socket's
+    # own directory, which is a separate, deliberately more permissive
+    # concern) to actually scan what it captures. See marlinspike-capd's
+    # postinst for the mirror image of this (handles the reverse install
+    # order — whichever package installs second is the one that can
+    # actually see both users/groups to wire this up).
+    if getent group marlinspike-capd >/dev/null 2>&1; then
+      adduser marlinspike-agent marlinspike-capd >/dev/null 2>&1 || true
+    fi
+
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi

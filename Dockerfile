@@ -137,22 +137,36 @@ COPY scripts/build_capd_deb.sh ./scripts/build_capd_deb.sh
 # one-shot container that generates ./certs on first startup if it's
 # empty) — never run as part of building this image itself.
 COPY scripts/gen_dev_tls_cert.sh ./scripts/gen_dev_tls_cert.sh
+
+# These three all need to land BEFORE the agent .deb build below, not
+# after: build_agent_deb.sh bundles ./marlinspike, ./plugins, ./rules,
+# and ./oui.json wholesale into the agent .deb's analysis engine copy
+# (agent/consumer.py's _BUNDLED_ENGINE_DIR) — if MITRE's plugin/rules or
+# oui.json land after that RUN step, the bundled engine either silently
+# ships without them or (oui.json) the build fails outright with a
+# missing-file error, since nothing has copied it in yet at that point.
+COPY --from=mitre-builder /build/marlinspike-mitre/plugins/marlinspike_mitre ./plugins/marlinspike_mitre
+COPY --from=mitre-builder /build/marlinspike-mitre/rules/mitre ./rules/mitre
+# OUI database (outside volume mount so it persists in image)
+COPY data/oui.json ./oui.json
+
 # Built once at image-build time (not per-request — needs fakeroot/dpkg-deb,
 # and never changes between requests against the same image) so the
 # Fleet page's .deb downloads are always exactly what this image ships.
+# marlinspike-malware's Rust binary + rule packs are NOT bundled into the
+# agent .deb — that's the optional Stage 4b IOC engine, already designed
+# to degrade gracefully when absent (see MARLINSPIKE_MALWARE_REPO's own
+# "leave empty to skip" contract), and bundling a second architecture's
+# worth of compiled binaries into a remote-sensor package is a much
+# bigger scope than this pass covers.
 RUN bash scripts/build_agent_deb.sh /app/dist && \
     bash scripts/build_capd_deb.sh /app/dist
 
-COPY --from=mitre-builder /build/marlinspike-mitre/plugins/marlinspike_mitre ./plugins/marlinspike_mitre
-COPY --from=mitre-builder /build/marlinspike-mitre/rules/mitre ./rules/mitre
 COPY --from=malware-builder /opt/marlinspike-malware/bin /opt/marlinspike-malware/bin
 COPY --from=malware-rules-builder /opt/marlinspike-malware-rules /usr/share/marlinspike-malware/rules
 
 # Install the package itself so `python -m marlinspike` and console scripts work.
 RUN pip install --no-cache-dir --no-deps .
-
-# OUI database (outside volume mount so it persists in image)
-COPY data/oui.json ./oui.json
 
 # Data dirs (will be overridden by volume mount)
 RUN mkdir -p data/reports data/uploads data/submissions

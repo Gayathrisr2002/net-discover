@@ -10,10 +10,14 @@ directory (there's no REPORTS_DIR concept on a bare agent host) — the
 caller (agent/client.py's stats-reporter) reads the finished report back
 and ships it upward to the gateway, then this module's job is done.
 
-Requires the real `marlinspike` package to be installed/importable on the
-agent host (engine.py + plugins + rules + optionally the DPI/malware Rust
-binaries + tshark) — a real dependency, unlike the deliberately dependency-
-free transport layer (client.py/capd_client.py). See README.md.
+Requires the real `marlinspike` package to be importable on the agent
+host (engine.py + plugins + rules + presets + optionally the DPI/malware
+Rust binaries) plus `tshark` — a real dependency, unlike the deliberately
+dependency-free transport layer (client.py/capd_client.py). The
+marlinspike-agent .deb bundles all of this under _BUNDLED_ENGINE_DIR and
+depends on tshark via apt, so a plain `apt install` is enough; a source
+(pip) install instead needs the marlinspike package importable some other
+way (e.g. PYTHONPATH pointed at a checkout) — see README.md.
 """
 
 from __future__ import annotations
@@ -28,10 +32,28 @@ import uuid
 
 log = logging.getLogger("marlinspike-agent")
 
+# Where scripts/build_agent_deb.sh stages the marlinspike engine + its
+# plugins/rules/presets/oui.json (see that script) — present only when
+# installed via the .deb, absent for a source/pip install. When present,
+# it's added to the scan subprocess's PYTHONPATH below rather than relying
+# on the agent process's own ambient environment already having it set,
+# so `apt install marlinspike-agent_*.deb` alone is enough to make
+# scanning work with no separate manual step.
+_BUNDLED_ENGINE_DIR = "/usr/lib/marlinspike-agent/engine"
+
 
 def _safe_stem(path: str) -> str:
     stem = os.path.splitext(os.path.basename(path))[0]
     return re.sub(r"[^a-zA-Z0-9._-]", "_", stem)[:60]
+
+
+def _scan_env() -> dict:
+    env = os.environ.copy()
+    if os.path.isdir(_BUNDLED_ENGINE_DIR):
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = _BUNDLED_ENGINE_DIR + (os.pathsep + existing if existing else "")
+        env.setdefault("MARLINSPIKE_PROJECT_ROOT", _BUNDLED_ENGINE_DIR)
+    return env
 
 
 def run_scan(*, pcap_path: str, session_id: str, staging_dir: str,
@@ -65,7 +87,7 @@ def run_scan(*, pcap_path: str, session_id: str, staging_dir: str,
     try:
         proc = subprocess.run(
             args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, cwd=staging_dir,
+            stderr=subprocess.STDOUT, text=True, cwd=staging_dir, env=_scan_env(),
         )
     except Exception:
         log.exception("session=%s failed to spawn engine for %s", session_id, pcap_path)

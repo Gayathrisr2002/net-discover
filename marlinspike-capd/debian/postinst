@@ -18,6 +18,21 @@ case "$1" in
       adduser marlinspike-capd wireshark >/dev/null 2>&1 || true
     fi
 
+    # If marlinspike-agent is already installed on this host (relaying
+    # capture commands to us), it needs read access to the state
+    # directory capd writes rotated PCAPs into (StateDirectoryMode=0750
+    # in the systemd unit — deliberately group-restricted, not
+    # world-readable like the RPC socket's directory, since this holds
+    # actual captured traffic) so it can scan what it just captured.
+    # Confirmed the hard way: capture start/stop worked fine over the
+    # socket, but the agent's own scan step failed with a plain
+    # FileNotFoundError reading the rotated file — group traversal, not
+    # a missing file. See marlinspike-agent's postinst for the mirror
+    # image of this (handles the reverse install order).
+    if getent passwd marlinspike-agent >/dev/null 2>&1; then
+      adduser marlinspike-agent marlinspike-capd >/dev/null 2>&1 || true
+    fi
+
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi
@@ -38,6 +53,17 @@ explicitly allowed or every request fails as unauthorized:
 
 See /usr/share/doc/marlinspike-capd/README.md for full details.
 EOF
+
+    if getent passwd marlinspike-agent >/dev/null 2>&1 && systemctl is-active --quiet marlinspike-agent 2>/dev/null; then
+      cat <<'EOF'
+
+marlinspike-agent is already running on this host — it was just added
+to the marlinspike-capd group so it can read captured PCAPs, but an
+already-running process won't see that until restarted:
+
+  sudo systemctl restart marlinspike-agent
+EOF
+    fi
     ;;
 esac
 

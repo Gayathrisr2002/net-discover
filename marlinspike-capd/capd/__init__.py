@@ -6,4 +6,4 @@ enumerates interfaces, validates BPF filters, and supervises dumpcap with
 ring-buffer rotation.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

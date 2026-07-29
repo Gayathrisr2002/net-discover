@@ -3,10 +3,14 @@ Version: __VERSION__
 Section: net
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.10), openssl
+Depends: python3 (>= 3.10), openssl, tshark
 Maintainer: MarlinSpike Project <noreply@localhost>
 Description: Remote sensor agent for MarlinSpike fleet management
  Enrolls with a central MarlinSpike fleet gateway over TLS and maintains
  an authenticated heartbeat connection. Relays live-capture control to a
- local capd sidecar and ships analysis reports back to the central
- console. Zero third-party Python dependencies (stdlib ssl/asyncio only).
+ local capd sidecar, runs the bundled MarlinSpike analysis engine locally
+ on each rotated capture, and ships the resulting report back to the
+ central console — the raw PCAP never leaves this host. The agent's own
+ transport layer has zero third-party Python dependencies (stdlib
+ ssl/asyncio only); the bundled engine is plain Python, no extra pip
+ packages needed beyond what's on the base system.
