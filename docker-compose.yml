@@ -42,13 +42,23 @@ services:
     # generated file is what actually makes them readable by the non-root
     # app/fleet-gateway containers afterward, regardless of who owns them.
     user: "0:0"
+    environment:
+      # Baked into the generated cert's Subject Alternative Names, not
+      # just displayed on the Fleet page — a remote agent's TLS handshake
+      # fails with "IP address mismatch" if it connects via an address
+      # the cert doesn't list, and marlinspike-fleet-gateway/localhost/
+      # 127.0.0.1 (always included) only cover same-host and docker-
+      # internal access. Only takes effect on first generation — this
+      # step is idempotent and won't add a SAN to an already-existing
+      # cert; delete ./certs and re-run if you set this after the fact.
+      - FLEET_GATEWAY_PUBLIC_HOST=${FLEET_GATEWAY_PUBLIC_HOST:-}
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
         if [ -f /app/certs/fleet-ca.crt ] && [ -f /app/certs/gateway.crt ] && [ -f /app/certs/gateway.key ]; then
           echo "certs already present, skipping generation"
         else
-          bash /app/scripts/gen_dev_tls_cert.sh marlinspike-fleet-gateway
+          bash /app/scripts/gen_dev_tls_cert.sh marlinspike-fleet-gateway ${FLEET_GATEWAY_PUBLIC_HOST}
         fi
     volumes:
       - ./certs:/app/certs
