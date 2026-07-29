@@ -85,6 +85,11 @@ engine headlessly.
 
 Forward-looking and structural.
 
+- **[fleet-agent-poc.md](fleet-agent-poc.md)** — proof-of-concept
+  writeup for the remote fleet agent + live capture feature: what was
+  verified end-to-end on real hardware, every bug found along the way,
+  and the ranked punch list of what's still missing before it's
+  production-ready (start here if you're picking up this feature next).
 - **[repo-family.md](repo-family.md)** — the suite + component
   repos model.
 - **[repo-family-migration-spec.md](repo-family-migration-spec.md)**
@@ -132,3 +137,4 @@ These live at the repository root, not in `docs/`:
 | Doing a long-running engagement with many captures | [projects-and-engagements.md](projects-and-engagements.md), [asset-context.md](asset-context.md), [asset-baselines.md](asset-baselines.md). |
 | Hunting a specific threat actor | [ioc-threat-hunting.md](ioc-threat-hunting.md). |
 | Trying to understand the architecture | [../COMPATIBILITY.md](../COMPATIBILITY.md) → [repo-family.md](repo-family.md) → [extensibility-contracts.md](extensibility-contracts.md). |
+| Picking up the remote fleet agent / live capture feature | [fleet-agent-poc.md](fleet-agent-poc.md) — start with its "Known gaps" section. |
