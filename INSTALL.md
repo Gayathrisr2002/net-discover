@@ -117,11 +117,11 @@ REMOTE=deploy@staging-host ./deploy-dev.sh
 
 MarlinSpike can drive its own live capture from a SPAN port or tap via the optional `marlinspike-capd` sidecar. The web app stays unprivileged; capd holds `CAP_NET_RAW` and supervises `dumpcap` with ring-buffer rotation. Each rotated PCAP is consumed by the existing analysis pipeline and reports accumulate in the project workbench.
 
-There are three deployment modes:
+There are four deployment modes:
 
 ### 1. No live capture (default)
 
-Don't install or enable capd. The web app boots normally. The `Live Capture` nav link shows a banner explaining how to enable it. No elevated capabilities anywhere in the stack.
+Leave `LIVE_CAPTURE_ENABLED=false` (the default). The web app boots normally — `capd` still runs as part of the Compose stack (it's cheap when idle), but the `Live Capture` nav link shows a banner explaining how to enable it, and nothing elevated ever gets exercised. No config beyond flipping the flag is needed to turn it on later.
 
 ### 2. Bundled (Docker Compose)
 
@@ -129,11 +129,10 @@ Don't install or enable capd. The web app boots normally. The `Live Capture` nav
 # In .env
 LIVE_CAPTURE_ENABLED=true
 
-# Start the stack with the capture profile.
-docker compose --profile capture up -d --build
+docker compose up -d --build
 ```
 
-This launches `marlinspike-capd` alongside `app` and `db`. Compose creates two shared volumes:
+`marlinspike-capd` starts automatically alongside `app` and `db` — no separate profile flag needed. Compose creates two shared volumes:
 
 - `capd-socket` — the unix-domain socket the web app connects to
 - `capd-captures` — rotated PCAPs (read-only mount in `app`, read-write in `capd`)
@@ -142,9 +141,9 @@ The capd container runs with `cap_add: [NET_RAW, NET_ADMIN]` and `network_mode: 
 
 > **Linux only.** Docker Desktop on macOS / Windows cannot expose physical interfaces to a container, so live capture is a no-op there.
 
-### 3. Native systemd
+### 3. Native systemd (source install)
 
-Install capd directly on the engagement host alongside a containerised or native MarlinSpike web app.
+Install capd directly on the engagement host alongside a containerised or native MarlinSpike web app — or on a remote sensor host, alongside `marlinspike-agent`, so the console can drive capture on that agent (see the Fleet page's per-site enrollment instructions).
 
 ```bash
 cd marlinspike-capd
@@ -159,7 +158,20 @@ LIVE_CAPTURE_ENABLED=true
 LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock
 ```
 
-The web app's process group must be able to read the socket — the install script provisions a `marlinspike` group; add the user the web app runs as to that group, or override with `SOCK_GROUP=...` when running the installer.
+The socket only trusts `root` by default — whichever uid actually connects (the web app container's uid, or `marlinspike-agent`'s uid on a remote sensor host) must be explicitly allowed, or every request fails as "unauthorized":
+
+```bash
+id -u marlinspike-agent   # or whichever uid needs to connect
+sudo systemctl edit --full marlinspike-capd
+# add --allow-uid=<that uid> to the ExecStart line, then:
+sudo systemctl daemon-reload && sudo systemctl restart marlinspike-capd
+```
+
+`install.sh` already adds capd's system user to the `wireshark` group if it exists — needed because Debian/Ubuntu restrict `dumpcap` execution to `root`/`wireshark` by default, independent of the `--allow-uid` check above.
+
+### 4. Debian/Ubuntu .deb
+
+A pre-built `.deb` — the same install-by-`apt`-instead-of-`pip` alternative already offered for `marlinspike-agent` — is downloadable from the Fleet page (per-site enrollment instructions include it) or directly at `/api/fleet/capd-package.deb`. Installs the same systemd unit as mode 3 above; the `--allow-uid` step is identical.
 
 ### Verifying live capture
 

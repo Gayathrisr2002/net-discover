@@ -62,6 +62,13 @@ MARLINSPIKE_AGENT_SOURCE_DIR = os.environ.get(
 MARLINSPIKE_AGENT_DEB_DIR = os.environ.get(
     "MARLINSPIKE_AGENT_DEB_DIR", os.path.join(PROJECT_ROOT, "dist")
 )
+# Same deal, for the capd sidecar's .deb (scripts/build_capd_deb.sh) —
+# an operator installs this alongside marlinspike-agent on a remote
+# sensor host (or alongside the web app itself) to enable live capture.
+# Same directory as the agent's .deb by default; both land in /app/dist.
+MARLINSPIKE_CAPD_DEB_DIR = os.environ.get(
+    "MARLINSPIKE_CAPD_DEB_DIR", os.path.join(PROJECT_ROOT, "dist")
+)
 @functools.lru_cache(maxsize=1)
 def current_agent_version() -> "str | None":
     """Read marlinspike-agent's own __version__ straight from its bundled

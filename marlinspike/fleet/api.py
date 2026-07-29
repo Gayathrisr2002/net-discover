@@ -496,6 +496,26 @@ def download_agent_package_deb():
                       download_name=os.path.basename(matches[-1]))
 
 
+@bp.route("/capd-package.deb", methods=["GET"])
+@login_required
+def download_capd_package_deb():
+    """Serve the pre-built marlinspike-capd .deb — the privileged capture
+    sidecar an operator installs alongside marlinspike-agent on a remote
+    sensor host (or alongside the web app itself) to actually enable live
+    capture. Same build-once-at-image-build-time posture as
+    download_agent_package_deb above (scripts/build_capd_deb.sh, invoked
+    from the Dockerfile).
+    """
+    deb_dir = config.MARLINSPIKE_CAPD_DEB_DIR
+    matches = sorted(glob.glob(os.path.join(deb_dir, "marlinspike-capd_*_all.deb"))) if os.path.isdir(deb_dir) else []
+    if not matches:
+        return jsonify({"ok": False, "error": "capd .deb not available on this deployment"}), 404
+
+    audit("fleet.capd_package_deb_downloaded", target_type="site", target_id=None)
+    return send_file(matches[-1], mimetype="application/vnd.debian.binary-package", as_attachment=True,
+                      download_name=os.path.basename(matches[-1]))
+
+
 @bp.route("/ca-cert", methods=["GET"])
 @login_required
 def download_ca_cert():

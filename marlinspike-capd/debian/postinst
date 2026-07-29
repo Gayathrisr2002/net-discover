@@ -1,0 +1,44 @@
+#!/bin/sh
+# postinst for marlinspike-capd
+set -e
+
+case "$1" in
+  configure)
+    if ! getent passwd marlinspike-capd >/dev/null 2>&1; then
+      adduser --system --no-create-home --shell /usr/sbin/nologin \
+        --group marlinspike-capd
+    fi
+
+    # dumpcap ships non-setuid on Debian/Ubuntu — only root or members of
+    # the wireshark group may execute it. Without this, every capture
+    # attempt fails with "dumpcap not found on PATH" despite dumpcap
+    # being right there on PATH for root — confirmed the hard way on a
+    # real deployment before this line existed.
+    if getent group wireshark >/dev/null 2>&1; then
+      adduser marlinspike-capd wireshark >/dev/null 2>&1 || true
+    fi
+
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+
+    cat <<'EOF'
+
+marlinspike-capd installed.
+
+The socket only trusts root by default — the web app (or a remote
+marlinspike-agent) connects as some other uid, which must be
+explicitly allowed or every request fails as unauthorized:
+
+  id -u marlinspike-agent   # (or whichever uid needs to connect)
+  sudo systemctl edit --full marlinspike-capd
+  # add --allow-uid=<that uid> to the ExecStart line, then:
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now marlinspike-capd
+
+See /usr/share/doc/marlinspike-capd/README.md for full details.
+EOF
+    ;;
+esac
+
+exit 0

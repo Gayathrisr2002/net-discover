@@ -1,0 +1,14 @@
+Package: marlinspike-capd
+Version: __VERSION__
+Section: net
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10), python3-psutil, wireshark-common, libpcap0.8
+Maintainer: MarlinSpike Project <noreply@localhost>
+Description: Privileged capture sidecar for MarlinSpike (marlinspike-agent/web app)
+ Enumerates interfaces, validates BPF filters, and supervises dumpcap
+ with rotation, over a unix-domain socket guarded by SO_PEERCRED. Runs
+ as its own unprivileged system user with only CAP_NET_RAW/CAP_NET_ADMIN
+ granted — install this alongside marlinspike-agent on a remote sensor
+ host to enable live capture control from the central console, or
+ alongside the MarlinSpike web app itself for local capture.

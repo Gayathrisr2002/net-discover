@@ -429,11 +429,12 @@ LIVE_CAPTURE_ENABLED=true
 ```
 
 ```bash
-docker compose --profile capture up -d --build
+docker compose up -d --build
 ```
 
-This brings up the privileged `marlinspike-capd` sidecar. Click
-**Live Capture** in the nav.
+The privileged `marlinspike-capd` sidecar already runs as part of the
+stack — this flag is the only thing gating it. Click **Live Capture**
+in the nav.
 
 ![/capture page — project picker, interface dropdown, BPF input with live validation, ring config, saved-filter library](screenshots/29-capture-page.png)
 

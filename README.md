@@ -126,9 +126,10 @@ check the failing request's status (a `403`/`401` points at this).
 
 **The Live Capture page shows "live capture disabled" / a 503.**
 That's expected — live capture is **opt-in and Linux-only**. Enable it with
-`LIVE_CAPTURE_ENABLED=true` in `.env` and start the stack *with the capture
-profile*: `docker compose --profile capture up -d --build`. It needs a SPAN
-port/tap and elevated capture privileges. See
+`LIVE_CAPTURE_ENABLED=true` in `.env` and restart the stack
+(`docker compose up -d --build`) — the `capd` sidecar already runs as part of
+the stack, this flag is the only thing gating it. It needs a SPAN port/tap and
+elevated capture privileges. See
 [INSTALL.md](INSTALL.md#live-capture-optional-linux-only).
 
 **App crash-loops with `could not translate host name` / can't reach the UI.**

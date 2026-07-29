@@ -1,0 +1,21 @@
+#!/bin/sh
+# postrm for marlinspike-capd
+set -e
+
+case "$1" in
+  purge)
+    # Captured PCAPs under the state directory are real data, not
+    # throwaway config — only removed on purge, never on a plain
+    # remove/upgrade, matching Debian policy for user data. Matches
+    # marlinspike-agent's own postrm posture for /etc/marlinspike-agent.
+    rm -rf /var/lib/marlinspike/captures
+    if getent passwd marlinspike-capd >/dev/null 2>&1; then
+      deluser --system marlinspike-capd >/dev/null 2>&1 || true
+    fi
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+esac
+
+exit 0

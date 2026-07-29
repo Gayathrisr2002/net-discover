@@ -215,6 +215,20 @@
               <pre class="fleet-cmd">sudo chown marlinspike-agent:marlinspike-agent /etc/marlinspike-agent/credential.json
 sudo systemctl enable --now marlinspike-agent</pre>
             </div>
+
+            <p style="margin-top:14px;"><strong>{{ t('fleet.step_5_capd') }}</strong></p>
+            <p>{{ t('fleet.step_5_capd_hint') }}</p>
+            <p>
+              <a href="/api/fleet/capd-package.deb" download>{{ t('fleet.download_capd_deb') }}</a>
+            </p>
+            <div class="fleet-cmd-box">
+              <pre class="fleet-cmd">sudo apt install ./marlinspike-capd_*_all.deb
+id -u marlinspike-agent
+sudo systemctl edit --full marlinspike-capd
+# add --allow-uid=&lt;that uid&gt; to the ExecStart line, then:
+sudo systemctl daemon-reload
+sudo systemctl enable --now marlinspike-capd</pre>
+            </div>
           </div>
         </div>
       </div>

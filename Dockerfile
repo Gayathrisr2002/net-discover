@@ -126,14 +126,22 @@ COPY migrations/ ./migrations/
 # operator doesn't need to separately clone the repo to deploy an agent.
 COPY marlinspike-agent/ ./marlinspike-agent/
 COPY scripts/build_agent_deb.sh ./scripts/build_agent_deb.sh
+# Same deal as marlinspike-agent/ above: never installed/run in this
+# image, only served for download (marlinspike/fleet/api.py's
+# /capd-package.deb route) — an operator installs this alongside
+# marlinspike-agent on a remote sensor host, or alongside the web app
+# itself, to enable live capture control.
+COPY marlinspike-capd/ ./marlinspike-capd/
+COPY scripts/build_capd_deb.sh ./scripts/build_capd_deb.sh
 # Only ever invoked by the certs-init service in docker-compose.yml (a
 # one-shot container that generates ./certs on first startup if it's
 # empty) — never run as part of building this image itself.
 COPY scripts/gen_dev_tls_cert.sh ./scripts/gen_dev_tls_cert.sh
 # Built once at image-build time (not per-request — needs fakeroot/dpkg-deb,
 # and never changes between requests against the same image) so the
-# Fleet page's .deb download is always exactly what this image ships.
-RUN bash scripts/build_agent_deb.sh /app/dist
+# Fleet page's .deb downloads are always exactly what this image ships.
+RUN bash scripts/build_agent_deb.sh /app/dist && \
+    bash scripts/build_capd_deb.sh /app/dist
 
 COPY --from=mitre-builder /build/marlinspike-mitre/plugins/marlinspike_mitre ./plugins/marlinspike_mitre
 COPY --from=mitre-builder /build/marlinspike-mitre/rules/mitre ./rules/mitre
