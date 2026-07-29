@@ -12,4 +12,4 @@ package must be installable on a bare remote box with nothing else from
 the MarlinSpike suite present.
 """
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"

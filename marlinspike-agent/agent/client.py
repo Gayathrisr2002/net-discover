@@ -85,7 +85,7 @@ async def _send_frame(writer: asyncio.StreamWriter, obj: dict) -> None:
     await writer.drain()
 
 
-def build_ssl_context(*, ca_cert: str | None, insecure_skip_verify: bool,
+def build_ssl_context(*, ca_cert_pem: str | None, insecure_skip_verify: bool,
                       client_cert_pem: str | None = None,
                       client_key_pem: str | None = None) -> ssl.SSLContext:
     if insecure_skip_verify:
@@ -97,7 +97,16 @@ def build_ssl_context(*, ca_cert: str | None, insecure_skip_verify: bool,
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     else:
-        ctx = ssl.create_default_context(cafile=ca_cert)
+        # cadata (in-memory PEM), not cafile (a path): the CA cert content
+        # is embedded straight into credential.json at enroll time (see
+        # credential_store.py) rather than kept as a path reference, so
+        # `run` never needs filesystem access to wherever the operator
+        # happened to download the cert — which the systemd unit's
+        # ReadOnlyPaths sandbox wouldn't grant anyway unless that path
+        # happened to be under /etc/marlinspike-agent.
+        ctx = ssl.create_default_context()
+        if ca_cert_pem:
+            ctx.load_verify_locations(cadata=ca_cert_pem)
 
     if client_cert_pem and client_key_pem:
         # SSLContext.load_cert_chain needs file paths, not in-memory PEM —

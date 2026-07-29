@@ -21,7 +21,13 @@ DEFAULT_CREDENTIAL_PATH = "/etc/marlinspike-agent/credential.json"
 class AgentCredentials:
     gateway_host: str
     gateway_port: int
-    ca_cert: str | None
+    # The CA cert's own PEM content, not a path — embedded here (like
+    # client_cert_pem/client_key_pem below) so `run` never needs
+    # filesystem access to wherever --ca-cert originally pointed. A path
+    # reference broke under the systemd unit's sandbox (ProtectHome hides
+    # /home, and ReadOnlyPaths only allow-lists /etc/marlinspike-agent)
+    # regardless of whether the path was relative or absolute.
+    ca_cert_pem: str | None
     insecure_skip_verify: bool
     agent_uuid: str
     credential: str
@@ -41,7 +47,7 @@ class AgentCredentials:
         return cls(
             gateway_host=data["gateway_host"],
             gateway_port=int(data["gateway_port"]),
-            ca_cert=data.get("ca_cert"),
+            ca_cert_pem=data.get("ca_cert_pem"),
             insecure_skip_verify=bool(data.get("insecure_skip_verify", False)),
             agent_uuid=data["agent_uuid"],
             credential=data["credential"],
@@ -55,7 +61,7 @@ class AgentCredentials:
         data = {
             "gateway_host": self.gateway_host,
             "gateway_port": self.gateway_port,
-            "ca_cert": self.ca_cert,
+            "ca_cert_pem": self.ca_cert_pem,
             "insecure_skip_verify": self.insecure_skip_verify,
             "agent_uuid": self.agent_uuid,
             "credential": self.credential,

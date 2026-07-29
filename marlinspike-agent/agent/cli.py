@@ -15,7 +15,6 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import platform
 import re
 import sys
@@ -64,15 +63,23 @@ def _split_host_port(hostport: str) -> tuple[str, int]:
 
 def _cmd_enroll(args: argparse.Namespace) -> int:
     host, port = _split_host_port(args.gateway)
-    # Resolve to an absolute path now, at enroll time: this gets persisted
-    # into credential.json and read back later by `run`, which under
-    # systemd (marlinspike-agent.service) starts from a different working
-    # directory than wherever the operator happened to type `enroll` from
-    # (typically ~/Downloads) — a relative path here silently resolves to
-    # the wrong file, or nothing at all, once ProtectHome=true hides /home
-    # from the sandboxed run.
-    ca_cert = os.path.abspath(args.ca_cert) if args.ca_cert else None
-    ssl_context = build_ssl_context(ca_cert=ca_cert, insecure_skip_verify=args.insecure_skip_verify)
+    # Read the CA cert's content now, at enroll time, and carry it as PEM
+    # from here on — not a path. A path gets persisted into
+    # credential.json and read back later by `run`, which under systemd
+    # (marlinspike-agent.service) starts from a different, sandboxed
+    # working directory than wherever the operator happened to type
+    # `enroll` from (typically ~/Downloads): ProtectHome=true hides /home
+    # entirely and ReadOnlyPaths only allow-lists /etc/marlinspike-agent,
+    # so no path outside that one directory would ever be readable by
+    # `run` regardless of being relative or absolute.
+    ca_cert_pem = None
+    if args.ca_cert:
+        try:
+            with open(args.ca_cert, "r", encoding="utf-8") as f:
+                ca_cert_pem = f.read()
+        except OSError as exc:
+            raise SystemExit(f"--ca-cert {args.ca_cert!r}: {exc}")
+    ssl_context = build_ssl_context(ca_cert_pem=ca_cert_pem, insecure_skip_verify=args.insecure_skip_verify)
     os_info = f"{platform.system()} {platform.release()}"
 
     # Always generate a local keypair + CSR and offer it — cheap (one
@@ -101,7 +108,7 @@ def _cmd_enroll(args: argparse.Namespace) -> int:
     client_cert_pem = result.get("client_cert_pem")
     creds = AgentCredentials(
         gateway_host=host, gateway_port=port,
-        ca_cert=ca_cert, insecure_skip_verify=args.insecure_skip_verify,
+        ca_cert_pem=ca_cert_pem, insecure_skip_verify=args.insecure_skip_verify,
         agent_uuid=result["agent_uuid"], credential=result["credential"],
         client_cert_pem=client_cert_pem,
         client_key_pem=client_key_pem if client_cert_pem else None,
@@ -121,7 +128,7 @@ def _cmd_enroll(args: argparse.Namespace) -> int:
         print("Save this now — it will not be shown again:", file=sys.stderr)
         print(json.dumps({
             "gateway_host": creds.gateway_host, "gateway_port": creds.gateway_port,
-            "ca_cert": creds.ca_cert, "insecure_skip_verify": creds.insecure_skip_verify,
+            "ca_cert_pem": creds.ca_cert_pem, "insecure_skip_verify": creds.insecure_skip_verify,
             "agent_uuid": creds.agent_uuid, "credential": creds.credential,
             "client_cert_pem": creds.client_cert_pem, "client_key_pem": creds.client_key_pem,
         }, indent=2))
@@ -146,7 +153,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     ssl_context = build_ssl_context(
-        ca_cert=creds.ca_cert, insecure_skip_verify=creds.insecure_skip_verify,
+        ca_cert_pem=creds.ca_cert_pem, insecure_skip_verify=creds.insecure_skip_verify,
         client_cert_pem=creds.client_cert_pem, client_key_pem=creds.client_key_pem,
     )
     client = AgentClient(
