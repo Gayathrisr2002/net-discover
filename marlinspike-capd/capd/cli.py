@@ -58,6 +58,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         socket_path=sock_path,
         capture_root=capture_root,
         allowed_uids=allowed_uids,
+        allow_uid_file=Path(args.allow_uid_file) if args.allow_uid_file else None,
     )
     srv = CapdServer(cfg)
     try:
@@ -93,6 +94,14 @@ def main(argv: list[str] | None = None) -> int:
     p_srv.add_argument("--allow-uid", action="append",
                        help="Permit this uid to talk to the socket. May be given multiple times. "
                             "The euid running capd is always allowed.")
+    p_srv.add_argument("--allow-uid-file", default=None,
+                       help="Path to a file of additional allowed uids, one per line ('#' comments "
+                            "and blank lines ignored) — re-read on every connection attempt (cheap "
+                            "mtime check), so appending a uid takes effect immediately with no "
+                            "restart. This is how the marlinspike-agent/marlinspike-capd .deb "
+                            "postinst scripts wire up cross-package access automatically instead of "
+                            "requiring a manual --allow-uid systemd edit. Missing file is fine (same "
+                            "as not passing this flag at all).")
     p_srv.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)

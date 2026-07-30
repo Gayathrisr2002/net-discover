@@ -33,6 +33,20 @@ case "$1" in
       adduser marlinspike-agent marlinspike-capd >/dev/null 2>&1 || true
     fi
 
+    # The socket only trusts root by default (capd/cli.py) — anything
+    # else must be on the --allow-uid-file allow-list the shipped
+    # systemd unit already points at (/etc/marlinspike-capd/allowed-uids,
+    # re-read on every connection attempt, no restart needed). If
+    # marlinspike-agent already exists, add its uid automatically so
+    # this never needs a manual systemd edit.
+    mkdir -p /etc/marlinspike-capd
+    touch /etc/marlinspike-capd/allowed-uids
+    if getent passwd marlinspike-agent >/dev/null 2>&1; then
+      agent_uid="$(id -u marlinspike-agent)"
+      grep -qxF "$agent_uid" /etc/marlinspike-capd/allowed-uids 2>/dev/null || \
+        echo "$agent_uid" >> /etc/marlinspike-capd/allowed-uids
+    fi
+
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi
@@ -41,25 +55,17 @@ case "$1" in
 
 marlinspike-capd installed.
 
-The socket only trusts root by default — the web app (or a remote
-marlinspike-agent) connects as some other uid, which must be
-explicitly allowed or every request fails as unauthorized:
-
-  id -u marlinspike-agent   # (or whichever uid needs to connect)
-  sudo systemctl edit --full marlinspike-capd
-  # add --allow-uid=<that uid> to the ExecStart line, then:
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now marlinspike-capd
-
 See /usr/share/doc/marlinspike-capd/README.md for full details.
 EOF
 
     if getent passwd marlinspike-agent >/dev/null 2>&1 && systemctl is-active --quiet marlinspike-agent 2>/dev/null; then
       cat <<'EOF'
 
-marlinspike-agent is already running on this host — it was just added
-to the marlinspike-capd group so it can read captured PCAPs, but an
-already-running process won't see that until restarted:
+marlinspike-agent is already running on this host — it was just
+allow-listed and added to the marlinspike-capd group, but an
+already-running process won't see the new group membership until
+restarted (the allow-list file takes effect immediately, no restart
+needed for that part):
 
   sudo systemctl restart marlinspike-agent
 EOF

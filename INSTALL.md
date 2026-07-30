@@ -158,20 +158,18 @@ LIVE_CAPTURE_ENABLED=true
 LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock
 ```
 
-The socket only trusts `root` by default — whichever uid actually connects (the web app container's uid, or `marlinspike-agent`'s uid on a remote sensor host) must be explicitly allowed, or every request fails as "unauthorized":
+The socket only trusts `root` and uids listed in `/etc/marlinspike-capd/allowed-uids` by default — a file the shipped systemd unit already points `--allow-uid-file` at, re-read on every connection attempt (no restart needed to pick up a change). `install.sh` adds `marlinspike-agent`'s uid there automatically if that user already exists; for any other uid (e.g. the web app's own container uid), just append it:
 
 ```bash
 id -u marlinspike-agent   # or whichever uid needs to connect
-sudo systemctl edit --full marlinspike-capd
-# add --allow-uid=<that uid> to the ExecStart line, then:
-sudo systemctl daemon-reload && sudo systemctl restart marlinspike-capd
+echo <that uid> | sudo tee -a /etc/marlinspike-capd/allowed-uids
 ```
 
-`install.sh` already adds capd's system user to the `wireshark` group if it exists — needed because Debian/Ubuntu restrict `dumpcap` execution to `root`/`wireshark` by default, independent of the `--allow-uid` check above.
+`install.sh` also adds capd's system user to the `wireshark` group if it exists — needed because Debian/Ubuntu restrict `dumpcap` execution to `root`/`wireshark` by default, independent of the allow-list above.
 
 ### 4. Debian/Ubuntu .deb
 
-A pre-built `.deb` — the same install-by-`apt`-instead-of-`pip` alternative already offered for `marlinspike-agent` — is downloadable from the Fleet page (per-site enrollment instructions include it) or directly at `/api/fleet/capd-package.deb`. Installs the same systemd unit as mode 3 above; the `--allow-uid` step is identical.
+A pre-built `.deb` — the same install-by-`apt`-instead-of-`pip` alternative already offered for `marlinspike-agent` — is downloadable from the Fleet page (per-site enrollment instructions include it) or directly at `/api/fleet/capd-package.deb`. Installs the same systemd unit as mode 3 above; the allow-list step is identical, and both packages' `postinst` scripts wire each other's uid in automatically regardless of which one you install first.
 
 ### Verifying live capture
 

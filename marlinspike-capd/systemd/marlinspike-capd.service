@@ -48,9 +48,15 @@ ReadWritePaths=/var/run/marlinspike-capd /var/lib/marlinspike/captures
 
 Environment=PYTHONUNBUFFERED=1
 
+# --allow-uid-file: re-read on every connection attempt (cheap mtime
+# check — see capd/server.py), so both marlinspike-agent's and
+# marlinspike-capd's own postinst can append a uid to this file and
+# have it take effect immediately, with no systemd edit or capd
+# restart. Missing file is fine — same as no extra allowed uids.
 ExecStart=/usr/local/bin/marlinspike-capd serve \
     --socket=/var/run/marlinspike-capd/marlinspike-capd.sock \
-    --capture-root=/var/lib/marlinspike/captures
+    --capture-root=/var/lib/marlinspike/captures \
+    --allow-uid-file=/etc/marlinspike-capd/allowed-uids
 
 Restart=on-failure
 RestartSec=2s

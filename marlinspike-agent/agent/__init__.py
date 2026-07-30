@@ -14,4 +14,4 @@ present too; the .deb (scripts/build_agent_deb.sh) bundles the former and
 depends on the latter via apt, so nothing beyond `apt install` is needed.
 """
 
-__version__ = "0.3.5"
+__version__ = "0.3.6"

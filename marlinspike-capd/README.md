@@ -47,8 +47,16 @@ sudo python -m capd serve --socket /var/run/marlinspike-capd.sock
 # The web app (or, on a remote sensor host, a locally installed
 # marlinspike-agent) connects as some other, unprivileged uid -- capd
 # only trusts its own uid (root) by default, so that other uid must be
-# explicitly allowed or every request from it fails with "unauthorized":
+# explicitly allowed or every request from it fails with "unauthorized".
+# --allow-uid is a static, one-shot list baked into the command line:
 sudo python -m capd serve --socket /var/run/marlinspike-capd.sock --allow-uid=1000
+
+# --allow-uid-file is the dynamic alternative (what the shipped systemd
+# unit and both .deb postinst scripts actually use) -- one uid per line,
+# re-read on every connection attempt (cheap mtime check), so appending
+# a uid takes effect immediately with no restart:
+sudo python -m capd serve --socket /var/run/marlinspike-capd.sock \
+    --allow-uid-file=/etc/marlinspike-capd/allowed-uids
 ```
 
 JSON over uds, length-prefixed (4-byte big-endian length, then UTF-8

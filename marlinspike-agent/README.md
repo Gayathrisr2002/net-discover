@@ -71,22 +71,32 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now marlinspike-agent
 ```
 
-### Required: allow this agent's uid on the local capd
+### Allowing this agent's uid on the local capd
 
 capd only ever trusts its own effective uid (root) unless told otherwise
 — it has no idea the `marlinspike-agent` system user above even exists.
-Without this step, every remote-capture-control request (list
-interfaces, start/stop) fails with a capd `"unauthorized"` error, since
-this agent relays those commands to capd over the *local* unix socket,
-not the central gateway.
+Without this, every remote-capture-control request (list interfaces,
+start/stop) fails with a capd `"unauthorized"` error, since this agent
+relays those commands to capd over the *local* unix socket, not the
+central gateway.
+
+If both packages were installed via their `.deb`s (either order), this
+is already wired up automatically — each package's `postinst` adds this
+agent's uid to the other's allow-list/group. **The only manual step
+left**: if `marlinspike-agent` was already running when `capd` got
+installed afterward, restart it once so it picks up its new group
+membership (`sudo systemctl restart marlinspike-agent`) — a
+`postinst`-time group change never applies to an already-running
+process.
+
+For a source install with no `.deb` involved at all, append the uid
+yourself — capd re-reads this file on every connection attempt, no
+systemd edit or restart needed:
 
 ```bash
 id -u marlinspike-agent   # note this uid
+echo <uid-from-above> | sudo tee -a /etc/marlinspike-capd/allowed-uids
 ```
-
-Pass that uid to capd's own `serve` invocation on this same host, e.g.
-in `marlinspike-capd`'s systemd unit or docker-compose command:
-`--allow-uid=<uid-from-above>`. See `marlinspike-capd/README.md`.
 
 ## Protocol
 

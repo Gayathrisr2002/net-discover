@@ -36,6 +36,14 @@ class ServerConfig:
     socket_path: Path
     capture_root: Path
     allowed_uids: set[int]
+    # Additional uids allowed to connect, read from this file on every
+    # connection attempt (cheap mtime check, only re-parsed when changed)
+    # rather than baked into the command line — lets both the
+    # marlinspike-agent and marlinspike-capd .deb postinst scripts wire
+    # up cross-package uid access automatically (see debian/postinst in
+    # both packages) with no systemd unit edit or capd restart needed.
+    # One uid per line; blank lines and '#' comments ignored.
+    allow_uid_file: "Path | None" = None
 
 
 class CapdServer:
@@ -43,6 +51,31 @@ class CapdServer:
         self.cfg = cfg
         self._sessions: dict[str, CaptureSupervisor] = {}
         self._sessions_lock = asyncio.Lock()
+        self._uid_file_cache: "tuple[float, set[int]] | None" = None
+
+    def _effective_allowed_uids(self) -> set[int]:
+        if self.cfg.allow_uid_file is None:
+            return self.cfg.allowed_uids
+        try:
+            mtime = self.cfg.allow_uid_file.stat().st_mtime
+        except OSError:
+            return self.cfg.allowed_uids
+        if self._uid_file_cache is not None and self._uid_file_cache[0] == mtime:
+            return self.cfg.allowed_uids | self._uid_file_cache[1]
+        file_uids: set[int] = set()
+        try:
+            for line in self.cfg.allow_uid_file.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                try:
+                    file_uids.add(int(line))
+                except ValueError:
+                    log.warning("ignoring non-numeric line in %s: %r", self.cfg.allow_uid_file, line)
+        except OSError:
+            file_uids = set()
+        self._uid_file_cache = (mtime, file_uids)
+        return self.cfg.allowed_uids | file_uids
 
     # ── public entry ──────────────────────────────────────────
 
@@ -65,7 +98,9 @@ class CapdServer:
 
         loop = asyncio.get_running_loop()
         srv_sock.setblocking(False)
-        log.info("capd listening on %s (allowed uids: %s)", sock_path, sorted(self.cfg.allowed_uids))
+        log.info("capd listening on %s (allowed uids: %s%s)", sock_path,
+                  sorted(self.cfg.allowed_uids),
+                  f", plus {self.cfg.allow_uid_file}" if self.cfg.allow_uid_file else "")
 
         try:
             while True:
@@ -82,8 +117,9 @@ class CapdServer:
 
     async def _handle_client(self, client_sock: socket.socket) -> None:
         peer_uid = _peer_uid(client_sock)
-        if peer_uid is None or peer_uid not in self.cfg.allowed_uids:
-            log.warning("rejecting client uid=%s (allowed=%s)", peer_uid, sorted(self.cfg.allowed_uids))
+        allowed = self._effective_allowed_uids()
+        if peer_uid is None or peer_uid not in allowed:
+            log.warning("rejecting client uid=%s (allowed=%s)", peer_uid, sorted(allowed))
             try:
                 await _send_json_async(client_sock, {"ok": False, "error": "unauthorized"})
             finally:

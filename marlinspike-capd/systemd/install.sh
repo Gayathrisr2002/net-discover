@@ -27,7 +27,33 @@ if getent group wireshark >/dev/null; then
   usermod -aG wireshark marlinspike-capd
 fi
 
+# If marlinspike-agent is already on this host, it needs group access to
+# read rotated PCAPs (StateDirectoryMode=0750 — deliberately restricted,
+# unlike the RPC socket's own directory) and a spot on the socket's
+# allow-list (see below) — mirrors the .deb postinst's cross-package
+# wiring for whichever install order this happens to be.
+if id marlinspike-agent >/dev/null 2>&1; then
+  usermod -aG marlinspike-capd marlinspike-agent
+fi
+
 install -m 0644 "$UNIT_SRC" "$UNIT_DST"
+
+# The socket only trusts root by default (capd/cli.py) — the shipped
+# unit's ExecStart already points --allow-uid-file at this file, which
+# capd re-reads on every connection attempt (no restart needed to pick
+# up a change). If marlinspike-agent already exists, add its uid now so
+# a fresh install needs no manual step; a uid discovered later (e.g. the
+# web app's own container uid, or marlinspike-agent installed
+# afterward) can just be appended the same way — plain text, one uid
+# per line, '#' comments and blank lines ignored.
+mkdir -p /etc/marlinspike-capd
+touch /etc/marlinspike-capd/allowed-uids
+if id marlinspike-agent >/dev/null 2>&1; then
+  agent_uid="$(id -u marlinspike-agent)"
+  grep -qxF "$agent_uid" /etc/marlinspike-capd/allowed-uids 2>/dev/null || \
+    echo "$agent_uid" >> /etc/marlinspike-capd/allowed-uids
+fi
+
 systemctl daemon-reload
 systemctl enable --now marlinspike-capd.service
 
@@ -40,10 +66,15 @@ echo "Set in the MarlinSpike web app environment:"
 echo "  LIVE_CAPTURE_ENABLED=true"
 echo "  LIVE_CAPTURE_SOCKET=/var/run/marlinspike-capd/marlinspike-capd.sock"
 echo
-echo "The socket only trusts root by default — the web app (or a remote"
-echo "marlinspike-agent) connects as some other uid, which must be"
-echo "explicitly allowed or every request fails as unauthorized. Add"
-echo "--allow-uid=<uid> to ExecStart in $UNIT_DST for each uid that"
-echo "needs to connect (the web app's container uid, or marlinspike-agent's"
-echo "uid on a remote sensor host — check with 'id marlinspike-agent'),"
-echo "then 'systemctl daemon-reload && systemctl restart marlinspike-capd'."
+echo "The socket only trusts root and uids listed in"
+echo "/etc/marlinspike-capd/allowed-uids by default. marlinspike-agent's"
+echo "uid was added automatically if it was already installed; for any"
+echo "other uid that needs to connect (e.g. the web app's own container"
+echo "uid), just append it — no systemd edit or restart needed:"
+echo "  echo <uid> | sudo tee -a /etc/marlinspike-capd/allowed-uids"
+if id marlinspike-agent >/dev/null 2>&1 && systemctl is-active --quiet marlinspike-agent 2>/dev/null; then
+  echo
+  echo "marlinspike-agent is already running — it was just added to the"
+  echo "marlinspike-capd group, but an already-running process won't see"
+  echo "that until restarted: sudo systemctl restart marlinspike-agent"
+fi

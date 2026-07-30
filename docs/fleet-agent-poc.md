@@ -65,6 +65,7 @@ plan:
 | 15 | Agent-side scan failed: `No module named marlinspike` | the agent needs the full `marlinspike` engine package (+ `tshark`) installed locally to run its analysis chain, and nothing packaged that for a remote host | **fixed** — the engine (`marlinspike/`, `plugins/`, `rules/`, `presets/`, `oui.json`) is now bundled straight into the agent's own `.deb`, and `tshark` is an apt `Depends` (see §4.1) |
 | 16 | Even after bundling the engine, scans still failed with a plain `FileNotFoundError` reading the rotated PCAP — capture start/stop over the RPC socket worked fine | `capd`'s `StateDirectoryMode=0750` (deliberately group-restricted — unlike the RPC socket's directory, this one holds actual captured traffic) blocked the agent user from reading files it didn't have group membership for; a manual `usermod` done earlier in this session didn't survive a `.deb` reinstall recreating the system user from scratch | both `.deb`s' `postinst` now wire the group membership automatically, each covering the install order where it's the *second* package installed (so it can see both users/groups already exist) |
 | 17 | Docker image build failed outright: `cp: cannot stat '/app/data/oui.json'` once the engine got bundled | the Dockerfile copies `oui.json` (and MITRE's plugin/rules) into the image *after* the step that builds the agent `.deb`, so at build time the file the bundler wanted simply didn't exist yet | reordered the three `COPY` steps to land before the `.deb` build (`Dockerfile`) |
+| 18 | `--allow-uid` required a manual `systemctl edit --full` every single install | no automated way for either installer to know which uid needed access | `capd serve` now also accepts `--allow-uid-file`, re-read on every connection attempt with no restart needed; both `.deb`'s `postinst` (and `systemd/install.sh`) write the other package's uid there automatically, in either install order (see §4.3) |
 
 ## 3. How this was actually verified (reproducible)
 
@@ -78,12 +79,9 @@ bare-metal `marlinspike-agent` + `marlinspike-capd`, from a genuinely clean
 sudo apt install ./marlinspike-capd_*_all.deb
 sudo apt install ./marlinspike-agent_*_all.deb
 # tshark pulled in automatically (agent's apt Depends); each package's
-# postinst wires the other's group membership automatically too
-
-# capd still needs one manual step (see §4.3 — not yet automated):
-id -u marlinspike-agent
-sudo systemctl edit --full marlinspike-capd   # add --allow-uid=<that uid>
-sudo systemctl daemon-reload && sudo systemctl enable --now marlinspike-capd
+# postinst wires the other's group membership AND socket allow-list
+# automatically too — no --allow-uid step needed at all, in either order
+sudo systemctl enable --now marlinspike-capd
 
 # 1. Enroll + start the agent
 sudo marlinspike-agent enroll --gateway <server-ip>:8765 --token <token> \
@@ -116,7 +114,9 @@ SELECT id, agent_id, status, pcap_source FROM scan_history ORDER BY id DESC LIMI
 like a manually-uploaded PCAP would be. This was re-run from a clean-slate
 `apt purge` + reinstall in both possible package-install orders
 (agent-then-capd and capd-then-agent) to confirm the automatic group-wiring
-in §2's bug #16 actually covers both cases, not just the one first tried.
+and allow-uid-file wiring (bugs #16 and #18) both actually cover either
+order, not just the one first tried — the `--allow-uid` step was never
+touched by hand in either run.
 
 ## 4. Known gaps — the actual punch list for future work
 
@@ -150,19 +150,26 @@ internal CA or a documented, supported process for bringing your own
 certs — today there's no path other than hand-editing what `certs-init`
 generates.
 
-### 4.3 `--allow-uid` still needs a manual systemd edit
+### 4.3 ~~`--allow-uid` needs a manual systemd edit~~ — fixed
 
-Both the source-install (`systemd/install.sh`) and the `.deb`'s `postinst`
-print instructions to manually `systemctl edit --full` and add
-`--allow-uid=<uid>` — there's no automated way for the installer to know
-which uid needs access (the web app's container uid, or `marlinspike-agent`'s
-uid, depending on deployment). A config-file-driven approach (capd reads an
-allow-list file instead of a command-line flag) would let both `.deb`
-postinst scripts wire this up automatically instead of leaving it as a
-manual step every single time. Note this is a distinct concern from bug
-#16's fix above — that one is filesystem group membership for *reading
-already-captured files*, already automated; this one is the RPC socket's
-own uid allow-list, still manual.
+Previously both the source-install (`systemd/install.sh`) and the `.deb`'s
+`postinst` just printed instructions to manually `systemctl edit --full`
+and add `--allow-uid=<uid>` — there was no automated way for the installer
+to know which uid needed access.
+
+Fixed: `capd serve` now also accepts `--allow-uid-file=PATH` (one uid per
+line, `#` comments/blank lines ignored), re-read on every connection
+attempt via a cheap mtime check (`capd/server.py`'s
+`_effective_allowed_uids()`) — so appending a uid takes effect
+immediately, no restart or systemd edit needed. The shipped systemd unit
+already points this at `/etc/marlinspike-capd/allowed-uids`, and **both**
+`.deb`'s `postinst` scripts (and `systemd/install.sh`, for a source
+install) write the other package's uid there automatically, whichever
+order they're installed in. Verified end-to-end in both install orders
+with the manual `--allow-uid` step never touched at all (§3). Note this is
+distinct from bug #16's fix — that one is filesystem group membership for
+*reading already-captured files*; this one is the RPC socket's own uid
+allow-list. Both are now automatic.
 
 ### 4.4 No visibility into *why* an online agent's capture fails
 
@@ -208,7 +215,11 @@ root plus each sub-package:
   Zero new failures attributable to any change described in this
   document.
 - **`marlinspike-agent`**: 7/7 passing.
-- **`marlinspike-capd`**: 17/17 passing.
+- **`marlinspike-capd`**: 24/24 passing (17 pre-existing + 7 new,
+  `tests/test_allow_uid_file.py`, covering bug #18's fix — missing file,
+  merge with the static `--allow-uid` set, comment/blank-line handling,
+  non-numeric lines, and the actual "append without restarting" case the
+  whole feature exists for).
 
 Beyond the automated suite, §3's live end-to-end run (enroll → heartbeat →
 remote capture start/stop → local scan → report shipped → visible in

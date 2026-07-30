@@ -25,6 +25,19 @@ case "$1" in
       adduser marlinspike-agent marlinspike-capd >/dev/null 2>&1 || true
     fi
 
+    # capd's socket only trusts root by default and otherwise checks an
+    # allow-list file it already watches (see marlinspike-capd's own
+    # postinst / systemd unit) — add this agent's uid there too so a
+    # capd-then-agent install order is wired up automatically, same as
+    # agent-then-capd is from the other side.
+    if [ -d /etc/marlinspike-capd ]; then
+      mkdir -p /etc/marlinspike-capd
+      touch /etc/marlinspike-capd/allowed-uids
+      agent_uid="$(id -u marlinspike-agent)"
+      grep -qxF "$agent_uid" /etc/marlinspike-capd/allowed-uids 2>/dev/null || \
+        echo "$agent_uid" >> /etc/marlinspike-capd/allowed-uids
+    fi
+
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi
