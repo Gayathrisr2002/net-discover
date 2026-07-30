@@ -250,26 +250,45 @@ concurrent tasks to reproduce this deterministically — re-running the
 same scheduled single-chunk capture live afterward confirmed a clean
 `launching scan ... -> scan completed ...` pair.
 
-**Bug 3 — a stale gateway TLS cert misses a later `FLEET_GATEWAY_PUBLIC_HOST`.**
-Not a code bug, an operational trap already implied by bug #7's own
-"only takes effect on first generation" caveat (§2) — it bit us for real
-during this pass anyway. A remote agent enrolling against the server's
-real LAN IP got `ssl.SSLCertVerificationError: ... IP address mismatch,
-certificate is not valid for '<ip>'` even though `.env`'s
-`FLEET_GATEWAY_PUBLIC_HOST` was already correctly set to that IP —
-because `./certs/gateway.crt` had been generated at some earlier point
-before that env var existed, and `certs-init`'s idempotent skip-if-exists
-check meant it was never regenerated since. Fixed operationally (not a
-code change): delete `certs/gateway.crt`/`gateway.key` only (**not**
-`fleet-ca.crt`/`.key` — keeps the same CA, so no already-enrolled agent's
-client cert is invalidated), re-run `certs-init`, restart `fleet-gateway`.
-Confirmed the regenerated cert's SAN then correctly included the LAN IP
-and the same enroll command succeeded. Also worth knowing separately: an
-already-enrolled agent's `credential.json` stores `gateway_host`/
-`gateway_port` from `enroll` time and reads it back on every `run` start
-(there's no `--gateway` flag on `run`) — if the gateway's IP ever changes
-for real (not just a stale cert), every already-enrolled agent needs its
-`credential.json` updated too, not just the server-side cert.
+**Bug 3 (and its permanent fix) — a stale gateway TLS cert misses a later
+`FLEET_GATEWAY_PUBLIC_HOST`.** This bit real live testing more than once:
+a remote agent enrolling against the server's real LAN IP got
+`ssl.SSLCertVerificationError: ... IP address mismatch, certificate is
+not valid for '<ip>'` even though `.env`'s `FLEET_GATEWAY_PUBLIC_HOST`
+was already correctly set to that IP — because `./certs/gateway.crt` had
+been generated at some earlier point before that env var existed, and
+`certs-init`'s old skip-if-exists check meant it was never regenerated
+since. The manual operational fix (delete the leaf cert, re-run
+`certs-init`, restart `fleet-gateway`) worked, but bit us again the very
+next time the environment reset — a config value that only takes effect
+once, silently, is exactly the kind of trap that's cheap to hit
+repeatedly and expensive to keep re-diagnosing.
+
+Fixed properly instead of operationally: `scripts/refresh_gateway_cert.sh`
+(new) auto-detects this host's real reachable address on **every**
+startup (a UDP-connect-to-a-public-IP trick — asks the kernel which local
+address/route it would use, which correctly picks the LAN-facing
+interface and ignores Docker's own internal bridge/veth noise) and
+regenerates just the leaf cert whenever the detected address isn't
+already in its SAN. `certs-init` now runs with `network_mode: host`
+(needed for the detection to see the host's real interfaces at all — a
+container on the internal bridge network only ever sees its own bridge
+IP) and calls this script instead of the old one-shot check.
+`FLEET_GATEWAY_PUBLIC_HOST` becomes a pure override (still wins when
+set, for a DNS hostname or a case auto-detection would guess wrong), no
+longer something that has to be set correctly *before* first boot to
+matter. Verified live: cleared `FLEET_GATEWAY_PUBLIC_HOST` entirely,
+confirmed `certs-init` auto-detected `192.168.0.102` and regenerated the
+leaf cert with it in the SAN on its own, and the same enroll command that
+previously failed with the IP-mismatch error succeeded with zero manual
+configuration.
+
+Still true regardless of this fix: an already-enrolled agent's
+`credential.json` stores `gateway_host`/`gateway_port` from `enroll` time
+and reads it back on every `run` start (there's no `--gateway` flag on
+`run`) — if the gateway's IP ever changes for real (not just a stale
+cert), every already-enrolled agent still needs its `credential.json`
+updated or re-enrolled, since that part isn't auto-detected.
 
 ## 7. How the current design was verified (reproducible)
 
@@ -346,9 +365,15 @@ Ranked by how much they block real deployment, most important first.
 "LOCAL/DEV TESTING ONLY." A real production rollout needs either a real
 internal CA or a documented, supported process for bringing your own
 certs — today there's no path other than hand-editing what `certs-init`
-generates. Relatedly (§6, bug 3, §2 #7): a cert regeneration is required
-any time `FLEET_GATEWAY_PUBLIC_HOST` changes or is set after the fact —
-`certs-init` has no way to detect "this value changed" on its own.
+generates. (The separate "cert doesn't cover the host's real address"
+trap this used to also cause — §6, bug 3, §2 #7 — is fixed: `certs-init`
+now auto-detects and self-refreshes on every startup via
+`scripts/refresh_gateway_cert.sh`, no manual `FLEET_GATEWAY_PUBLIC_HOST`
++ delete-and-regenerate dance needed anymore.) `network_mode: host` for
+`certs-init` (needed for the auto-detection) is Linux-only — this
+deployment's assumed target already requires Linux for several other
+reasons (SO_PEERCRED, systemd units), so this doesn't add a new
+constraint, just makes an existing one slightly more load-bearing.
 
 ### 8.2 No visibility into *why* an online agent's capture fails
 

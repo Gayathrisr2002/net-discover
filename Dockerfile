@@ -134,9 +134,11 @@ COPY scripts/build_agent_deb.sh ./scripts/build_agent_deb.sh
 COPY marlinspike-capd/ ./marlinspike-capd/
 COPY scripts/build_capd_deb.sh ./scripts/build_capd_deb.sh
 # Only ever invoked by the certs-init service in docker-compose.yml (a
-# one-shot container that generates ./certs on first startup if it's
-# empty) — never run as part of building this image itself.
+# one-shot container that runs on every startup to keep ./certs current
+# for whatever address this host is actually reachable at) — never run as
+# part of building this image itself.
 COPY scripts/gen_dev_tls_cert.sh ./scripts/gen_dev_tls_cert.sh
+COPY scripts/refresh_gateway_cert.sh ./scripts/refresh_gateway_cert.sh
 
 # Built once at image-build time (not per-request — needs fakeroot/dpkg-deb,
 # and never changes between requests against the same image) so the
