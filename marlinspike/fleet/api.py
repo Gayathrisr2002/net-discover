@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import tarfile
 from datetime import datetime, timedelta, timezone
@@ -429,6 +430,95 @@ def set_site_policy(site_id):
               "new_policy": body,
           }))
     return jsonify({"ok": True, "policy": body})
+
+
+# ── Site automated capture schedule ──────────────────────────────
+# See marlinspike/scheduler.py — a schedule set here drives a background
+# thread that automatically starts a capture on every online agent at
+# this site when a configured times_utc slot is due, reusing the exact
+# same policy-gated _start_capture_session core logic a manual click uses.
+
+_SCHEDULE_ALLOWED_KEYS = frozenset({"enabled", "times_utc", "duration_s", "interface", "bpf_filter"})
+_TIME_UTC_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _validate_schedule_body(body: dict) -> str | None:
+    unknown = set(body.keys()) - _SCHEDULE_ALLOWED_KEYS
+    if unknown:
+        return f"unknown key(s): {', '.join(sorted(unknown))}"
+
+    if "enabled" in body and not isinstance(body["enabled"], bool):
+        return "enabled must be a boolean"
+
+    if "times_utc" in body:
+        times = body["times_utc"]
+        if not isinstance(times, list) or not times:
+            return "times_utc must be a non-empty list of HH:MM strings"
+        for t in times:
+            if not isinstance(t, str) or not _TIME_UTC_RE.match(t):
+                return f"times_utc entry {t!r} is not a valid HH:MM (24h) time"
+
+    if "duration_s" in body:
+        duration_s = body["duration_s"]
+        if isinstance(duration_s, bool) or not isinstance(duration_s, int) or duration_s <= 0:
+            return "duration_s must be a positive integer"
+
+    if "interface" in body and not isinstance(body["interface"], str):
+        return "interface must be a string"
+    if "bpf_filter" in body and not isinstance(body["bpf_filter"], str):
+        return "bpf_filter must be a string"
+
+    if body.get("enabled"):
+        if not body.get("interface"):
+            return "enabled schedules require interface"
+        if not body.get("times_utc"):
+            return "enabled schedules require times_utc"
+
+    return None
+
+
+@bp.route("/sites/<int:site_id>/capture-schedule", methods=["GET"])
+@login_required
+def get_capture_schedule(site_id):
+    site = _get_site_for_user(site_id, "owner")
+    if site is None:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+    schedule = json.loads(site.capture_schedule) if site.capture_schedule else None
+    return jsonify({
+        "ok": True, "site_id": site_id, "schedule": schedule,
+        "last_triggered_at": (
+            site.capture_schedule_last_triggered_at.isoformat()
+            if site.capture_schedule_last_triggered_at else None
+        ),
+    })
+
+
+@bp.route("/sites/<int:site_id>/capture-schedule", methods=["PUT"])
+@login_required
+def set_capture_schedule(site_id):
+    site = _get_site_for_user(site_id, "owner")
+    if site is None:
+        return jsonify({"ok": False, "error": "Site not found"}), 404
+
+    body = request.get_json(silent=True)
+    if body is None or not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "JSON body required"}), 400
+
+    err = _validate_schedule_body(body)
+    if err:
+        return jsonify({"ok": False, "error": f"invalid schedule: {err}"}), 400
+
+    old_raw = site.capture_schedule
+    site.capture_schedule = json.dumps(body) if body else None
+    db.session.commit()
+
+    audit("fleet.site_capture_schedule_set", target_type="site", target_id=str(site_id),
+          detail=json.dumps({
+              "site_id": site_id,
+              "old_schedule": json.loads(old_raw) if old_raw else None,
+              "new_schedule": body,
+          }))
+    return jsonify({"ok": True, "schedule": body})
 
 
 # ── Agent package download ───────────────────────────────────────

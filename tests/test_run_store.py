@@ -215,3 +215,47 @@ def test_record_start_idempotent_on_run_id_collision(app_ctx, user):
     assert len(rows) == 1
     assert rows[0].engine_pid == 200
     assert rows[0].scan_profile == "fast"
+
+
+def test_record_start_with_agent_id(app_ctx, user):
+    run_store.record_start(
+        "run-agent-1",
+        user_id=user.id, project_id=None, command="chain", scan_profile="fast",
+        pcap_source="x.pcapng", pcap_hash="abc",
+        pcap_path="/tmp/x.pcapng", report_path="/tmp/r.json",
+        engine_pid=555, engine_argv=["python", "-m", "marlinspike"],
+        agent_id=7,
+    )
+    rec = ScanHistory.query.filter_by(run_id="run-agent-1").first()
+    assert rec.agent_id == 7
+
+
+def test_record_start_agent_id_defaults_to_none(app_ctx, user):
+    run_store.record_start(
+        "run-local-1",
+        user_id=user.id, project_id=None, command="chain", scan_profile="fast",
+        pcap_source="x.pcapng", pcap_hash="abc",
+        pcap_path="/tmp/x.pcapng", report_path="/tmp/r.json",
+        engine_pid=556, engine_argv=["python", "-m", "marlinspike"],
+    )
+    rec = ScanHistory.query.filter_by(run_id="run-local-1").first()
+    assert rec.agent_id is None
+
+
+def test_get_active_agent_scans_for_recovery_returns_only_agent_rows(app_ctx, user):
+    run_store.record_start(
+        "run-agent-active", user_id=user.id, project_id=None, command="chain",
+        scan_profile="fast", pcap_source="a.pcapng", pcap_hash=None,
+        pcap_path="/tmp/a.pcapng", report_path="/tmp/a.json",
+        engine_pid=1, engine_argv=None, agent_id=9,
+    )
+    run_store.record_start(
+        "run-local-active", user_id=user.id, project_id=None, command="chain",
+        scan_profile="fast", pcap_source="b.pcap", pcap_hash=None,
+        pcap_path="/tmp/b.pcap", report_path="/tmp/b.json",
+        engine_pid=2, engine_argv=None,
+    )
+    rows = run_store.get_active_agent_scans_for_recovery()
+    run_ids = {r.run_id for r in rows}
+    assert "run-agent-active" in run_ids
+    assert "run-local-active" not in run_ids

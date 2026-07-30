@@ -39,6 +39,7 @@ def record_start(
     engine_pid: int | None,
     engine_argv: list[str] | None,
     timeout_s: int | None = None,
+    agent_id: int | None = None,
 ) -> None:
     """Insert (or update) a ScanHistory row at scan launch time.
 
@@ -49,6 +50,10 @@ def record_start(
     ``timeout_s`` defaults to ``MARLINSPIKE_SCAN_TIMEOUT_S`` (config).
     A null deadline means recovery cannot time-bound the scan and will
     rely on PID-liveness alone.
+
+    ``agent_id`` is set for a scan launched by fleet/gateway/scan.py from
+    an agent-forwarded pcap — see get_active_agent_scans_for_recovery's
+    docstring for why this needs its own, separately-scoped reaper query.
     """
     if timeout_s is None:
         timeout_s = config.MARLINSPIKE_SCAN_TIMEOUT_S
@@ -76,6 +81,7 @@ def record_start(
     rec.engine_argv = json.dumps(engine_argv) if engine_argv else None
     rec.timeout_at = timeout_at
     rec.recovery_state = None
+    rec.agent_id = agent_id
 
     db.session.commit()
 
@@ -137,19 +143,35 @@ def record_finish(
 
 
 def get_active_for_recovery() -> list[ScanHistory]:
-    """Return ScanHistory rows still marked 'running' — input to the reaper.
+    """Return ScanHistory rows still marked 'running' — input to the main
+    app's own reaper (marlinspike.recovery.reap_orphan_runs, called with
+    its default get_active).
 
-    Excludes agent_id-set rows: the reaper's liveness check (pid_alive on
-    engine_pid) is meaningless for a scan whose engine ran on a different
-    host's PID namespace — a remote-agent row would get falsely reaped as
-    abandoned on the next central restart otherwise. In the current design
-    (fleet/gateway/db.py:ingest_report) these rows are only ever inserted
-    already 'completed', so this is defensive scoping rather than a
-    presently-reachable bug, but it's cheap insurance against a future
-    design (e.g. a 'scan in progress' row created at start) reintroducing
-    exactly that hazard.
+    Excludes agent_id-set rows: those are scans launched by
+    fleet/gateway/scan.py, whose engine subprocess runs inside the
+    fleet-gateway container — a *separate* Docker container with its own
+    PID namespace (confirmed: no ``pid:`` sharing directive in
+    docker-compose.yml). A PID recorded there is meaningless to this
+    process's own pid_alive() check: it could spuriously match an
+    unrelated process on THIS container's PID table, or just never exist
+    here at all. get_active_agent_scans_for_recovery below is the matching
+    query for the fleet-gateway's own, separately-scoped reaper
+    (fleet/gateway/cli.py), which runs pid_alive() against the container it
+    actually shares a PID namespace with.
     """
     return ScanHistory.query.filter_by(status="running", agent_id=None).all()
+
+
+def get_active_agent_scans_for_recovery() -> list[ScanHistory]:
+    """Sibling of get_active_for_recovery, scoped to agent-launched scans —
+    passed as the injected ``get_active`` callable to
+    marlinspike.recovery.reap_orphan_runs from fleet/gateway/cli.py at
+    gateway startup, so a scan whose engine subprocess died along with a
+    prior gateway process gets reaped using PID liveness checked inside
+    the *same* container/PID-namespace it actually ran in."""
+    return ScanHistory.query.filter(
+        ScanHistory.status == "running", ScanHistory.agent_id.isnot(None)
+    ).all()
 
 
 def claim_for_recovery(run_id: str) -> bool:

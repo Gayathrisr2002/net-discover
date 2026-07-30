@@ -224,8 +224,20 @@ def _ingest_completed_report(rec: ScanHistory) -> None:
 # ── Reaper ────────────────────────────────────────────────────────────────────
 
 
-def reap_orphan_runs(app) -> dict:
+def reap_orphan_runs(app, get_active=run_store.get_active_for_recovery) -> dict:
     """Reconcile every scan row left ``running`` from a previous boot.
+
+    ``get_active`` is injectable so the fleet-gateway's own startup
+    (fleet/gateway/cli.py) can reuse this entire reconciliation flow —
+    multi-worker-claim ordering, deadline-vs-liveness precedence, PID-reuse
+    defense — for its own, differently-scoped set of rows (agent-launched
+    scans, whose engine subprocess runs inside the fleet-gateway
+    container's own PID namespace) without duplicating any of that logic.
+    Defaults to the main app's query (agent_id IS NULL), so every existing
+    caller/test is unaffected. See run_store.get_active_for_recovery and
+    get_active_agent_scans_for_recovery for why the two are scoped the way
+    they are — a PID recorded in one container's ScanHistory row is
+    meaningless to a pid_alive() check running in a *different* container.
 
     Returns a counters dict for logging / metrics:
         {
@@ -246,7 +258,7 @@ def reap_orphan_runs(app) -> dict:
     }
 
     with app.app_context():
-        active = run_store.get_active_for_recovery()
+        active = get_active()
         counters["checked"] = len(active)
 
         if not active:

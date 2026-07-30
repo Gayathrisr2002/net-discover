@@ -2,23 +2,15 @@
 # Build a .deb package for marlinspike-agent — a real, install-by-double-
 # click alternative to `pip install -e .` for Debian/Ubuntu hosts.
 #
-# Pure-Python, zero third-party dependencies for the agent's own transport
-# layer (see marlinspike-agent's own docstrings), so this deliberately
-# doesn't use dh_python3/debhelper — it assembles the package tree directly
-# and calls dpkg-deb, matching how many simple non-Debian-native tools
-# ship their .deb.
+# Pure-Python, zero third-party dependencies (see marlinspike-agent's own
+# docstrings), so this deliberately doesn't use dh_python3/debhelper — it
+# assembles the package tree directly and calls dpkg-deb, matching how
+# many simple non-Debian-native tools ship their .deb.
 #
-# Also bundles the marlinspike analysis engine itself (marlinspike/ +
-# plugins/ + rules/ + presets/ + oui.json) under
-# /usr/lib/marlinspike-agent/engine — agent/consumer.py's run_scan needs
-# this importable to actually run a scan on each rotated capture, and
-# without it bundled here there is no supported way to get it onto a bare
-# remote sensor host at all. engine.py has zero Flask/SQLAlchemy/DB
-# imports (marlinspike/__init__.py lazy-loads those via __getattr__, only
-# on first access) — confirmed directly: `python3 -c "import
-# marlinspike.engine"` succeeds with none of requirements.txt installed.
-# tshark is a Depends (debian/control) since it's a system package, not
-# something to vendor.
+# No analysis engine is bundled here — the agent only captures and
+# forwards raw pcap bytes; the central fleet-gateway runs the actual
+# engine and produces the report. Nothing beyond the agent/ package tree
+# itself needs to ship in this .deb.
 #
 # Usage: scripts/build_agent_deb.sh [output-dir]
 #   Writes <output-dir>/marlinspike-agent_<version>_all.deb
@@ -58,25 +50,6 @@ install -m 0755 "$AGENT_SRC/debian/postrm" "$PKG_ROOT/DEBIAN/postrm"
 
 # ── Payload: the agent/ package tree, source only ────────────
 cp -r "$AGENT_SRC/agent" "$PKG_ROOT/usr/lib/marlinspike-agent/agent"
-
-# ── Payload: the bundled analysis engine (agent/consumer.py's
-# _BUNDLED_ENGINE_DIR) — same layout PYTHONPATH needs: marlinspike/,
-# plugins/, rules/, presets/, oui.json all as direct siblings.
-ENGINE_DST="$PKG_ROOT/usr/lib/marlinspike-agent/engine"
-mkdir -p "$ENGINE_DST"
-cp -r "$REPO_ROOT/marlinspike" "$ENGINE_DST/marlinspike"
-cp -r "$REPO_ROOT/plugins" "$ENGINE_DST/plugins"
-cp -r "$REPO_ROOT/rules" "$ENGINE_DST/rules"
-cp -r "$REPO_ROOT/presets" "$ENGINE_DST/presets"
-# oui.json: dev checkout layout has it at data/oui.json; inside the
-# Docker image (this script also runs there, building the .deb the
-# Fleet page serves) the Dockerfile already flattens it to ./oui.json
-# directly, and data/ itself is never copied in wholesale — try both.
-if [[ -f "$REPO_ROOT/data/oui.json" ]]; then
-  cp "$REPO_ROOT/data/oui.json" "$ENGINE_DST/oui.json"
-else
-  cp "$REPO_ROOT/oui.json" "$ENGINE_DST/oui.json"
-fi
 
 find "$PKG_ROOT/usr/lib/marlinspike-agent" -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 find "$PKG_ROOT/usr/lib/marlinspike-agent" -name "*.pyc" -delete 2>/dev/null || true

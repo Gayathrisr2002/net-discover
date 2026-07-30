@@ -25,11 +25,20 @@ a proper multiplexer: one reader task demuxing incoming frames (res ->
 resolve a pending future for something *we* asked; req -> dispatch to a
 command handler and reply), a heartbeat loop using the same pending-
 future mechanism, and one stats-reporter task per active capture session.
+
+This agent does not run any local analysis. Each rotated pcap is shipped
+upward as raw bytes (pcap_chunk/pcap_complete events, base64-encoded per
+chunk since raw pcap bytes aren't valid UTF-8) — the fleet-gateway runs
+the actual analysis engine and produces the report. Kept this way
+deliberately: the agent stays a small, dependency-light transport tool,
+not a second place the engine (and its plugins/rule packs/tshark
+dependency) has to be installed and kept in sync.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import functools
 import json
 import logging
@@ -52,10 +61,9 @@ DEFAULT_STATS_INTERVAL_S = 3.0
 _MAX_BACKOFF_S = 60.0
 _REQUEST_TIMEOUT_S = 10.0
 
-# Report text is split into chunks well under the 1 MiB frame cap (leaves
-# headroom for JSON envelope overhead + string-escaping expansion) rather
-# than raising the cap unbounded for a large chain-output report.
-_REPORT_CHUNK_CHARS = 512 * 1024
+# Raw bytes per chunk, base64-encoded (~683KB encoded) — well under the
+# 1 MiB frame cap, leaving headroom for JSON envelope overhead.
+_PCAP_CHUNK_RAW_BYTES = 512 * 1024
 
 
 class AgentError(RuntimeError):
@@ -169,11 +177,7 @@ class AgentClient:
                  capd_socket_path: str,
                  heartbeat_interval_s: float = DEFAULT_HEARTBEAT_INTERVAL_S,
                  stats_interval_s: float = DEFAULT_STATS_INTERVAL_S,
-                 staging_dir: str | None = None,
-                 spool_dir: str | None = None,
-                 scan_profile: str = "fast",
-                 dpi_engine: str | None = None,
-                 dpi_binary: str | None = None):
+                 spool_dir: str | None = None):
         self.gateway_host = gateway_host
         self.gateway_port = gateway_port
         self.ssl_context = ssl_context
@@ -182,11 +186,7 @@ class AgentClient:
         self.capd_socket_path = capd_socket_path
         self.heartbeat_interval_s = heartbeat_interval_s
         self.stats_interval_s = stats_interval_s
-        self.staging_dir = staging_dir or consumer.default_staging_dir()
         self.spool_dir = spool_dir or consumer.default_spool_dir()
-        self.scan_profile = scan_profile
-        self.dpi_engine = dpi_engine
-        self.dpi_binary = dpi_binary
 
         self._next_id_counter = 1
         self._pending: dict[int, asyncio.Future] = {}
@@ -199,8 +199,7 @@ class AgentClient:
         # _active_sessions, which already retain what they need), so
         # nothing stops it from being garbage-collected mid-execution — a
         # documented asyncio gotcha, and a real risk for the longer-running
-        # ones (_scan_and_ship runs a real pcap analysis + a multi-chunk
-        # network send).
+        # ones (_ship_pcap sends a potentially multi-GB file over the wire).
         self._background_tasks: set[asyncio.Task] = set()
         self._hoststats = HostStats()
         self._last_error: str | None = None
@@ -278,19 +277,17 @@ class AgentClient:
             for task in self._active_sessions.values():
                 task.cancel()
             self._active_sessions.clear()
-            # Also cancel background tasks (_flush_spool, _scan_and_ship)
-            # tied to *this* connection — previously only _active_sessions
-            # was cancelled here, so a _flush_spool still mid-send when the
+            # Also cancel background tasks (_flush_spool, _ship_pcap) tied
+            # to *this* connection — previously only _active_sessions was
+            # cancelled here, so a _flush_spool still mid-send when the
             # link drops kept running uncancelled. run_forever() only
             # calls _run_once() again (spawning a fresh _flush_spool) after
             # this finally block fully completes, so without this, two
             # overlapping _flush_spool tasks could both list the spool
-            # directory and both ship the same report — the gateway has no
-            # idempotency check on report ingestion, so that produced a
-            # duplicate ScanHistory row for one real capture. _ship_report
-            # already treats CancelledError as "link gone" and re-spools
-            # (see its except clause), so cancelling here is safe — any
-            # in-flight report just waits for the next reconnect instead.
+            # directory and both ship the same pcap. _send_pcap already
+            # treats CancelledError as "link gone" and re-spools (see its
+            # except clause), so cancelling here is safe — any in-flight
+            # pcap just waits for the next reconnect instead.
             for task in list(self._background_tasks):
                 task.cancel()
             self._current_writer = None
@@ -325,7 +322,7 @@ class AgentClient:
                 "cpu_percent": self._hoststats.cpu_percent(),
                 "memory_percent": self._hoststats.memory_percent(),
                 "disk_percent": self._hoststats.disk_percent(
-                    self.staging_dir if os.path.isdir(self.staging_dir) else "/"
+                    self.spool_dir if os.path.isdir(self.spool_dir) else "/"
                 ),
                 "uptime_s": self._hoststats.uptime_s(),
                 "capd_reachable": capd_reachable,
@@ -421,17 +418,17 @@ class AgentClient:
         # The stats-reporter task (just cancelled) is what normally notices
         # rotated files — but the *final* file only closes as part of this
         # stop() call itself, after the reporter stopped polling, so it must
-        # be picked up here or that last rotation's data never gets analyzed.
+        # be picked up here or that last rotation's data never gets shipped.
         for closed_path in resp.get("files_closed") or []:
-            self._spawn(self._scan_and_ship(closed_path, session_id))
+            self._spawn(self._ship_pcap(closed_path, session_id))
         return resp
 
     async def _stats_reporter(self, session_id: str) -> None:
         """Poll local capd's one-shot session_status and relay a summarized
         snapshot upward — never the raw per-second stream (that would be a
         needless amount of chatter over the WAN for a progress indicator).
-        Also the trigger for local analysis: each newly-closed rotation file
-        gets scanned and its report shipped upward (Phase 4)."""
+        Also the trigger for shipping: each newly-closed rotation file gets
+        forwarded upward as raw pcap bytes."""
         loop = asyncio.get_running_loop()
         try:
             while True:
@@ -446,7 +443,7 @@ class AgentClient:
                 if writer is None:
                     return
                 for closed_path in status.get("files_closed") or []:
-                    self._spawn(self._scan_and_ship(closed_path, session_id))
+                    self._spawn(self._ship_pcap(closed_path, session_id))
                 still_running = status.get("running", True)
                 await _send_frame_locked(self._write_lock, writer, {
                     "type": "event", "method": "session_stats",
@@ -460,10 +457,10 @@ class AgentClient:
                         # gateway it's actually done — record_session_stats
                         # only touched bytes/rotation counts, never status,
                         # so the CaptureSession row stayed "running" forever
-                        # even after the report had already shipped and
-                        # been ingested. Same class of bug as the local
-                        # capture path's StatsHub finalizer fixes, on the
-                        # remote path instead. Explicit /stop requests are
+                        # even after the pcap had already shipped and been
+                        # ingested. Same class of bug as the local capture
+                        # path's StatsHub finalizer fixes, on the remote
+                        # path instead. Explicit /stop requests are
                         # unaffected — they already finalize synchronously
                         # from the app's own stop_session handler.
                         "running": still_running,
@@ -474,103 +471,103 @@ class AgentClient:
         except asyncio.CancelledError:
             return
 
-    # ── local analysis + report shipping (Phase 4) ───────────────
+    # ── raw pcap shipping ─────────────────────────────────────────
+    # No local analysis of any kind — the fleet-gateway runs the actual
+    # engine and produces the report. This keeps the agent a small,
+    # dependency-light transport tool.
 
-    async def _scan_and_ship(self, pcap_path: str, session_id: str) -> None:
-        loop = asyncio.get_running_loop()
-        report_path = await loop.run_in_executor(None, functools.partial(
-            consumer.run_scan,
-            pcap_path=pcap_path, session_id=session_id, staging_dir=self.staging_dir,
-            scan_profile=self.scan_profile, dpi_engine=self.dpi_engine, dpi_binary=self.dpi_binary,
-        ))
-        if report_path is None:
-            return  # already logged by consumer.run_scan
-
-        try:
-            with open(report_path, "r", encoding="utf-8") as f:
-                report_text = f.read()
-        except OSError:
-            log.exception("failed to read report %s", report_path)
-            return
-
-        try:
-            await self._ship_report(session_id, os.path.basename(report_path), report_text,
-                                     pcap_filename=os.path.basename(pcap_path))
-        finally:
+    async def _ship_pcap(self, pcap_path: str, session_id: str) -> None:
+        filename = os.path.basename(pcap_path)
+        shipped = await self._send_pcap(session_id, filename, pcap_path)
+        if shipped:
             try:
-                os.remove(report_path)
+                os.remove(pcap_path)
             except OSError:
                 pass
 
-    async def _ship_report(self, session_id: str, filename: str, report_text: str,
-                            pcap_filename: str) -> None:
-        """Send a finished report upward. Never loses it: a link that's
-        down (or drops mid-send) gets the report spooled to disk instead
-        of dropped, and _flush_spool retries it on the next reconnect."""
-        # Capture writer AND lock together, once, and use only these local
-        # references for the whole send — never self._write_lock again
-        # inside the loop. A reconnect mid-send (large report, many
-        # chunks) replaces both self._current_writer and self._write_lock
-        # with a fresh pair for the new connection; re-reading
-        # self._write_lock on later iterations while still holding the
-        # OLD writer would send to an already-closed transport while
-        # locking out the NEW connection's legitimate traffic (heartbeat,
-        # pushed commands) behind a lock nothing else is using. Pairing
-        # them once means a mid-send reconnect instead fails cleanly on
-        # the stale writer (caught below, spooled) without ever touching
-        # the new connection's lock.
+    async def _send_pcap(self, session_id: str, filename: str, pcap_path: str) -> bool:
+        """Send a rotated pcap upward in fixed-size raw chunks, base64-
+        encoded per chunk (mandatory: raw pcap bytes aren't valid UTF-8,
+        unlike the old JSON-text report chunks this replaced). Never loses
+        it: a link that's down (or drops mid-send) gets a reference to the
+        file spooled instead of dropped, and _flush_spool retries the send
+        from chunk 0 on the next reconnect (the gateway's per-index dedupe
+        makes restarting from scratch safe/idempotent — no need for true
+        resume-from-partial-offset). Returns True once the gateway has
+        fully received the file (safe to delete the local copy), False if
+        it was spooled instead (caller must not delete)."""
         writer = self._current_writer
         lock = self._write_lock
         if writer is None or lock is None:
-            log.warning("session=%s no active connection — spooling report %s", session_id, filename)
-            self._spool_report(session_id, filename, report_text, pcap_filename)
-            return
+            log.warning("session=%s no active connection — spooling pcap %s", session_id, filename)
+            self._spool_pcap_ref(session_id, filename, pcap_path)
+            return False
 
         try:
-            total_chunks = max(1, -(-len(report_text) // _REPORT_CHUNK_CHARS))  # ceil div
-            for i in range(total_chunks):
-                chunk = report_text[i * _REPORT_CHUNK_CHARS:(i + 1) * _REPORT_CHUNK_CHARS]
-                await _send_frame_locked(lock, writer, {
-                    "type": "event", "method": "report_chunk",
-                    "params": {
-                        "session_id": session_id, "filename": filename,
-                        "chunk_index": i, "total_chunks": total_chunks, "data": chunk,
-                    },
-                })
+            total_size = os.path.getsize(pcap_path)
+        except OSError:
+            log.exception("failed to stat %s — dropping (likely reclaimed by ring rotation)", pcap_path)
+            return True  # nothing left to retry — don't spool a reference to a gone file
+
+        total_chunks = max(1, -(-total_size // _PCAP_CHUNK_RAW_BYTES))  # ceil div
+        try:
+            with open(pcap_path, "rb") as f:
+                for i in range(total_chunks):
+                    chunk = f.read(_PCAP_CHUNK_RAW_BYTES)
+                    await _send_frame_locked(lock, writer, {
+                        "type": "event", "method": "pcap_chunk",
+                        "params": {
+                            "session_id": session_id, "filename": filename,
+                            "chunk_index": i, "total_chunks": total_chunks,
+                            "data": base64.b64encode(chunk).decode("ascii"),
+                        },
+                    })
             await _send_frame_locked(lock, writer, {
-                "type": "event", "method": "report_complete",
+                "type": "event", "method": "pcap_complete",
                 "params": {
                     "session_id": session_id, "filename": filename,
-                    "total_chunks": total_chunks, "pcap_filename": pcap_filename,
+                    "total_chunks": total_chunks, "total_bytes": total_size,
                 },
             })
         except (ConnectionError, OSError, asyncio.CancelledError) as exc:
-            log.warning("session=%s link dropped mid-send (%s) — spooling report %s",
+            log.warning("session=%s link dropped mid-send (%s) — spooling pcap %s",
                         session_id, exc, filename)
-            self._spool_report(session_id, filename, report_text, pcap_filename)
-            return
+            self._spool_pcap_ref(session_id, filename, pcap_path)
+            return False
 
-        log.info("session=%s shipped report %s (%d bytes, %d chunks)",
-                  session_id, filename, len(report_text), total_chunks)
+        log.info("session=%s shipped pcap %s (%d bytes, %d chunks)",
+                  session_id, filename, total_size, total_chunks)
+        return True
 
-    # ── durable local spool (Phase 5) ────────────────────────────
+    # ── durable local spool (reference, not copy) ────────────────
+    # A multi-GB rotated pcap can't be copied into a spool file on every
+    # reconnect the way the old (small) JSON report text was — that would
+    # double agent-local disk usage. Instead track a reference (original
+    # path + small JSON sidecar) to the still-un-acked file. The agent has
+    # only read access to capd's capture directories (group r-x, never w —
+    # see docs/fleet-agent-poc.md §6), so it can't rename the file out of
+    # the ring-buffer's path to protect it from reclaim the way a spooled
+    # copy naturally would be protected; a sustained outage long enough for
+    # capd's own ring to wrap around and overwrite the file before a retry
+    # gets to it is a real, documented residual risk, not a silent bug —
+    # _flush_spool below detects exactly this case and drops the stale
+    # reference cleanly rather than erroring forever.
 
-    def _spool_report(self, session_id: str, filename: str, report_text: str, pcap_filename: str) -> None:
+    def _spool_pcap_ref(self, session_id: str, filename: str, pcap_path: str) -> None:
         try:
             os.makedirs(self.spool_dir, exist_ok=True)
             spool_path = os.path.join(self.spool_dir, filename + ".spool.json")
             with open(spool_path, "w", encoding="utf-8") as f:
                 json.dump({
-                    "session_id": session_id, "filename": filename,
-                    "pcap_filename": pcap_filename, "report_text": report_text,
+                    "session_id": session_id, "filename": filename, "pcap_path": pcap_path,
                 }, f)
         except OSError:
-            log.exception("failed to spool report %s — data lost", filename)
+            log.exception("failed to spool reference to pcap %s — data lost", filename)
 
     async def _flush_spool(self) -> None:
         """Called once right after (re)authenticating. Best-effort: any
-        report still un-shippable (immediate re-disconnect) just gets
-        re-spooled by _ship_report and waits for the next reconnect."""
+        pcap still un-shippable (immediate re-disconnect) just gets
+        re-spooled by _send_pcap and waits for the next reconnect."""
         if not os.path.isdir(self.spool_dir):
             return
         try:
@@ -580,7 +577,7 @@ class AgentClient:
         spooled = [e for e in entries if e.endswith(".spool.json")]
         if not spooled:
             return
-        log.info("flushing %d spooled report(s)", len(spooled))
+        log.info("flushing %d spooled pcap reference(s)", len(spooled))
         for entry in spooled:
             spool_path = os.path.join(self.spool_dir, entry)
             try:
@@ -593,9 +590,12 @@ class AgentClient:
                 os.remove(spool_path)
             except OSError:
                 pass
-            await self._ship_report(
-                data["session_id"], data["filename"], data["report_text"], data["pcap_filename"],
-            )
+            pcap_path = data["pcap_path"]
+            if not os.path.isfile(pcap_path):
+                log.warning("spooled pcap %s no longer exists (ring rotation reclaimed it) — dropping",
+                            pcap_path)
+                continue
+            await self._ship_pcap(pcap_path, data["session_id"])
 
 
 async def _send_frame_locked(lock: asyncio.Lock, writer: asyncio.StreamWriter, obj: dict) -> None:

@@ -17,12 +17,18 @@ capped at 1 MiB), evolved into a bidirectional envelope since, unlike capd
     {"type": "res", "id": <int>, "ok": bool, "result": {...} | "error": <str>}
     {"type": "event", "method": <str>, "params": {...}}   # no response expected
 
-Agent-initiated: heartbeat (req), session_stats (event, Phase 3).
-Gateway-initiated: start / stop / list_interfaces (req, Phase 3) — pushed
-down a specific agent's connection on demand by the local admin socket
-below, which speaks the *same* framing but is reached only via a unix
-socket shared with the Flask app container (capd-style, not internet-
-facing) rather than TLS.
+Agent-initiated: heartbeat (req), session_stats (event), pcap_chunk /
+pcap_complete (event — a rotated capture's raw bytes, chunked and
+base64-encoded; see below). Gateway-initiated: start / stop /
+list_interfaces (req) — pushed down a specific agent's connection on
+demand by the local admin socket below, which speaks the *same* framing
+but is reached only via a unix socket shared with the Flask app container
+(capd-style, not internet-facing) rather than TLS.
+
+No analysis happens on the agent. Each rotated pcap is forwarded upward
+as raw bytes (pcap_chunk/pcap_complete) and this gateway runs the actual
+analysis engine (see scan.py) and produces the report — the agent stays a
+small, dependency-light transport tool.
 
 capd's server uses raw ``loop.sock_*`` calls on a plain socket; the TLS
 listener here uses asyncio's Streams API instead (``asyncio.start_server``
@@ -67,6 +73,8 @@ a check into a hard failure.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import functools
 import hashlib
 import json
@@ -79,12 +87,14 @@ import sys
 import time
 import uuid
 
-from . import db
+from marlinspike import config
+
+from . import db, scan
 
 log = logging.getLogger("fleet.gateway")
 
 _LEN_PREFIX = 4
-_MAX_MESSAGE_BYTES = 1 << 20  # 1 MiB — matches capd's cap; reports ship in Phase 4.
+_MAX_MESSAGE_BYTES = 1 << 20  # 1 MiB — matches capd's cap; pcap bytes ship as base64 chunks under this.
 
 # An agent that hasn't sent anything (heartbeat included) in this long is
 # presumed dead — the connection is dropped and the agent marked offline.
@@ -99,23 +109,20 @@ DEFAULT_COMMAND_TIMEOUT_S = 15.0
 # ── Phase 6.4: backpressure / rate-limiting against a misbehaving or
 # compromised agent ──────────────────────────────────────────────────
 #
-# A legitimate agent ships report_chunk events sized _REPORT_CHUNK_CHARS
-# (client.py) = 512 KiB of *text* each; at ~1.3x JSON-string-escaping
-# overhead that's comfortably under _MAX_MESSAGE_BYTES per chunk. Capping
-# total_chunks at 4096 still allows a multi-hundred-MB report (a
-# pathologically large one for what's normally a small JSON summary) while
-# making `"".join(chunks[i] for i in range(total_chunks))` in
-# report_complete bounded work instead of a value an attacker fully
-# controls — without this cap, a connection claiming total_chunks=10**9
-# would iterate a billion times synchronously inside the event loop,
-# freezing the *entire* gateway (every other agent's connection too, not
-# just this one) for as long as that loop runs. This is a real,
-# concrete DoS, not a defensive-programming nicety.
-_MAX_REPORT_CHUNKS = 4096
-# Total buffered bytes across all of one connection's in-flight (not yet
-# report_complete'd) reassembly buffers. Bounds memory from an agent that
-# streams report_chunk events forever without ever sending report_complete.
-_MAX_REPORT_BYTES_PER_CONN = 200 * 1024 * 1024  # 200 MiB
+# A legitimate agent ships pcap_chunk events with _PCAP_CHUNK_RAW_BYTES
+# (client.py) = 512 KiB of *raw* bytes each, base64-encoded (~683 KiB on
+# the wire) — comfortably under _MAX_MESSAGE_BYTES per chunk. The chunk
+# count cap below bounds a connection's claimed total_chunks against
+# config.PCAP_MAX_SIZE (the same ceiling that already governs manual
+# uploads) rather than an unbounded value an attacker fully controls —
+# without it, a connection claiming total_chunks=10**9 would let the
+# out-of-range check below iterate unboundedly. Positional writes (seek to
+# chunk_index * _PCAP_CHUNK_RAW_BYTES) mean per-connection memory cost is
+# O(a few in-flight chunks), not O(file size) — no separate "max bytes
+# buffered" cap is needed the way the old text-based report reassembly
+# needed one.
+_PCAP_CHUNK_RAW_BYTES = 512 * 1024
+_MAX_PCAP_CHUNKS = -(-config.PCAP_MAX_SIZE // _PCAP_CHUNK_RAW_BYTES) + 1
 
 # Minimum real interval between two DB-writing heartbeats from the same
 # agent_uuid. A legitimate agent heartbeats every DEFAULT_HEARTBEAT_INTERVAL_S
@@ -179,6 +186,30 @@ def _res(req_id, *, ok: bool, result: dict | None = None, error: str | None = No
     return msg
 
 
+class _PcapTransfer:
+    """State for one in-flight pcap upload on a connection — an open file
+    handle positioned by chunk_index * _PCAP_CHUNK_RAW_BYTES (not appended
+    sequentially), so chunk arrival order never matters, plus the set of
+    chunk indices actually received so far (for pcap_complete's
+    completeness check)."""
+
+    __slots__ = ("partial_path", "final_path", "fh", "total_chunks", "received", "session_id")
+
+    def __init__(self, *, partial_path: str, final_path: str, fh, session_id: str):
+        self.partial_path = partial_path
+        self.final_path = final_path
+        self.fh = fh
+        self.total_chunks: int | None = None
+        self.received: set[int] = set()
+        self.session_id = session_id
+
+    def close(self) -> None:
+        try:
+            self.fh.close()
+        except OSError:
+            pass
+
+
 class _AgentConnection:
     """Per-connection state for one authenticated agent — lets push_command
     (driven by the admin socket) address a specific live connection and
@@ -190,18 +221,18 @@ class _AgentConnection:
         self.pending: dict[int, asyncio.Future] = {}
         self.write_lock = asyncio.Lock()
         self._next_id = 1
-        # Reassembly buffers for chunked report_chunk/report_complete events
-        # (Phase 4) — keyed by filename since one agent could in principle
-        # ship more than one report in flight. Each session_uuid produces at
-        # most one in-flight report at a time in practice, but keying by
-        # filename (unique per run) rather than session_uuid costs nothing
-        # and avoids a rare cross-talk edge case if that ever changes.
-        self.report_chunks: dict[str, dict[int, str]] = {}
-        # Running total of buffered chunk bytes across all filenames on this
-        # connection (Phase 6.4) — cheap to maintain incrementally rather
-        # than summing report_chunks on every event, and it's what
-        # _MAX_REPORT_BYTES_PER_CONN actually bounds.
-        self.report_bytes = 0
+        # In-flight pcap uploads, keyed by filename — one agent could in
+        # principle ship more than one file in flight. Guarded by
+        # pcap_create_lock (below) around both transfer *creation* and
+        # pcap_complete's lookup — see _handle_event for why both sides
+        # need it (two independent real races found via live testing).
+        self.pcap_transfers: dict[str, _PcapTransfer] = {}
+        self.pcap_create_lock = asyncio.Lock()
+        # An agent still on the retired report_chunk/report_complete
+        # protocol gets exactly one deprecation warning per connection
+        # (not once per event — an old agent sends many report_chunk
+        # events per report).
+        self.warned_deprecated = False
         # Last time this connection's heartbeat actually triggered a DB
         # write (Phase 6.4) — see _MIN_HEARTBEAT_DB_WRITE_INTERVAL_S. None
         # until the first heartbeat.
@@ -370,6 +401,13 @@ class GatewayServer:
                     for fut in conn.pending.values():
                         if not fut.done():
                             fut.cancel()
+                    # Close (not delete) any in-flight pcap upload's file
+                    # handle — the .partial file itself is left in place
+                    # for a retry (agent re-sends from chunk 0 after
+                    # reconnecting) to reopen and overwrite.
+                    for xfer in conn.pcap_transfers.values():
+                        xfer.close()
+                    conn.pcap_transfers.clear()
                 # Only touch the DB/Redis registry if this was still the
                 # *current* connection for this agent (same identity
                 # check already guarding the dict delete above) — if the
@@ -522,6 +560,20 @@ class GatewayServer:
 
             await _send_frame(conn.writer, _res(req_id, ok=False, error=f"unknown method: {method}"))
 
+    @staticmethod
+    def _abort_pcap_transfer(conn: _AgentConnection, filename: str) -> None:
+        xfer = conn.pcap_transfers.pop(filename, None)
+        if xfer is not None:
+            xfer.close()
+            GatewayServer._discard_partial(xfer.partial_path)
+
+    @staticmethod
+    def _discard_partial(partial_path: str) -> None:
+        try:
+            os.remove(partial_path)
+        except OSError:
+            pass
+
     async def _handle_event(self, agent_uuid: str, conn: _AgentConnection, msg: dict, loop) -> None:
         method = msg.get("method")
         params = msg.get("params") or {}
@@ -540,64 +592,159 @@ class GatewayServer:
                 log.exception("failed to record session_stats event from agent %s", agent_uuid)
             return
 
-        if method == "report_chunk":
+        if method == "pcap_chunk":
             try:
                 filename = str(params.get("filename", ""))
+                session_id = str(params.get("session_id", ""))
                 chunk_index = int(params.get("chunk_index", 0))
+                total_chunks = int(params.get("total_chunks", 0))
                 data = str(params.get("data", ""))
             except (TypeError, ValueError):
-                log.warning("agent %s sent malformed report_chunk params — dropping", agent_uuid)
+                log.warning("agent %s sent malformed pcap_chunk params — dropping", agent_uuid)
                 return
-            if not (0 <= chunk_index < _MAX_REPORT_CHUNKS):
-                log.warning("agent %s sent out-of-range chunk_index=%d for %s — dropping report",
-                            agent_uuid, chunk_index, filename)
-                conn.report_bytes -= sum(len(v) for v in conn.report_chunks.pop(filename, {}).values())
+            if not (0 <= chunk_index < _MAX_PCAP_CHUNKS) or not (0 < total_chunks <= _MAX_PCAP_CHUNKS):
+                log.warning("agent %s sent out-of-range chunk_index/total_chunks for %s — dropping transfer",
+                            agent_uuid, filename)
+                self._abort_pcap_transfer(conn, filename)
                 return
-            # Subtract any previous chunk already at this index before
-            # adding the new length — without this, resending the same
-            # chunk_index repeatedly inflates report_bytes without bound
-            # (real buffered memory stays flat, since the dict entry is
-            # simply overwritten) until it permanently exceeds
-            # _MAX_REPORT_BYTES_PER_CONN and every future report_chunk on
-            # this connection gets rejected, even for unrelated sessions,
-            # until the agent fully reconnects. A confirmed, real bug.
-            bucket = conn.report_chunks.setdefault(filename, {})
-            conn.report_bytes -= len(bucket.get(chunk_index, ""))
-            if conn.report_bytes + len(data) > _MAX_REPORT_BYTES_PER_CONN:
-                log.warning("agent %s exceeded %d bytes of buffered report data — dropping %s",
-                            agent_uuid, _MAX_REPORT_BYTES_PER_CONN, filename)
-                conn.report_bytes -= sum(len(v) for v in conn.report_chunks.pop(filename, {}).values())
+
+            xfer = conn.pcap_transfers.get(filename)
+            if xfer is None:
+                # First chunk seen for this filename on this connection —
+                # resolve where it belongs (session ownership + a safe
+                # final path) before opening anything on disk. Guarded by
+                # pcap_create_lock: several pcap_chunk events for a brand-
+                # new filename routinely arrive back-to-back, and without
+                # the lock each independently observes "no transfer yet"
+                # across the await below and each opens its own file
+                # handle, clobbering each other in pcap_transfers — a real
+                # bug, not theoretical (confirmed: 8 chunks shipped, only
+                # 3 ever recorded). Re-check after acquiring the lock —
+                # another task may have already finished creating it while
+                # this one was waiting.
+                async with conn.pcap_create_lock:
+                    xfer = conn.pcap_transfers.get(filename)
+                    if xfer is None:
+                        try:
+                            paths = await loop.run_in_executor(None, functools.partial(
+                                db.begin_pcap_upload,
+                                session_uuid=session_id, filename=filename, agent_uuid=agent_uuid,
+                            ))
+                        except Exception:
+                            log.exception("failed to resolve upload path for %s from agent %s",
+                                          filename, agent_uuid)
+                            return
+                        if paths is None:
+                            log.warning("agent %s pcap_chunk for %s rejected (unknown/unowned "
+                                        "session or unsafe filename)", agent_uuid, filename)
+                            return
+                        partial_path, final_path = paths
+                        try:
+                            fh = open(partial_path, "r+b" if os.path.exists(partial_path) else "w+b")
+                        except OSError:
+                            log.exception("failed to open %s for pcap upload", partial_path)
+                            return
+                        xfer = _PcapTransfer(partial_path=partial_path, final_path=final_path,
+                                              fh=fh, session_id=session_id)
+                        conn.pcap_transfers[filename] = xfer
+
+            if xfer.session_id != session_id:
+                log.warning("agent %s sent mismatched session_id for in-flight transfer %s — dropping chunk",
+                            agent_uuid, filename)
                 return
-            bucket[chunk_index] = data
-            conn.report_bytes += len(data)
+            xfer.total_chunks = total_chunks
+
+            try:
+                chunk_bytes = base64.b64decode(data, validate=True)
+            except (binascii.Error, ValueError):
+                log.warning("agent %s sent invalid base64 for %s chunk %d — dropping transfer",
+                            agent_uuid, filename, chunk_index)
+                self._abort_pcap_transfer(conn, filename)
+                return
+
+            try:
+                # Positional write at this chunk's own fixed byte offset —
+                # correct regardless of arrival order, no in-memory
+                # reordering buffer needed. Every chunk is the same fixed
+                # size except (naturally) the last one.
+                xfer.fh.seek(chunk_index * _PCAP_CHUNK_RAW_BYTES)
+                xfer.fh.write(chunk_bytes)
+            except OSError:
+                log.exception("agent %s failed writing chunk %d for %s", agent_uuid, chunk_index, filename)
+                return
+            xfer.received.add(chunk_index)
             return
 
-        if method == "report_complete":
+        if method == "pcap_complete":
             try:
                 filename = str(params.get("filename", ""))
                 total_chunks = int(params.get("total_chunks") or 0)
             except (TypeError, ValueError):
-                log.warning("agent %s sent malformed report_complete params — dropping", agent_uuid)
+                log.warning("agent %s sent malformed pcap_complete params — dropping", agent_uuid)
                 return
-            chunks = conn.report_chunks.pop(filename, {})
-            conn.report_bytes -= sum(len(v) for v in chunks.values())
-            if not (0 < total_chunks <= _MAX_REPORT_CHUNKS) or len(chunks) != total_chunks or \
-                    any(i not in chunks for i in range(total_chunks)):
-                log.warning("agent %s report %s incomplete or invalid (got %d chunks, claimed %d) — dropping",
-                            agent_uuid, filename, len(chunks), total_chunks)
+            # Must wait on the same lock pcap_chunk's first-chunk path
+            # takes: pcap_complete's task is only ever created (by
+            # _reader_loop) after the corresponding chunk frame has already
+            # been read off the wire, but that says nothing about which
+            # task's *handler body* runs first once both are scheduled.
+            # Confirmed for real on a single-chunk transfer: the chunk
+            # handler was still awaiting db.begin_pcap_upload (across a
+            # real await, in run_in_executor) when pcap_complete's handler
+            # ran its pop() and found nothing yet — logged as "pcap_complete
+            # for unknown transfer" despite the agent having shipped the
+            # chunk moments earlier. Blocking on the same lock here forces
+            # this task to wait for any in-flight creation to finish first.
+            async with conn.pcap_create_lock:
+                xfer = conn.pcap_transfers.pop(filename, None)
+            if xfer is None:
+                log.warning("agent %s sent pcap_complete for unknown transfer %s — dropping",
+                            agent_uuid, filename)
                 return
-            report_text = "".join(chunks[i] for i in range(total_chunks))
+            if not (0 < total_chunks <= _MAX_PCAP_CHUNKS) or len(xfer.received) != total_chunks or \
+                    any(i not in xfer.received for i in range(total_chunks)):
+                log.warning("agent %s pcap %s incomplete or invalid (got %d/%d chunks) — dropping",
+                            agent_uuid, filename, len(xfer.received), total_chunks)
+                xfer.close()
+                self._discard_partial(xfer.partial_path)
+                return
+            xfer.close()
             try:
-                await loop.run_in_executor(None, functools.partial(
-                    db.ingest_report,
-                    session_uuid=str(params.get("session_id", "")),
-                    filename=filename,
-                    report_text=report_text,
-                    pcap_filename=params.get("pcap_filename"),
-                    agent_uuid=agent_uuid,
+                resolved = await loop.run_in_executor(None, functools.partial(
+                    db.finish_pcap_upload,
+                    partial_path=xfer.partial_path, final_path=xfer.final_path,
+                    session_uuid=xfer.session_id, agent_uuid=agent_uuid,
                 ))
             except Exception:
-                log.exception("failed to ingest report %s from agent %s", filename, agent_uuid)
+                log.exception("failed to finalize pcap %s from agent %s", filename, agent_uuid)
+                return
+            if resolved is None:
+                return  # already logged by finish_pcap_upload
+            user_id, project_id, resolved_agent_id = resolved
+            # Awaited directly (not via run_in_executor) — launch_scan uses
+            # asyncio.create_subprocess_exec, which needs a running event
+            # loop, not a plain executor thread.
+            try:
+                await scan.launch_scan(
+                    pcap_path=xfer.final_path, user_id=user_id, project_id=project_id,
+                    session_uuid=xfer.session_id, agent_id=resolved_agent_id, loop=loop,
+                )
+            except Exception:
+                log.exception("scan launch failed for pcap %s from agent %s", filename, agent_uuid)
+            return
+
+        # Retired protocol (pre server-side-analysis): an agent still
+        # shipping report_chunk/report_complete predates this pivot and
+        # can never succeed against this gateway (db.ingest_report no
+        # longer exists) — warn once per connection rather than silently
+        # dropping every event with no diagnostic at all.
+        if method in ("report_chunk", "report_complete"):
+            if not conn.warned_deprecated:
+                conn.warned_deprecated = True
+                log.warning(
+                    "agent %s is using the retired report_chunk/report_complete protocol "
+                    "(pre-server-side-analysis) — upgrade this agent; the gateway no longer "
+                    "accepts agent-produced reports", agent_uuid,
+                )
             return
 
     # ── command push (called from the admin-socket handler) ──────

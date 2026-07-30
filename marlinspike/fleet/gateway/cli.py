@@ -12,12 +12,22 @@ import logging
 import os
 import sys
 
+from marlinspike import recovery, run_store
+
+from .db import get_app
 from .server import DEFAULT_HEARTBEAT_TIMEOUT_S, GatewayServer, build_ssl_context
 
 DEFAULT_ADMIN_SOCKET = "/var/run/marlinspike-fleet-gateway/admin.sock"
 
 
 async def _run(args: argparse.Namespace) -> None:
+    # Reconcile any agent-launched scan left "running" from a previous
+    # gateway process (e.g. this container restarted mid-scan) — scoped to
+    # agent_id-set rows only, using this container's own PID namespace,
+    # separately from the main app's own reaper (which explicitly excludes
+    # these same rows — see run_store.get_active_for_recovery).
+    recovery.reap_orphan_runs(get_app(), get_active=run_store.get_active_agent_scans_for_recovery)
+
     ssl_context = build_ssl_context(args.tls_cert, args.tls_key, ca_cert_path=args.ca_cert)
     server = GatewayServer(
         heartbeat_timeout_s=args.heartbeat_timeout_s,

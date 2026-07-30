@@ -453,6 +453,223 @@ def validate_bpf():
 
 # ── session lifecycle ────────────────────────────────────────
 
+def _start_capture_session(*, user_id, project, agent, interface, bpf_filter,
+                            ring_filesize_kb, ring_files, max_duration_s,
+                            actor_username=None):
+    """Core policy-gated capture-start logic, independent of Flask's
+    request/session — shared by the HTTP route below (a thin wrapper that
+    parses the request body and resolves ACL) and marlinspike.scheduler's
+    automated trigger, so every policy gate (interface allowlist, duration
+    cap, retained-bytes cap) applies identically to both a manual click and
+    an automated slot firing. actor_username lets a scheduler-triggered
+    call attribute its audit trail to something other than a Flask
+    session's user (there is none) — e.g. "scheduler", distinct from a
+    real operator's username.
+
+    Returns (result_dict, http_status) — the caller wraps result_dict in
+    jsonify() itself; this function has no Flask response-object dependency.
+    """
+    if not interface:
+        return {"ok": False, "error": "interface required"}, 400
+    if ring_filesize_kb < 1 or ring_files < 1 or max_duration_s < 0:
+        return {"ok": False, "error": "ring_filesize_kb and ring_files must be >= 1; max_duration_s must be >= 0"}, 400
+    if project is None:
+        return {"ok": False, "error": "valid project_id required"}, 400
+
+    # ── Gate 0: site policy (remote-agent captures only) ──────
+    # Merged in before Gate 1 so every gate below sees one effective
+    # policy dict — a site can only add restrictions on top of the
+    # project's, never loosen them (most-restrictive-wins).
+    policy = _parse_policy(project.capture_policy)
+    if agent is not None:
+        site = Site.query.get(agent.site_id)
+        if site is not None and site.capture_policy:
+            policy = _merge_site_policy(policy, _parse_policy(site.capture_policy))
+
+    # ── Gate 1: per-project (+ site, if merged above) enabled flag ─
+    if policy.get("enabled") is False:
+        return {"ok": False, "error": "Live capture disabled for this project or site"}, 403
+
+    # ── Gate 2: interface allowlist (system ∩ project ∩ site) ─
+    effective_allowlist = _resolve_interface_allowlist(policy)
+    if effective_allowlist is not None and interface not in effective_allowlist:
+        if effective_allowlist:
+            allowed_str = ", ".join(effective_allowlist)
+            msg = f"interface {interface!r} not permitted by policy; allowed: {allowed_str}"
+        else:
+            msg = f"interface {interface!r} not permitted by policy (empty intersection of system and project allowlists)"
+        return {"ok": False, "error": msg}, 403
+
+    # ── Gate 3: duration cap ──────────────────────────────────
+    policy_max_dur = policy.get("max_session_duration_s")
+    applied_duration_s = max_duration_s
+    if policy_max_dur is not None and isinstance(policy_max_dur, int) and policy_max_dur > 0:
+        if max_duration_s <= 0 or max_duration_s > policy_max_dur:
+            applied_duration_s = policy_max_dur
+            audit("capture.policy_capped",
+                  target_type="project", target_id=str(project.id),
+                  actor_username=actor_username,
+                  detail=json.dumps({
+                      "field": "max_session_duration_s",
+                      "requested": max_duration_s,
+                      "applied": applied_duration_s,
+                      "project_id": project.id,
+                      "interface": interface,
+                  }))
+
+    # ── Gate 4: retained-bytes cap (ring buffer on disk) ──────
+    policy_max_bytes = policy.get("max_total_bytes")
+    applied_ring_filesize_kb = ring_filesize_kb
+    applied_ring_files = ring_files
+    if policy_max_bytes is not None and isinstance(policy_max_bytes, int):
+        capped = _apply_max_total_bytes_cap(
+            ring_filesize_kb,
+            ring_files,
+            policy_max_bytes,
+        )
+        if capped[0] is None or capped[1] is None or capped[3] is None:
+            return {
+                "ok": False,
+                "error": "project max_total_bytes policy is below dumpcap's minimum 1024-byte ring size",
+            }, 403
+        (
+            applied_ring_filesize_kb,
+            applied_ring_files,
+            requested_total_bytes,
+            applied_total_bytes,
+        ) = capped
+        if (
+            applied_ring_filesize_kb != ring_filesize_kb
+            or applied_ring_files != ring_files
+        ):
+            audit("capture.policy_capped",
+                  target_type="project", target_id=str(project.id),
+                  actor_username=actor_username,
+                  detail=json.dumps({
+                      "field": "max_total_bytes",
+                      "requested": requested_total_bytes,
+                      "applied": applied_total_bytes,
+                      "project_id": project.id,
+                      "interface": interface,
+                      "requested_ring_filesize_kb": ring_filesize_kb,
+                      "requested_ring_files": ring_files,
+                      "applied_ring_filesize_kb": applied_ring_filesize_kb,
+                      "applied_ring_files": applied_ring_files,
+                  }))
+
+    # ── Gate 5: operator_warning (non-blocking, pass through) ─
+    operator_warning = policy.get("operator_warning") or None
+    if isinstance(operator_warning, str):
+        operator_warning = operator_warning.strip() or None
+
+    # ── Per-host concurrency cap + interface lock ─────────────
+    # Both are specifically about *this* box's own local capd/dumpcap
+    # processes — meaningless for a remote agent's interface, which lives
+    # in a completely separate namespace on a completely separate host.
+    # A remote agent's own capd instance already enforces "one capture per
+    # interface at a time" as its own local invariant (capd/server.py's
+    # _start_session), so there's no cross-host conflict to guard against
+    # here for the agent_id-is-set path.
+    session_uuid = str(uuid.uuid4())
+    if agent is None:
+        if manager.active_session_count() >= config.LIVE_CAPTURE_MAX_CONCURRENT:
+            return {
+                "ok": False,
+                "error": f"max {config.LIVE_CAPTURE_MAX_CONCURRENT} concurrent live captures reached",
+            }, 409
+        holder = manager.acquire_interface(interface, session_uuid)
+        if holder is not None:
+            return {"ok": False, "error": f"interface {interface} in use by session {holder[:8]}"}, 409
+
+    cs = CaptureSession(
+        session_uuid=session_uuid,
+        user_id=user_id,
+        project_id=project.id,
+        agent_id=agent.id if agent is not None else None,
+        interface=interface,
+        bpf_filter=bpf_filter,
+        ring_filesize_kb=applied_ring_filesize_kb,
+        ring_files=applied_ring_files,
+        max_duration_s=applied_duration_s,
+        status="pending",
+    )
+    db.session.add(cs)
+    db.session.commit()
+
+    # Ask capd (local or, via the fleet gateway, remote) to start. We do
+    # this after the DB row exists so the row is the durable record even
+    # if the start RPC times out.
+    client = _client_for(agent)
+    try:
+        resp = client.start(
+            session_id=session_uuid,
+            interface=interface,
+            bpf_filter=bpf_filter,
+            ring_filesize_kb=applied_ring_filesize_kb,
+            ring_files=applied_ring_files,
+            max_duration_s=applied_duration_s,
+        )
+    except (CapdUnavailable, CapdError) as exc:
+        cs.status = "failed"
+        cs.error_tail = str(exc)
+        cs.stopped_at = datetime.now(timezone.utc)
+        db.session.commit()
+        if agent is None:
+            manager.release_interface(interface, session_uuid)
+        status_code = 503 if isinstance(exc, CapdUnavailable) else 502
+        return {"ok": False, "error": str(exc)}, status_code
+
+    cs.status = "running"
+    cs.started_at = datetime.now(timezone.utc)
+    cs.capture_dir = resp.get("output_dir")
+    db.session.commit()
+
+    if agent is None:
+        # Wire up the StatsHub: it streams capd → SSE subscribers AND
+        # triggers the rotation consumer for each closed pcap.
+        hub = StatsHub(session_uuid=session_uuid, client=client)
+        hub.add_file_listener(consumer.make_listener(
+            user_id=cs.user_id, project_id=cs.project_id,
+            session_uuid=session_uuid, scan_profile="fast",
+        ))
+        # Finalizes the DB row (and releases the interface lock/hub) when
+        # this session ends on its own — e.g. max_duration_s elapses, or
+        # the ring fills and capd stops it — rather than only when someone
+        # calls the explicit /stop endpoint. Without this, a self-expiring
+        # session's CaptureSession row was stuck showing status="running"
+        # forever, even though capd had already stopped it (a real,
+        # confirmed bug: found by starting a bounded live capture and
+        # watching its DB status never leave "running" after it visibly
+        # finished). current_app must be captured now — the callback runs
+        # from the hub's background thread, outside any request context.
+        from flask import current_app
+        hub.add_finished_listener(_make_session_finalizer(
+            current_app._get_current_object(), cs.id, cs.interface, session_uuid,
+        ))
+        manager.register_hub(hub)
+        hub.start()
+    # else: remote session. Progress arrives via the gateway's independent
+    # session_stats event handling (writes straight into cs.bytes_captured/
+    # rotation_count — see fleet/gateway/db.py:record_session_stats). Each
+    # rotated pcap is forwarded upward as raw bytes by the agent itself
+    # (agent/client.py's _ship_pcap) and analyzed server-side once fully
+    # received (fleet/gateway/db.py:begin_pcap_upload/finish_pcap_upload +
+    # fleet/gateway/scan.py:launch_scan) — no action needed from this
+    # route for that to happen.
+
+    audit("capture.start", target_type="capture_session", target_id=cs.id,
+          actor_username=actor_username,
+          detail=json.dumps({
+              "interface": interface, "bpf": bpf_filter, "project_id": project.id,
+              "agent_id": agent.id if agent is not None else None,
+          }))
+
+    result = {"ok": True, "session": _serialize(cs)}
+    if operator_warning:
+        result["operator_warning"] = operator_warning
+    return result, 201
+
+
 @bp.route("/sessions", methods=["POST"])
 @_capture_control_required
 def start_session():
@@ -495,199 +712,13 @@ def start_session():
             if agent_site is None or agent_site.project_id != project.id:
                 return jsonify({"ok": False, "error": "Agent not found"}), 404
 
-    if not interface:
-        return jsonify({"ok": False, "error": "interface required"}), 400
-    if ring_filesize_kb < 1 or ring_files < 1 or max_duration_s < 0:
-        return jsonify({"ok": False, "error": "ring_filesize_kb and ring_files must be >= 1; max_duration_s must be >= 0"}), 400
-    if project is None:
-        return jsonify({"ok": False, "error": "valid project_id required"}), 400
-
-    # ── Gate 0: site policy (remote-agent captures only) ──────
-    # Merged in before Gate 1 so every gate below sees one effective
-    # policy dict — a site can only add restrictions on top of the
-    # project's, never loosen them (most-restrictive-wins).
-    policy = _parse_policy(project.capture_policy)
-    if agent is not None:
-        site = Site.query.get(agent.site_id)
-        if site is not None and site.capture_policy:
-            policy = _merge_site_policy(policy, _parse_policy(site.capture_policy))
-
-    # ── Gate 1: per-project (+ site, if merged above) enabled flag ─
-    if policy.get("enabled") is False:
-        return jsonify({"ok": False, "error": "Live capture disabled for this project or site"}), 403
-
-    # ── Gate 2: interface allowlist (system ∩ project ∩ site) ─
-    effective_allowlist = _resolve_interface_allowlist(policy)
-    if effective_allowlist is not None and interface not in effective_allowlist:
-        if effective_allowlist:
-            allowed_str = ", ".join(effective_allowlist)
-            msg = f"interface {interface!r} not permitted by policy; allowed: {allowed_str}"
-        else:
-            msg = f"interface {interface!r} not permitted by policy (empty intersection of system and project allowlists)"
-        return jsonify({"ok": False, "error": msg}), 403
-
-    # ── Gate 3: duration cap ──────────────────────────────────
-    policy_max_dur = policy.get("max_session_duration_s")
-    applied_duration_s = max_duration_s
-    if policy_max_dur is not None and isinstance(policy_max_dur, int) and policy_max_dur > 0:
-        if max_duration_s <= 0 or max_duration_s > policy_max_dur:
-            applied_duration_s = policy_max_dur
-            audit("capture.policy_capped",
-                  target_type="project", target_id=str(project.id),
-                  detail=json.dumps({
-                      "field": "max_session_duration_s",
-                      "requested": max_duration_s,
-                      "applied": applied_duration_s,
-                      "project_id": project.id,
-                      "interface": interface,
-                  }))
-
-    # ── Gate 4: retained-bytes cap (ring buffer on disk) ──────
-    policy_max_bytes = policy.get("max_total_bytes")
-    applied_ring_filesize_kb = ring_filesize_kb
-    applied_ring_files = ring_files
-    if policy_max_bytes is not None and isinstance(policy_max_bytes, int):
-        capped = _apply_max_total_bytes_cap(
-            ring_filesize_kb,
-            ring_files,
-            policy_max_bytes,
-        )
-        if capped[0] is None or capped[1] is None or capped[3] is None:
-            return jsonify({
-                "ok": False,
-                "error": "project max_total_bytes policy is below dumpcap's minimum 1024-byte ring size",
-            }), 403
-        (
-            applied_ring_filesize_kb,
-            applied_ring_files,
-            requested_total_bytes,
-            applied_total_bytes,
-        ) = capped
-        if (
-            applied_ring_filesize_kb != ring_filesize_kb
-            or applied_ring_files != ring_files
-        ):
-            audit("capture.policy_capped",
-                  target_type="project", target_id=str(project.id),
-                  detail=json.dumps({
-                      "field": "max_total_bytes",
-                      "requested": requested_total_bytes,
-                      "applied": applied_total_bytes,
-                      "project_id": project.id,
-                      "interface": interface,
-                      "requested_ring_filesize_kb": ring_filesize_kb,
-                      "requested_ring_files": ring_files,
-                      "applied_ring_filesize_kb": applied_ring_filesize_kb,
-                      "applied_ring_files": applied_ring_files,
-                  }))
-
-    # ── Gate 5: operator_warning (non-blocking, pass through) ─
-    operator_warning = policy.get("operator_warning") or None
-    if isinstance(operator_warning, str):
-        operator_warning = operator_warning.strip() or None
-
-    # ── Per-host concurrency cap + interface lock ─────────────
-    # Both are specifically about *this* box's own local capd/dumpcap
-    # processes — meaningless for a remote agent's interface, which lives
-    # in a completely separate namespace on a completely separate host.
-    # A remote agent's own capd instance already enforces "one capture per
-    # interface at a time" as its own local invariant (capd/server.py's
-    # _start_session), so there's no cross-host conflict to guard against
-    # here for the agent_id-is-set path.
-    session_uuid = str(uuid.uuid4())
-    if agent is None:
-        if manager.active_session_count() >= config.LIVE_CAPTURE_MAX_CONCURRENT:
-            return jsonify({
-                "ok": False,
-                "error": f"max {config.LIVE_CAPTURE_MAX_CONCURRENT} concurrent live captures reached",
-            }), 409
-        holder = manager.acquire_interface(interface, session_uuid)
-        if holder is not None:
-            return jsonify({"ok": False, "error": f"interface {interface} in use by session {holder[:8]}"}), 409
-
-    cs = CaptureSession(
-        session_uuid=session_uuid,
-        user_id=session["user_id"],
-        project_id=project.id,
-        agent_id=agent.id if agent is not None else None,
-        interface=interface,
-        bpf_filter=bpf_filter,
-        ring_filesize_kb=applied_ring_filesize_kb,
-        ring_files=applied_ring_files,
-        max_duration_s=applied_duration_s,
-        status="pending",
+    result, status = _start_capture_session(
+        user_id=session["user_id"], project=project, agent=agent,
+        interface=interface, bpf_filter=bpf_filter,
+        ring_filesize_kb=ring_filesize_kb, ring_files=ring_files,
+        max_duration_s=max_duration_s,
     )
-    db.session.add(cs)
-    db.session.commit()
-
-    # Ask capd (local or, via the fleet gateway, remote) to start. We do
-    # this after the DB row exists so the row is the durable record even
-    # if the start RPC times out.
-    client = _client_for(agent)
-    try:
-        resp = client.start(
-            session_id=session_uuid,
-            interface=interface,
-            bpf_filter=bpf_filter,
-            ring_filesize_kb=applied_ring_filesize_kb,
-            ring_files=applied_ring_files,
-            max_duration_s=applied_duration_s,
-        )
-    except (CapdUnavailable, CapdError) as exc:
-        cs.status = "failed"
-        cs.error_tail = str(exc)
-        cs.stopped_at = datetime.now(timezone.utc)
-        db.session.commit()
-        if agent is None:
-            manager.release_interface(interface, session_uuid)
-        status_code = 503 if isinstance(exc, CapdUnavailable) else 502
-        return jsonify({"ok": False, "error": str(exc)}), status_code
-
-    cs.status = "running"
-    cs.started_at = datetime.now(timezone.utc)
-    cs.capture_dir = resp.get("output_dir")
-    db.session.commit()
-
-    if agent is None:
-        # Wire up the StatsHub: it streams capd → SSE subscribers AND
-        # triggers the rotation consumer for each closed pcap.
-        hub = StatsHub(session_uuid=session_uuid, client=client)
-        hub.add_file_listener(consumer.make_listener(
-            user_id=cs.user_id, project_id=cs.project_id,
-            session_uuid=session_uuid, scan_profile="fast",
-        ))
-        # Finalizes the DB row (and releases the interface lock/hub) when
-        # this session ends on its own — e.g. max_duration_s elapses, or
-        # the ring fills and capd stops it — rather than only when someone
-        # calls the explicit /stop endpoint. Without this, a self-expiring
-        # session's CaptureSession row was stuck showing status="running"
-        # forever, even though capd had already stopped it (a real,
-        # confirmed bug: found by starting a bounded live capture and
-        # watching its DB status never leave "running" after it visibly
-        # finished). current_app must be captured now — the callback runs
-        # from the hub's background thread, outside any request context.
-        from flask import current_app
-        hub.add_finished_listener(_make_session_finalizer(
-            current_app._get_current_object(), cs.id, cs.interface, session_uuid,
-        ))
-        manager.register_hub(hub)
-        hub.start()
-    # else: remote session. Progress arrives via the gateway's independent
-    # session_stats event handling (writes straight into cs.bytes_captured/
-    # rotation_count — see fleet/gateway/db.py:record_session_stats), and
-    # rotated pcaps simply accumulate on the agent's own disk for now —
-    # local analysis + report shipping is Phase 4, not this phase's scope.
-
-    audit("capture.start", target_type="capture_session", target_id=cs.id,
-          detail=json.dumps({
-              "interface": interface, "bpf": bpf_filter, "project_id": project.id,
-              "agent_id": agent.id if agent is not None else None,
-          }))
-
-    result = {"ok": True, "session": _serialize(cs)}
-    if operator_warning:
-        result["operator_warning"] = operator_warning
-    return jsonify(result), 201
+    return jsonify(result), status
 
 
 @bp.route("/sessions/<int:sid>/stop", methods=["POST"])

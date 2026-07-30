@@ -365,7 +365,7 @@ var FLEET = (function() {
         var td = document.createElement('td');
         td.colSpan = 2;
         td.className = 'fleet-empty';
-        td.textContent = '{{ t("fleet.no_sites") }}';
+        td.textContent = {{ t("fleet.no_sites") | tojson }};
         tr.appendChild(td);
         tbody.appendChild(tr);
         return;
@@ -421,7 +421,7 @@ var FLEET = (function() {
         var td = document.createElement('td');
         td.colSpan = 8;
         td.className = 'fleet-empty';
-        td.textContent = '{{ t("fleet.no_agents") }}';
+        td.textContent = {{ t("fleet.no_agents") | tojson }};
         tr.appendChild(td);
         tbody.appendChild(tr);
         return;
@@ -446,9 +446,9 @@ var FLEET = (function() {
           healthBadge.className = 'badge badge-' + (HEALTH_BADGE_CLASS[a.health] || 'pending');
           healthBadge.textContent = a.health;
           var titleParts = [];
-          if (a.last_error) titleParts.push('{{ t("fleet.last_error") }}: ' + a.last_error);
-          if (a.capd_reachable === false) titleParts.push('{{ t("fleet.capd_unreachable") }}');
-          titleParts.push(a.capture_active ? '{{ t("fleet.capture_running") }}' : '{{ t("fleet.capture_idle") }}');
+          if (a.last_error) titleParts.push({{ t("fleet.last_error") | tojson }} + ': ' + a.last_error);
+          if (a.capd_reachable === false) titleParts.push({{ t("fleet.capd_unreachable") | tojson }});
+          titleParts.push(a.capture_active ? {{ t("fleet.capture_running") | tojson }} : {{ t("fleet.capture_idle") | tojson }});
           healthBadge.title = titleParts.join(' — ');
           healthTd.appendChild(healthBadge);
         } else {
@@ -470,7 +470,7 @@ var FLEET = (function() {
         versionTd.textContent = a.agent_version || '—';
         if (a.version_mismatch) {
           versionTd.textContent += ' ⚠';
-          versionTd.title = '{{ t("fleet.version_mismatch") }}';
+          versionTd.title = {{ t("fleet.version_mismatch") | tojson }};
         }
         tr.appendChild(versionTd);
 
@@ -482,8 +482,8 @@ var FLEET = (function() {
 
         var actionsTd = document.createElement('td');
         if (a.status !== 'revoked') {
-          actionsTd.appendChild(actionBtn('{{ t("fleet.rotate_credential") }}', 'btn btn-sm', function() { showRotateCredential(a.id); }));
-          actionsTd.appendChild(actionBtn('{{ t("common.revoke") }}', 'btn btn-sm btn-danger', function() { revokeAgent(a.id); }));
+          actionsTd.appendChild(actionBtn({{ t("fleet.rotate_credential") | tojson }}, 'btn btn-sm', function() { showRotateCredential(a.id); }));
+          actionsTd.appendChild(actionBtn({{ t("common.revoke") | tojson }}, 'btn btn-sm btn-danger', function() { revokeAgent(a.id); }));
         }
         tr.appendChild(actionsTd);
 
@@ -493,12 +493,12 @@ var FLEET = (function() {
   }
 
   function revokeAgent(agentId) {
-    if (!confirm('{{ t("fleet.confirm_revoke") }}')) return;
+    if (!confirm({{ t("fleet.confirm_revoke") | tojson }})) return;
     fetch('/api/fleet/agents/' + agentId + '/revoke', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (d.ok) { msToast('{{ t("fleet.agent_revoked") }}', 'success'); loadAgents(selectedSiteId); }
-        else msToast(d.error || '{{ t("common.failed") }}', true);
+        if (d.ok) { msToast({{ t("fleet.agent_revoked") | tojson }}, 'success'); loadAgents(selectedSiteId); }
+        else msToast(d.error || {{ t("common.failed") | tojson }}, true);
       });
   }
 
@@ -522,7 +522,7 @@ var FLEET = (function() {
           document.getElementById('fleet-rotate-confirm').style.display = 'none';
           loadAgents(selectedSiteId);
         } else {
-          msToast(d.error || '{{ t("common.failed") }}', true);
+          msToast(d.error || {{ t("common.failed") | tojson }}, true);
         }
       });
   }
@@ -545,27 +545,27 @@ var FLEET = (function() {
   function createSite() {
     var name = document.getElementById('fleet-new-site-name').value.trim();
     var projectId = parseInt(document.getElementById('fleet-new-site-project').value, 10);
-    if (!name || !projectId) { msToast('{{ t("fleet.name_and_project_required") }}', true); return; }
+    if (!name || !projectId) { msToast({{ t("fleet.name_and_project_required") | tojson }}, true); return; }
     fetch('/api/fleet/sites', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name, project_id: projectId }),
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.ok) {
-        msToast('{{ t("fleet.site_created") }}', 'success');
+        msToast({{ t("fleet.site_created") | tojson }}, 'success');
         msModal.close('modal-add-site');
         loadSites();
         selectedSiteId = d.site.id;
         msModal.open('modal-issue-token');
         _showTokenResult(d.enrollment_token);
       } else {
-        msToast(d.error || '{{ t("common.failed") }}', true);
+        msToast(d.error || {{ t("common.failed") | tojson }}, true);
       }
     });
   }
 
   function showIssueToken() {
-    if (!confirm('{{ t("fleet.confirm_rotate_token") }}')) return;
+    if (!confirm({{ t("fleet.confirm_rotate_token") | tojson }})) return;
     document.getElementById('fleet-token-pending').style.display = '';
     document.getElementById('fleet-token-result').style.display = 'none';
     document.getElementById('fleet-issue-token-confirm').style.display = '';
@@ -581,7 +581,7 @@ var FLEET = (function() {
         if (d.ok) {
           _showTokenResult(d.token);
         } else {
-          msToast(d.error || '{{ t("common.failed") }}', true);
+          msToast(d.error || {{ t("common.failed") | tojson }}, true);
         }
       });
   }
@@ -605,7 +605,7 @@ var FLEET = (function() {
       if (!info || !info.gateway_host) {
         // Nothing usable at all (e.g. this page was reached over
         // loopback) — same strong "you must fill this in" warning as before.
-        warningEl.textContent = '{{ t("fleet.gateway_host_not_configured") }}';
+        warningEl.textContent = {{ t("fleet.gateway_host_not_configured") | tojson }};
         warningEl.style.display = '';
       } else if (info.gateway_host_auto_detected) {
         // Guessed from the host this request came in on — right in the
@@ -613,7 +613,7 @@ var FLEET = (function() {
         // same address), but wrong for anyone browsing over a tunnel/VPN
         // with a different externally-reachable address. Soft warning,
         // not a "fill this in" demand, since there IS a real value here.
-        warningEl.textContent = '{{ t("fleet.gateway_host_auto_detected_warning") }}';
+        warningEl.textContent = {{ t("fleet.gateway_host_auto_detected_warning") | tojson }};
         warningEl.style.display = '';
       } else {
         warningEl.style.display = 'none';
@@ -645,7 +645,7 @@ var FLEET = (function() {
     var text = document.getElementById('fleet-enroll-cmd').textContent;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).then(function() {
-        msToast('{{ t("common.copy") }}', 'success');
+        msToast({{ t("common.copy") | tojson }}, 'success');
       });
     }
   }
@@ -679,7 +679,7 @@ var FLEET = (function() {
         tr.appendChild(cell(m.role, 'dim'));
         var actionsTd = document.createElement('td');
         if (!m.is_creator) {
-          actionsTd.appendChild(actionBtn('{{ t("common.delete") }}', 'btn btn-sm btn-danger', function() {
+          actionsTd.appendChild(actionBtn({{ t("common.delete") | tojson }}, 'btn btn-sm btn-danger', function() {
             removeMember(m.user_id);
           }));
         }
@@ -692,18 +692,18 @@ var FLEET = (function() {
   function addMember() {
     var username = document.getElementById('fleet-member-username').value.trim();
     var role = document.getElementById('fleet-member-role').value;
-    if (!username) { msToast('{{ t("fleet.username_required") }}', true); return; }
+    if (!username) { msToast({{ t("fleet.username_required") | tojson }}, true); return; }
     fetch('/api/fleet/sites/' + selectedSiteId + '/members', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username, role: role }),
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.ok) {
-        msToast('{{ t("fleet.member_added") }}', 'success');
+        msToast({{ t("fleet.member_added") | tojson }}, 'success');
         document.getElementById('fleet-member-username').value = '';
         loadMembers();
       } else {
-        msToast(d.error || '{{ t("common.failed") }}', true);
+        msToast(d.error || {{ t("common.failed") | tojson }}, true);
       }
     });
   }
@@ -712,7 +712,7 @@ var FLEET = (function() {
     fetch('/api/fleet/sites/' + selectedSiteId + '/members/' + userId, { method: 'DELETE' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (d.ok) { loadMembers(); } else { msToast(d.error || '{{ t("common.failed") }}', true); }
+        if (d.ok) { loadMembers(); } else { msToast(d.error || {{ t("common.failed") | tojson }}, true); }
       });
   }
 

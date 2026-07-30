@@ -740,7 +740,7 @@
     var help = document.getElementById('cap-bpf-help');
     var v = document.getElementById('cap-bpf').value || '';
     if (!v.trim()) {
-      help.textContent = '{{ t("capture.new.bpf_hint") }}';
+      help.textContent = {{ t("capture.new.bpf_hint") | tojson }};
       help.classList.remove('bpf-ok','bpf-bad');
       maybeEnableStart();
       return;

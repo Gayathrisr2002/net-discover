@@ -31,7 +31,6 @@ from marlinspike.models import (
     AgentEnrollmentToken,
     CaptureSession,
     Project,
-    ScanHistory,
     db,
 )
 
@@ -489,123 +488,104 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
         db.session.commit()
 
 
-def ingest_report(*, session_uuid: str, filename: str, report_text: str,
-                   pcap_filename: str | None, agent_uuid: str) -> None:
-    """Write a report an agent finished analyzing locally to the *same*
-    REPORTS_DIR/<owner_user_id>/<project_id>/<filename> path the local
-    upload-and-scan flow already uses, and create a ScanHistory row for
-    it — this is what makes it show up in the existing report-browsing
-    UI indistinguishable from a locally-produced report, with zero UI
-    changes. engine_pid/engine_argv stay NULL (no local PID to reap —
-    see recovery.py's agent_id-aware reaper scoping).
+def begin_pcap_upload(*, session_uuid: str, filename: str, agent_uuid: str) -> tuple[str, str] | None:
+    """Resolve where a pcap upload belongs — called once per new filename
+    seen on a connection (server.py's pcap_chunk handler, on its first
+    chunk). Returns (partial_path, final_path) under the same
+    UPLOADS_DIR/<owner_user_id>/<project_id>/<filename> convention the
+    manual-upload path already uses, or None if the session_uuid is
+    unknown/not owned by this agent, has no project, or the filename fails
+    a path-safety/extension check.
 
-    Best-effort: an unknown/deleted session_uuid, a session this agent
-    doesn't own, or malformed report text is logged and dropped, not
-    raised — a stray late-arriving report from a since-cleaned-up session
-    shouldn't crash the gateway's event loop.
+    `filename` arrives from an authenticated-but-not-trusted agent (the
+    whole point of mTLS/credential auth is to raise the bar on a stolen-
+    credential attacker, not to make every field they send safe to use
+    verbatim). Without this, a compromised agent could send
+    filename="../../../../etc/cron.d/x" or an absolute path — os.path.join
+    silently discards out_dir for an absolute second argument — and write
+    arbitrary content to any path this process can write. Collapse to a
+    bare basename and reject anything that isn't a plain, safe pcap
+    filename outright.
     """
-    try:
-        parsed_report = json.loads(report_text)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        log.warning("session=%s dropping malformed report %s (%d bytes)",
-                     session_uuid, filename, len(report_text))
-        return
-
-    # Valid JSON alone doesn't mean the agent's engine actually finished its
-    # chain — MarlinSpikeReport serializes 'topology' (default {}) starting
-    # from Stage 1's very first intermediate save, long before Stage 3
-    # actually populates it. Without this check, an agent-side engine crash
-    # right after an early intermediate save still produced valid-but-
-    # incomplete JSON, which got ingested and marked "completed" with zero
-    # findings — a real scan silently reported as clean instead of failed.
-    # Same completion signal as recovery.py's report_complete().
-    completed_stages = (
-        parsed_report.get("completed_stages")
-        or (parsed_report.get("results") or {}).get("completed_stages")
-        or []
-    ) if isinstance(parsed_report, dict) else []
-    report_is_complete = "Risk Surface Report" in completed_stages
-
-    # `filename` and `pcap_filename` arrive from an authenticated-but-not-
-    # trusted agent (the whole point of mTLS/credential auth in Phase 6 is
-    # to raise the bar on a stolen-credential attacker, not to make every
-    # field they send safe to use verbatim). Without this, a compromised
-    # agent could send filename="../../../../etc/cron.d/x" or an absolute
-    # path — os.path.join silently discards out_dir for an absolute
-    # second argument — and write arbitrary content to any path this
-    # process can write. Collapse to a bare basename and reject anything
-    # that isn't a plain, safe filename outright.
     safe_filename = os.path.basename(filename or "")
-    if not safe_filename or safe_filename in (".", "..") or not safe_filename.endswith(".json"):
-        log.warning("session=%s rejecting unsafe report filename %r from agent %s",
+    if not safe_filename or safe_filename in (".", "..") or \
+            not safe_filename.lower().endswith((".pcap", ".pcapng")):
+        log.warning("session=%s rejecting unsafe pcap filename %r from agent %s",
                      session_uuid, filename, agent_uuid)
-        return
-    if pcap_filename:
-        pcap_filename = os.path.basename(pcap_filename)
+        return None
 
     app = get_app()
     with app.app_context():
         cs = CaptureSession.query.filter_by(session_uuid=session_uuid).first()
         if cs is None or cs.project_id is None:
-            log.warning("session=%s unknown or project-less — dropping report %s",
+            log.warning("session=%s unknown or project-less — rejecting pcap upload %s",
                          session_uuid, safe_filename)
-            return
+            return None
         if not _session_owned_by_agent(cs, agent_uuid):
-            log.warning("agent %s sent report_complete for session %s it doesn't own — dropping",
+            log.warning("agent %s sent pcap_chunk for session %s it doesn't own — rejecting",
                         agent_uuid, session_uuid)
-            return
+            return None
         project = db.session.get(Project, cs.project_id)
         if project is None:
-            log.warning("session=%s project %s gone — dropping report %s",
+            log.warning("session=%s project %s gone — rejecting pcap upload %s",
                          session_uuid, cs.project_id, safe_filename)
-            return
+            return None
 
         owner_uid = project.user_id
-        out_dir = os.path.join(config.REPORTS_DIR, str(owner_uid), str(project.id))
+        out_dir = os.path.join(config.UPLOADS_DIR, str(owner_uid), str(project.id))
         os.makedirs(out_dir, exist_ok=True)
-        report_path = os.path.join(out_dir, safe_filename)
+        final_path = os.path.join(out_dir, safe_filename)
         # Belt-and-suspenders: confirm the resolved path is still actually
         # inside out_dir even after basename-only normalization (defends
         # against any future change to the sanitization above regressing
-        # this) before ever opening it for write.
-        if os.path.commonpath([os.path.realpath(out_dir), os.path.realpath(report_path)]) != os.path.realpath(out_dir):
-            log.warning("session=%s report path %r escaped out_dir — dropping", session_uuid, report_path)
-            return
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report_text)
+        # this) before ever opening anything for write.
+        if os.path.commonpath([os.path.realpath(out_dir), os.path.realpath(final_path)]) != os.path.realpath(out_dir):
+            log.warning("session=%s pcap path %r escaped out_dir — rejecting", session_uuid, final_path)
+            return None
+        return final_path + ".partial", final_path
 
-        node_count = edge_count = 0
-        try:
-            topology = parsed_report.get("topology") or parsed_report
-            node_count = len(topology.get("nodes") or [])
-            edge_count = len(topology.get("edges") or [])
-        except Exception:
-            pass  # cosmetic counts only — never worth failing ingestion over
 
-        now = datetime.now(timezone.utc)
-        sh = ScanHistory(
-            run_id=str(uuid.uuid4()),
-            user_id=owner_uid,
-            project_id=project.id,
-            agent_id=cs.agent_id,
-            command="chain",
-            scan_profile="fast",
-            pcap_source=pcap_filename,
-            status="completed" if report_is_complete else "failed",
-            error_tail=None if report_is_complete else (
-                "agent's engine did not finish its full chain (last completed "
-                f"stage: {completed_stages[-1] if completed_stages else 'none'})"
-            ),
-            started_at=cs.started_at or now,
-            completed_at=now,
-            report_path=report_path,
-            node_count=node_count,
-            edge_count=edge_count,
-        )
-        db.session.add(sh)
-        db.session.commit()
-        log.info("session=%s ingested %s report -> %s (ScanHistory id=%s)",
-                  session_uuid, sh.status, report_path, sh.id)
+def finish_pcap_upload(*, partial_path: str, final_path: str, session_uuid: str,
+                        agent_uuid: str) -> tuple[int, int, int | None] | None:
+    """Publish a fully-received pcap upload (atomic rename from .partial to
+    its final name) and re-resolve ownership for the caller's scan launch.
+
+    Publishes FIRST, validates after: by the time pcap_complete calls this,
+    the file is already fully written and closed (every claimed chunk
+    index was actually received — server.py's completeness check already
+    ran), so there's no reason to leave a complete, correctly-named file
+    sitting under a .partial name just because a session/project lookup
+    below happens to fail (e.g. an operator deleted the project in the
+    few seconds a large upload took to finish) — the caller only proceeds
+    to scan.launch_scan if this returns non-None, and the file is already
+    the same one a manual upload would have produced either way.
+
+    Returns (owner_user_id, project_id, agent_id), or None if the
+    session/ownership check fails (already logged).
+    """
+    try:
+        os.replace(partial_path, final_path)
+    except OSError:
+        log.exception("failed to publish pcap %s -> %s", partial_path, final_path)
+        return None
+
+    app = get_app()
+    with app.app_context():
+        cs = CaptureSession.query.filter_by(session_uuid=session_uuid).first()
+        if cs is None or cs.project_id is None:
+            log.warning("session=%s unknown or project-less — dropping finished pcap %s",
+                         session_uuid, final_path)
+            return None
+        if not _session_owned_by_agent(cs, agent_uuid):
+            log.warning("agent %s sent pcap_complete for session %s it doesn't own — dropping",
+                        agent_uuid, session_uuid)
+            return None
+        project = db.session.get(Project, cs.project_id)
+        if project is None:
+            log.warning("session=%s project %s gone — dropping finished pcap %s",
+                         session_uuid, cs.project_id, final_path)
+            return None
+        return project.user_id, project.id, cs.agent_id
 
 
 def is_agent_revoked(*, agent_uuid: str) -> bool:

@@ -327,3 +327,53 @@ def test_reap_run_with_no_pid(app, app_ctx, user, tmp_path):
     db.session.commit()
     counters = recovery.reap_orphan_runs(app)
     assert counters["reaped_failed"] == 1
+
+
+# ── injectable get_active (fleet-gateway's own, separately-scoped reaper) ──
+
+
+def test_reap_default_get_active_ignores_agent_rows(app, app_ctx, user, tmp_path):
+    """The main app's reaper (default get_active) must never touch an
+    agent-launched scan's row — its recorded PID belongs to a different
+    container's PID namespace (see run_store.get_active_for_recovery)."""
+    run_store.record_start(
+        "rec-agent-owned",
+        user_id=user.id, project_id=None, command="chain", scan_profile="fast",
+        pcap_source="x.pcapng", pcap_hash=None,
+        pcap_path=str(tmp_path / "x.pcapng"), report_path=str(tmp_path / "missing.json"),
+        engine_pid=2_000_002, engine_argv=[sys.executable, "-m", "marlinspike"],
+        agent_id=42,
+    )
+    counters = recovery.reap_orphan_runs(app)
+    assert counters["checked"] == 0
+    rec = ScanHistory.query.filter_by(run_id="rec-agent-owned").first()
+    assert rec.status == "running"  # untouched
+
+
+def test_reap_with_injected_agent_get_active_reaps_only_agent_rows(app, app_ctx, user, tmp_path):
+    """The fleet-gateway's own reaper (run_store.get_active_agent_scans_for_recovery
+    injected as get_active) must reap an agent-owned row and must NOT touch
+    a plain local-scan row — the two reapers stay correctly scoped to their
+    own container's rows either way."""
+    run_store.record_start(
+        "rec-agent-owned-2",
+        user_id=user.id, project_id=None, command="chain", scan_profile="fast",
+        pcap_source="x.pcapng", pcap_hash=None,
+        pcap_path=str(tmp_path / "x.pcapng"), report_path=str(tmp_path / "missing.json"),
+        engine_pid=2_000_003, engine_argv=[sys.executable, "-m", "marlinspike"],
+        agent_id=42,
+    )
+    run_store.record_start(
+        "rec-local-untouched",
+        user_id=user.id, project_id=None, command="chain", scan_profile="fast",
+        pcap_source="y.pcap", pcap_hash=None,
+        pcap_path=str(tmp_path / "y.pcap"), report_path=str(tmp_path / "missing2.json"),
+        engine_pid=2_000_004, engine_argv=[sys.executable, "-m", "marlinspike"],
+    )
+    counters = recovery.reap_orphan_runs(app, get_active=run_store.get_active_agent_scans_for_recovery)
+    assert counters["checked"] == 1
+    assert counters["reaped_failed"] == 1
+    agent_rec = ScanHistory.query.filter_by(run_id="rec-agent-owned-2").first()
+    assert agent_rec.status == "failed"
+    local_rec = ScanHistory.query.filter_by(run_id="rec-local-untouched").first()
+    assert local_rec.status == "running"  # untouched — belongs to the OTHER reaper

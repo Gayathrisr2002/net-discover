@@ -6393,5 +6393,12 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
+    # Only started here, never inside create_app() itself — every test
+    # calls create_app() directly, and a persistent background thread
+    # started there would leak across the whole test suite (racing each
+    # test's own app_context against a completely different test
+    # database). See marlinspike/scheduler.py's own module docstring.
+    from marlinspike import scheduler
+    scheduler.start(app)
     print(f"[marlinspike] Starting on http://{config.HOST}:{config.PORT}")
     app.run(host=config.HOST, port=config.PORT, debug=False)

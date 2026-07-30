@@ -118,9 +118,17 @@ class ScanHistory(db.Model):
     timeout_at = db.Column(db.DateTime)          # hard deadline for abandonment reaping
     recovery_state = db.Column(db.String(20))   # NULL / reattached / reaped_*
 
-    # Set when this scan ran on a remote fleet agent rather than as a local
-    # subprocess. engine_pid/engine_argv stay NULL for these rows — there is
-    # no local PID to reap; marlinspike.recovery's reaper must skip them.
+    # Set when this scan was launched by the fleet gateway from an agent-
+    # forwarded pcap rather than as a local subprocess. engine_pid IS
+    # populated for these rows (fleet/gateway/scan.py records the real
+    # subprocess PID), but it's scoped to the fleet-gateway container's own
+    # PID namespace — a separate container from this app (no `pid:`
+    # sharing in docker-compose.yml), so it's meaningless to *this*
+    # process's own pid_alive() check. The main app's reaper
+    # (run_store.get_active_for_recovery) still excludes these rows for
+    # exactly that reason; a separate reaper scoped to them runs inside
+    # the fleet-gateway process itself (run_store
+    # .get_active_agent_scans_for_recovery, wired up in fleet/gateway/cli.py).
     agent_id = db.Column(
         db.Integer, db.ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -315,6 +323,16 @@ class Site(db.Model):
     # capture, the effective policy is project policy merged with site policy
     # (most-restrictive-wins) — see capture/api.py's _merge_site_policy.
     capture_policy = db.Column(db.Text, nullable=True)
+    # JSON-encoded automated-capture schedule: {"enabled": bool,
+    # "times_utc": ["06:00", "18:00"], "duration_s": int, "interface": str,
+    # "bpf_filter": str}. NULL = no schedule configured. Applies to every
+    # online agent at this site when a slot fires — see marlinspike/
+    # scheduler.py and fleet/api.py's capture-schedule endpoints.
+    capture_schedule = db.Column(db.Text, nullable=True)
+    # Dedup guard against double-firing the same slot — survives an app
+    # restart near a scheduled time (a fresh in-memory "already fired
+    # today" set would not). See scheduler.py's _due_slot_today.
+    capture_schedule_last_triggered_at = db.Column(db.DateTime, nullable=True)
 
     project = db.relationship("Project", backref="sites")
 

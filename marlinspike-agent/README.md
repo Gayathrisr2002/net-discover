@@ -5,13 +5,15 @@ it holds a persistent, authenticated TLS connection to the central fleet
 gateway (`marlinspike/fleet/gateway/`) so the site can be managed from one
 console instead of running a separate MarlinSpike instance per location.
 
-**Phase 2 scope** (this package, as it stands today): enroll once with your
-site's standing enrollment token (reusable for enrolling any number of
-agents, from the Fleet page), then heartbeat forever, reconnecting
-automatically if the link drops. No capture control or report shipping yet — those are Phase 3
-(relay start/stop to the local `capd` sidecar) and Phase 4 (run the
-analysis engine locally, ship only the resulting JSON report), added as
-new methods on this same connection, not a new protocol.
+**Scope** (this package, as it stands today): enroll once with your site's
+standing enrollment token (reusable for enrolling any number of agents,
+from the Fleet page), then heartbeat forever, reconnecting automatically
+if the link drops. Relays capture start/stop to the local `capd` sidecar,
+and forwards each rotated capture's raw pcap bytes upward over the same
+connection — no analysis happens on this host. The central fleet-gateway
+runs the actual analysis engine and produces the report, so this package
+stays a small, dependency-light transport tool with nothing beyond the
+Python stdlib.
 
 ## Why a separate process from capd
 
@@ -103,8 +105,7 @@ echo <uid-from-above> | sudo tee -a /etc/marlinspike-capd/allowed-uids
 Length-prefixed JSON over TLS (4-byte big-endian length, then UTF-8 JSON
 body) — the same framing idea as `capd`'s uds protocol, evolved into a
 bidirectional envelope since both sides need to initiate here (the agent
-pushes heartbeat/report frames; the gateway pushes capture commands from
-Phase 3 on):
+pushes heartbeat/pcap frames; the gateway pushes capture commands):
 
 ```
 {"type": "req", "id": <int>, "method": <str>, "params": {...}}
