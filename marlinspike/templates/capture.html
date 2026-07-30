@@ -1040,7 +1040,7 @@
 
     loadProjects().then(function(){
       loadPolicy().then(function(){
-        loadInterfaces();
+        loadAgents().then(loadInterfaces);
         loadFilters();
       });
       refreshSessions();
