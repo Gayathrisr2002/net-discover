@@ -840,7 +840,41 @@ def stream_session(sid: int):
 
     hub = manager.get_hub(cs.session_uuid)
     if hub is None:
-        # No active hub — return a one-shot frame describing the final state.
+        if cs.agent_id is not None and cs.status in ("pending", "running"):
+            # Remote-agent session with no local hub — nothing pushes live
+            # frames for these; progress arrives via record_session_stats,
+            # a periodic DB write from the gateway, not an in-process hub
+            # (hubs only ever exist for local sessions — see start_session).
+            # Closing immediately here (the old one-shot "final" behavior)
+            # made the frontend's onerror handler treat "no hub yet" as
+            # "stream ended" and reopen a fresh EventSource right away —
+            # confirmed live: an endless open/close loop that churned the
+            # active-sessions list fast enough to make the Stop button
+            # essentially unclickable (the button was destroyed and
+            # recreated continuously). Poll the DB row on an interval
+            # instead, so the connection stays open for as long as the
+            # session is genuinely still active.
+            @stream_with_context
+            def _poll_remote():
+                yield ": connected\n\n"
+                while True:
+                    time.sleep(2.0)
+                    fresh = db.session.get(CaptureSession, sid)
+                    if fresh is None:
+                        return
+                    still_running = fresh.status in ("pending", "running")
+                    yield f"data: {json.dumps({'bytes_total': fresh.bytes_captured, 'bytes_per_sec': 0, 'running': still_running})}\n\n"
+                    if not still_running:
+                        return
+                    db.session.expire(fresh)
+
+            resp = Response(_poll_remote(), mimetype="text/event-stream")
+            resp.headers["Cache-Control"] = "no-cache, no-store"
+            resp.headers["X-Accel-Buffering"] = "no"
+            return resp
+
+        # Genuinely no active hub and not a remote session in progress —
+        # one-shot frame describing the final state.
         def _final_only():
             yield "event: final\n"
             yield f"data: {json.dumps(_serialize(cs))}\n\n"
