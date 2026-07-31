@@ -700,6 +700,8 @@
   "scans.recovery.tip_reaped_completed": "Engine finished while Flask was down. Report ingested on next boot.",
   "scans.recovery.tip_reaped_failed": "Engine crashed mid-scan. No report available; marked failed on recovery.",
   "scans.recovery.tip_reattached": "Engine survived Flask restart; watcher re-attached and run completed normally.",
+  "scans.report_unavailable": "Report unavailable",
+  "scans.report_unavailable_hint": "This scan completed, but its report file is no longer on disk. Re-run the scan to get a fresh one.",
   "scans.retry": "Retry",
   "scans.retry_failed": "Failed to retry scan",
   "scans.retry_started": "Scan retried — check Dashboard for progress",

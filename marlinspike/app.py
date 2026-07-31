@@ -5558,6 +5558,15 @@ def create_app():
                 "started_at": s.started_at.isoformat() if s.started_at else None,
                 "completed_at": s.completed_at.isoformat() if s.completed_at else None,
                 "report_filename": os.path.basename(s.report_path) if s.report_path else None,
+                # report_filename alone doesn't mean the file still exists —
+                # nothing prevents a report from being deleted (disk
+                # cleanup, manual removal, etc.) out from under a scan_history
+                # row that still points at it. Without this, the UI rendered
+                # a normal-looking "View Report" button that silently 404'd
+                # when clicked, with no indication anything was wrong until
+                # the click. report_available lets the UI show an honest
+                # "unavailable" state instead of a dead link.
+                "report_available": bool(s.report_path) and os.path.isfile(s.report_path),
                 "node_count": s.node_count,
                 "edge_count": s.edge_count,
                 "error_tail": s.error_tail,

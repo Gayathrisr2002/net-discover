@@ -175,8 +175,13 @@ var SH = (function() {
       d.scans.forEach(function(s) {
         var tr = document.createElement('tr');
         var actions = '';
-        if (s.status === 'completed' && s.report_filename) {
+        if (s.status === 'completed' && s.report_filename && s.report_available) {
           actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
+        } else if (s.status === 'completed' && s.report_filename && !s.report_available) {
+          // report_path is set but the file is gone (disk cleanup, manual
+          // removal, etc.) — show that honestly instead of a "View Report"
+          // link that would just 404 with no explanation when clicked.
+          actions = '<span class="dim" title="' + esc(msT('scans.report_unavailable_hint', 'This scan completed, but its report file is no longer on disk. Re-run the scan to get a fresh one.')) + '" style="font-size:0.85em;">' + esc(msT('scans.report_unavailable', 'Report unavailable')) + '</span>';
         } else if ((s.status === 'failed' || s.status === 'interrupted') && s.pcap_source && !s.pcap_source.startsWith('live:')) {
           actions = '<button class="btn btn-sm" onclick="SH.retryScan(\'' + escjs(s.pcap_source) + '\',\'' + escjs(s.command) + '\',\'' + escjs(s.scan_profile || 'full') + '\')">' + msT('scans.retry', 'Retry') + '</button>';
         }

@@ -697,6 +697,8 @@
   "scans.recovery.tip_reaped_completed": "Le moteur a terminé pendant que Flask était arrêté. Rapport importé au prochain démarrage.",
   "scans.recovery.tip_reaped_failed": "Le moteur a planté en cours d'analyse. Aucun rapport disponible ; marqué échoué lors de la récupération.",
   "scans.recovery.tip_reattached": "Le moteur a survécu au redémarrage de Flask ; l'observateur a été rattaché et l'analyse s'est terminée normalement.",
+  "scans.report_unavailable": "Rapport indisponible",
+  "scans.report_unavailable_hint": "Cette analyse est terminée, mais son fichier de rapport n'est plus sur le disque. Relancez l'analyse pour en obtenir un nouveau.",
   "scans.retry": "Réessayer",
   "scans.retry_failed": "Échec de la relance d'analyse",
   "scans.retry_started": "Analyse relancée — voir le tableau de bord pour la progression",
