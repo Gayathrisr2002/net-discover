@@ -152,6 +152,15 @@ var DIFF = (function() {
   var DIFF_COLORS = { added: '#22c55e', removed: '#ef4444', changed: '#f59e0b', unchanged: '#64748b' };
 
   function esc(s) { if (s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  // esc() doesn't escape single-quote characters — never use it to build
+  // a quoted argument inside an inline onclick="..." handler. Use escjs().
+  function escjs(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
+  }
 
   function init() {
     nodes.forEach(function(n) {
@@ -234,7 +243,7 @@ var DIFF = (function() {
       if (items.length===0) return;
       html += '<h3>' + g.label + ' (' + items.length + ')</h3>';
       items.forEach(function(n) {
-        html += '<div class="diff-node-item diff-' + g.key + '" onclick="DIFF.selectNode(\'' + esc(n._ip) + '\')">';
+        html += '<div class="diff-node-item diff-' + g.key + '" onclick="DIFF.selectNode(\'' + escjs(n._ip) + '\')">';
         html += '<div class="ip">' + esc(n._ip) + ' <span class="diff-tag ' + g.key + '">' + g.key + '</span></div>';
         html += '<div class="role">' + esc(n.role||'Unknown') + '</div></div>';
         if (g.key==='changed' && n._changes) {
@@ -250,7 +259,7 @@ var DIFF = (function() {
     if (unchanged.length > 0) {
       html += '<h3>Unchanged (' + unchanged.length + ')</h3>';
       unchanged.forEach(function(n) {
-        html += '<div class="diff-node-item" onclick="DIFF.selectNode(\'' + esc(n._ip) + '\')"><div class="ip" style="color:var(--text-dim)">' + esc(n._ip) + '</div><div class="role">' + esc(n.role||'Unknown') + '</div></div>';
+        html += '<div class="diff-node-item" onclick="DIFF.selectNode(\'' + escjs(n._ip) + '\')"><div class="ip" style="color:var(--text-dim)">' + esc(n._ip) + '</div><div class="role">' + esc(n.role||'Unknown') + '</div></div>';
       });
     }
     document.getElementById('diff-sidebar-content').innerHTML = html;

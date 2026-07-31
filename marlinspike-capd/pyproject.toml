@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marlinspike-capd"
-version = "0.1.2"
+version = "0.1.3"
 description = "Privileged sidecar capture daemon for MarlinSpike. Enumerates interfaces, validates BPF filters, supervises dumpcap with rotation, and serves a uds JSON-RPC API consumed by the unprivileged MarlinSpike web app."
 readme = "README.md"
 requires-python = ">=3.10"

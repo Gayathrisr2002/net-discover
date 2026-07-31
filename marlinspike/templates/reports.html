@@ -146,7 +146,7 @@ var RP = (function() {
           + '<td class="report-actions">'
           + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer' + (currentProjectId ? '?project_id=' + currentProjectId : '') + '" target="_blank">' + msT('reports.view', 'View') + '</a>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + (currentProjectId ? '?project_id=' + currentProjectId : '') + '">' + msT('common.download', 'Download') + '</a>'
-          + '<button class="del-btn" onclick="RP.deleteReport(\'' + esc(r.filename) + '\')">' + msT('common.delete', 'Delete') + '</button>'
+          + '<button class="del-btn" onclick="RP.deleteReport(\'' + escjs(r.filename) + '\')">' + msT('common.delete', 'Delete') + '</button>'
           + '</td>';
         tbody.appendChild(tr);
       });
@@ -207,6 +207,15 @@ var RP = (function() {
     var d = document.createElement('div');
     d.textContent = String(s);
     return d.innerHTML;
+  }
+  // esc() doesn't escape quote characters — never use it to build a
+  // quoted argument inside an inline onclick="..." handler. Use escjs().
+  function escjs(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
   }
   function formatSize(bytes) {
     if (!bytes) return '--';

@@ -484,6 +484,15 @@ var LIB = (function() {
     d.textContent = String(s);
     return d.innerHTML;
   }
+  // esc() doesn't escape quote characters — never use it to build a
+  // quoted argument inside an inline onclick="..." handler. Use escjs().
+  function escjs(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
+  }
 
   function refresh() {
     fetch('/api/admin/presets').then(function(r) { return r.json(); }).then(function(data) {
@@ -504,7 +513,7 @@ var LIB = (function() {
     var html = '';
     _categories.forEach(function(cat) {
       html += '<div class="lib-card" id="lib-cat-' + esc(cat.name) + '">';
-      html += '<div class="lib-card-head" onclick="LIB.toggle(\'' + esc(cat.name) + '\')">';
+      html += '<div class="lib-card-head" onclick="LIB.toggle(\'' + escjs(cat.name) + '\')">';
       html += '<h3>' + esc(cat.name) + ' <span class="meta">' + cat.file_count + ' files</span></h3>';
       html += '<span class="meta">' + fmtBytes(cat.total_size) + '</span>';
       html += '</div>';
@@ -514,7 +523,7 @@ var LIB = (function() {
           html += '<div class="lib-file">';
           html += '<span class="fname" title="' + esc(f.name) + '">' + esc(f.name) + '</span>';
           html += '<span class="fsize">' + fmtBytes(f.size) + '</span>';
-          html += '<button class="fdel" onclick="LIB.deleteFile(\'' + esc(cat.name) + '\',\'' + esc(f.name) + '\')" title="Delete">&#10005;</button>';
+          html += '<button class="fdel" onclick="LIB.deleteFile(\'' + escjs(cat.name) + '\',\'' + escjs(f.name) + '\')" title="Delete">&#10005;</button>';
           html += '</div>';
         });
       } else {
@@ -523,7 +532,7 @@ var LIB = (function() {
       html += '<div class="lib-upload-row">';
       html += '<input type="file" id="lib-up-' + esc(cat.name) + '" accept=".pcap,.pcapng,.cap" onchange="LIB.uploadFile(\'' + esc(cat.name) + '\',this)">';
       html += '<button class="lib-upload-btn" onclick="document.getElementById(\'lib-up-' + esc(cat.name) + '\').click()">Upload PCAP</button>';
-      html += '<button class="fdel" onclick="LIB.deleteCategory(\'' + esc(cat.name) + '\')" title="Delete category" style="margin-left:auto;">Delete category</button>';
+      html += '<button class="fdel" onclick="LIB.deleteCategory(\'' + escjs(cat.name) + '\')" title="Delete category" style="margin-left:auto;">Delete category</button>';
       html += '</div>';
       html += '</div></div>';
     });

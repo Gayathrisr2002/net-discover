@@ -178,7 +178,7 @@ var SH = (function() {
         if (s.status === 'completed' && s.report_filename) {
           actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
         } else if ((s.status === 'failed' || s.status === 'interrupted') && s.pcap_source && !s.pcap_source.startsWith('live:')) {
-          actions = '<button class="btn btn-sm" onclick="SH.retryScan(\'' + esc(s.pcap_source) + '\',\'' + esc(s.command) + '\',\'' + esc(s.scan_profile || 'full') + '\')">' + msT('scans.retry', 'Retry') + '</button>';
+          actions = '<button class="btn btn-sm" onclick="SH.retryScan(\'' + escjs(s.pcap_source) + '\',\'' + escjs(s.command) + '\',\'' + escjs(s.scan_profile || 'full') + '\')">' + msT('scans.retry', 'Retry') + '</button>';
         }
         var hasError = s.error_tail && (s.status === 'failed' || s.status === 'stopped' || s.status === 'interrupted');
         if (hasError) {
@@ -189,7 +189,7 @@ var SH = (function() {
           nodeEdge = (s.node_count || 0) + ' / ' + (s.edge_count || 0);
         }
         tr.innerHTML =
-          '<td><span class="mono run-id-copy" title="' + msT('scans.copy_id_hint', 'Click to copy full ID') + '" onclick="SH.copyId(this, \'' + esc(s.run_id) + '\')" style="font-size:0.8em;">' + esc(s.run_id.substring(0, 8)) + '</span></td>'
+          '<td><span class="mono run-id-copy" title="' + msT('scans.copy_id_hint', 'Click to copy full ID') + '" onclick="SH.copyId(this, \'' + escjs(s.run_id) + '\')" style="font-size:0.8em;">' + esc(s.run_id.substring(0, 8)) + '</span></td>'
           + '<td>' + esc(s.user) + '</td>'
           + '<td>' + esc(displayCommand(s.command, s.scan_profile)) + '</td>'
           + '<td class="mono dim" style="font-size:0.8em;max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + esc(s.pcap_source || '--') + '</td>'
@@ -242,6 +242,19 @@ var SH = (function() {
   }
 
   // Helpers
+  // esc() (HTML-entity escaping via textContent) is safe for visible text
+  // content, but does NOT escape quote characters — never use it to build
+  // a quoted argument inside an inline onclick="..." handler (a filename
+  // containing a single quote, e.g. from an uploaded pcap's original
+  // name, would break out of the argument and inject arbitrary JS).
+  // escjs() below is the one to use for that instead.
+  function escjs(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
+  }
   function esc(s) {
     if (s == null) return '';
     var d = document.createElement('div');

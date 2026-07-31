@@ -240,10 +240,21 @@ class CapdServer:
             for other_id, other in running:
                 other_iface = getattr(other.cfg, "interface", None)
                 if interface == "any" or other_iface == "any" or other_iface == interface:
-                    conflict = "any" if (interface == "any" or other_iface == "any") else interface
+                    # Name both interfaces explicitly rather than just
+                    # "any" — when interface == "any" and other_iface is a
+                    # specific NIC (or vice versa), a message naming only
+                    # "any" reads as if some OTHER session is also on
+                    # "any", which is confusing when it's actually a named
+                    # NIC that's already running (confirmed confusing in
+                    # practice: a real operator asked "why does it say any
+                    # is captured when I only started enp2s0").
                     return {
                         "ok": False,
-                        "error": f"interface {conflict} is already being captured by session {other_id}",
+                        "error": (
+                            f"interface {interface!r} conflicts with session {other_id}, "
+                            f"already capturing on {other_iface!r} ('any' captures every "
+                            f"interface, so it can't run alongside a capture on any specific NIC)"
+                        ),
                     }
             try:
                 sup = CaptureSupervisor(cfg)

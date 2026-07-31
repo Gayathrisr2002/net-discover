@@ -1241,8 +1241,8 @@ var MS = (function() {
       + '<h2>Scan <span class="mono" style="font-size:0.8em;color:var(--text-dim);">' + esc(runId.substring(0, 8)) + '</span></h2>'
       + '<div style="display:flex;gap:8px;align-items:center;">'
       + '<span class="badge badge-running" id="run-badge-' + runId + '">RUNNING</span>'
-      + '<button class="btn btn-danger btn-sm" id="run-stop-' + runId + '" onclick="MS.stopScan(\'' + esc(runId) + '\')">' + msT('dashboard.run_stop', 'Stop') + '</button>'
-      + '<button class="btn btn-sm" onclick="MS.detachRun(\'' + esc(runId) + '\')" title="' + msT('dashboard.run_detach', 'Detach') + '">&#10005;</button>'
+      + '<button class="btn btn-danger btn-sm" id="run-stop-' + runId + '" onclick="MS.stopScan(\'' + escjs(runId) + '\')">' + msT('dashboard.run_stop', 'Stop') + '</button>'
+      + '<button class="btn btn-sm" onclick="MS.detachRun(\'' + escjs(runId) + '\')" title="' + msT('dashboard.run_detach', 'Detach') + '">&#10005;</button>'
       + '</div></div>'
       + '<div class="panel-body">'
       + '<div class="run-progress-bar" id="run-bar-' + runId + '"></div>'
@@ -1250,7 +1250,7 @@ var MS = (function() {
       + '<span class="run-progress-label" id="run-label-' + runId + '">Starting...</span>'
       + '<span class="run-elapsed" id="run-elapsed-' + runId + '">0:00</span>'
       + '</div>'
-      + (IS_ADMIN ? '<button class="run-log-toggle" id="run-log-toggle-' + runId + '" onclick="MS.toggleLog(\'' + esc(runId) + '\')">' + msT('dashboard.run_show_log', 'Show log') + '</button>' : '')
+      + (IS_ADMIN ? '<button class="run-log-toggle" id="run-log-toggle-' + runId + '" onclick="MS.toggleLog(\'' + escjs(runId) + '\')">' + msT('dashboard.run_show_log', 'Show log') + '</button>' : '')
       + '<div class="live-output collapsed" id="run-output-' + runId + '"></div>'
       + '<div style="margin-top:8px;font-size:0.82em;color:var(--text-dim);" id="run-info-' + runId + '"></div>'
       + '<div style="margin-top:8px;">'
@@ -1428,7 +1428,7 @@ var MS = (function() {
           + '<td class="report-actions">'
           + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer' + (currentProjectId ? '?project_id=' + currentProjectId : '') + '" target="_blank">' + msT('reports.view', 'View') + '</a>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + (currentProjectId ? '?project_id=' + currentProjectId : '') + '">' + msT('common.download', 'Download') + '</a>'
-          + '<button class="del-btn" onclick="MS.deleteReport(\'' + esc(r.filename) + '\')">' + msT('common.delete', 'Delete') + '</button>'
+          + '<button class="del-btn" onclick="MS.deleteReport(\'' + escjs(r.filename) + '\')">' + msT('common.delete', 'Delete') + '</button>'
           + '</td>';
         tbody.appendChild(tr);
       });
@@ -1514,11 +1514,11 @@ var MS = (function() {
         // Actions column
         var actions = '';
         if (s.status === 'running') {
-          actions = '<button class="btn btn-sm btn-success" onclick="MS.attachRun(\'' + esc(s.run_id) + '\')">' + msT('dashboard.run_attach', 'Attach') + '</button>';
+          actions = '<button class="btn btn-sm btn-success" onclick="MS.attachRun(\'' + escjs(s.run_id) + '\')">' + msT('dashboard.run_attach', 'Attach') + '</button>';
         } else if (s.status === 'completed' && s.report_filename) {
           actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
         } else if ((s.status === 'failed' || s.status === 'interrupted') && s.pcap_source && !s.pcap_source.startsWith('live:')) {
-          actions = '<button class="btn btn-sm" onclick="MS.retryScan(\'' + esc(s.pcap_source) + '\',\'' + esc(s.command) + '\',\'' + esc(s.scan_profile || 'full') + '\')">' + msT('dashboard.run_retry', 'Retry') + '</button>';
+          actions = '<button class="btn btn-sm" onclick="MS.retryScan(\'' + escjs(s.pcap_source) + '\',\'' + escjs(s.command) + '\',\'' + escjs(s.scan_profile || 'full') + '\')">' + msT('dashboard.run_retry', 'Retry') + '</button>';
         }
         // Error expand toggle
         var hasError = s.error_tail && (s.status === 'failed' || s.status === 'stopped' || s.status === 'interrupted');
@@ -1531,7 +1531,7 @@ var MS = (function() {
           nodeEdge = (s.node_count || 0) + ' / ' + (s.edge_count || 0);
         }
         tr.innerHTML =
-          '<td><span class="mono run-id-copy" title="' + msT('scans.copy_id_hint', 'Click to copy full ID') + '" onclick="MS.copyId(this, \'' + esc(s.run_id) + '\')" style="font-size:0.8em;">' + esc(s.run_id.substring(0, 8)) + '</span></td>'
+          '<td><span class="mono run-id-copy" title="' + msT('scans.copy_id_hint', 'Click to copy full ID') + '" onclick="MS.copyId(this, \'' + escjs(s.run_id) + '\')" style="font-size:0.8em;">' + esc(s.run_id.substring(0, 8)) + '</span></td>'
           + '<td>' + esc(s.user) + '</td>'
           + '<td>' + esc(displayCommand(s.command, s.scan_profile)) + '</td>'
           + '<td class="mono dim" style="font-size:0.8em;max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + esc(s.pcap_source || '--') + '</td>'
@@ -1605,6 +1605,17 @@ var MS = (function() {
     var d = document.createElement('div');
     d.textContent = String(s);
     return d.innerHTML;
+  }
+  // esc() doesn't escape quote characters — never use it to build a
+  // quoted argument inside an inline onclick="..." handler (an uploaded
+  // pcap's original filename containing a single quote would break out
+  // of the argument and inject arbitrary JS). Use escjs() for that.
+  function escjs(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
   }
   function displayCommand(command, scanProfile) {
     return command + ((scanProfile && scanProfile !== 'full') ? ' (' + scanProfile + ')' : '');

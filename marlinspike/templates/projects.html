@@ -1298,7 +1298,7 @@ var PROJ = (function() {
           + '<td class="mono">' + esc(f.name) + '</td>'
           + '<td class="dim">' + formatSize(f.size) + '</td>'
           + '<td class="dim">' + formatDate(f.modified) + '</td>'
-          + '<td><button class="btn btn-danger btn-sm" onclick="PROJ.deleteFile(\'' + esc(f.name) + '\')">' + msT('projects.delete', 'Delete') + '</button></td>';
+          + '<td><button class="btn btn-danger btn-sm" onclick="PROJ.deleteFile(\'' + escjs(f.name) + '\')">' + msT('projects.delete', 'Delete') + '</button></td>';
         tbody.appendChild(tr);
       });
     });
@@ -1433,7 +1433,7 @@ var PROJ = (function() {
           + '<td class="proj-report-actions">'
           + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?project_id=' + currentProject.id + '" target="_blank">' + msT('projects.btn_view', 'View') + '</a>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '">' + msT('projects.btn_download', 'Download') + '</a>'
-          + '<button class="del-btn" onclick="PROJ.deleteReport(\'' + esc(r.filename) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
+          + '<button class="del-btn" onclick="PROJ.deleteReport(\'' + escjs(r.filename) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
           + '</td>';
         tbody.appendChild(tr);
       });
@@ -1833,6 +1833,17 @@ var PROJ = (function() {
     var d = document.createElement('div');
     d.textContent = String(s);
     return d.innerHTML;
+  }
+  // esc() doesn't escape quote characters — never use it to build a
+  // quoted argument inside an inline onclick="..." handler (an uploaded
+  // file's original name containing a single quote would break out of
+  // the argument and inject arbitrary JS). Use escjs() for that.
+  function escjs(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '')
+      .replace(/\n/g, ' ');
   }
 
   function formatSize(bytes) {

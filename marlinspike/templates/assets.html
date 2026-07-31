@@ -219,6 +219,7 @@ tr.detail-row td {
 <script nonce="{{ csp_nonce }}">
 var REPORT = {{ report_json | tojson }};
 var FILENAME = {{ filename | tojson }};
+var FINDINGS_LABEL_PLURAL = {{ t('taxonomy.finding.label_plural') | tojson }};
 
 /* Taxonomy severity chip renderer (standalone page — no base.html) */
 var _SEV_CHIP_MAP = { CRITICAL: 'chip-critical', HIGH: 'chip-high', MEDIUM: 'chip-medium', LOW: 'chip-low', INFO: 'chip-info' };
@@ -510,7 +511,7 @@ function appendDetailRow(tbody, n) {
 
   var nodeRisks = risksByIp[n._ip] || [];
   if (nodeRisks.length) {
-    html += '<div style="margin:8px 0 4px;font-weight:600;font-size:0.82em;color:var(--color-danger);text-transform:uppercase">{{ t('taxonomy.finding.label_plural') }} ('+nodeRisks.length+')</div>';
+    html += '<div style="margin:8px 0 4px;font-weight:600;font-size:0.82em;color:var(--color-danger);text-transform:uppercase">' + esc(FINDINGS_LABEL_PLURAL) + ' ('+nodeRisks.length+')</div>';
     nodeRisks.forEach(function(r) {
       html += '<div class="risk-line">' + msSevChipInline(r.severity) + ' ' + esc(r.description);
       if (r.remediation) html += '<br><span style="color:var(--accent);font-size:0.9em">Rec: '+esc(r.remediation)+'</span>';

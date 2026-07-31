@@ -6457,7 +6457,7 @@ var MS = (function() {
       if (affected.length) {
         html += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">';
         affected.forEach(function(ip) {
-          html += '<button class="ms-chip" style="cursor:pointer;background:rgba(91,138,240,0.1);border-color:rgba(91,138,240,0.28)" onclick="MS.selectNodeByIp(\'' + esc(ip) + '\',true)">' + esc(ip) + '</button>';
+          html += '<button class="ms-chip" style="cursor:pointer;background:rgba(91,138,240,0.1);border-color:rgba(91,138,240,0.28)" onclick="MS.selectNodeByIp(\'' + escjs(ip) + '\',true)">' + esc(ip) + '</button>';
         });
         html += '</div>';
       }
@@ -6491,7 +6491,7 @@ var MS = (function() {
       html += '</div>';
       if (match.matched_asset) {
         html += '<div style="margin-top:5px;">';
-        html += '<button class="ms-chip" style="cursor:pointer;background:rgba(239,68,68,0.1)" onclick="MS.selectNodeByIp(\'' + esc(match.matched_asset) + '\',true)">' + esc(match.matched_asset) + '</button>';
+        html += '<button class="ms-chip" style="cursor:pointer;background:rgba(239,68,68,0.1)" onclick="MS.selectNodeByIp(\'' + escjs(match.matched_asset) + '\',true)">' + esc(match.matched_asset) + '</button>';
         html += '</div>';
       }
       html += '</div>';
@@ -6546,7 +6546,7 @@ var MS = (function() {
             var affected = toArray(c.affected_nodes);
             html += '<div style="font-size:0.82em;margin-bottom:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">';
             html += '<button class="ms-chip" style="cursor:pointer;font-family:var(--font-mono);color:var(--accent-cyan);background:rgba(50,184,198,0.08);border-color:rgba(50,184,198,0.3)" '
-              + 'onclick="MS.attckHighlight(\'' + esc(entry.technique_id) + '\')" '
+              + 'onclick="MS.attckHighlight(\'' + escjs(entry.technique_id) + '\')" '
               + 'title="' + esc((c.rationale || '').slice(0, 200)) + '">' + esc(entry.technique_id) + '</button>';
             html += '<span style="color:var(--text-dim);">' + esc(entry.attack_name || entry.title || '') + '</span>';
             if (affected.length) html += '<span class="ms-finding-chip" style="font-size:0.74em">' + affected.length + '</span>';
@@ -6565,7 +6565,7 @@ var MS = (function() {
         var basisColor = c.basis === 'observed' ? 'var(--sev-critical)' : (c.basis === 'platform' ? 'var(--accent-cyan)' : 'var(--sev-medium)');
         html += '<div class="ms-finding-card" style="border-left:3px solid ' + basisColor + ';">';
         html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">';
-        html += '<button class="ms-chip" style="cursor:pointer;font-family:var(--font-mono);color:var(--accent-cyan)" onclick="MS.attckHighlight(\'' + esc(c.technique_id) + '\')">' + esc(c.technique_id) + '</button>';
+        html += '<button class="ms-chip" style="cursor:pointer;font-family:var(--font-mono);color:var(--accent-cyan)" onclick="MS.attckHighlight(\'' + escjs(c.technique_id) + '\')">' + esc(c.technique_id) + '</button>';
         html += '<strong style="font-size:0.9em">' + esc(c.attack_name || c.title || '') + '</strong>';
         if (c.family) html += '<span class="ms-finding-chip">' + esc(c.family) + '</span>';
         html += '<span class="ms-finding-chip">' + esc(c.basis || 'inferred') + '</span>';
@@ -6575,7 +6575,7 @@ var MS = (function() {
         if (affected.length) {
           html += '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">';
           affected.forEach(function(ip) {
-            html += '<button class="ms-chip" style="cursor:pointer;font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(ip) + '\',true)">' + esc(ip) + '</button>';
+            html += '<button class="ms-chip" style="cursor:pointer;font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(ip) + '\',true)">' + esc(ip) + '</button>';
           });
           html += '</div>';
         }
@@ -6640,7 +6640,7 @@ var MS = (function() {
       if (!key) return;
       var cardId = 'ms-baseline-card-' + esc(key.replace(/[^a-zA-Z0-9]/g, '_'));
       cardsEl.insertAdjacentHTML('beforeend',
-        '<div id="' + cardId + '" class="ms-finding-card" style="padding:10px;cursor:pointer" onclick="MS.selectNodeByIp(\'' + esc(node.ip) + '\',true)">'
+        '<div id="' + cardId + '" class="ms-finding-card" style="padding:10px;cursor:pointer" onclick="MS.selectNodeByIp(\'' + escjs(node.ip) + '\',true)">'
           + '<div style="font-family:var(--font-mono);font-size:0.85em;color:var(--accent);margin-bottom:4px;">' + esc(node.ip) + '</div>'
           + '<div style="color:var(--text-dim);font-size:0.78em;">Loading baseline…</div>'
           + '</div>');
@@ -6714,7 +6714,7 @@ var MS = (function() {
         var nodes = groups[k];
         var ips = nodes.map(function(n) { return n.ip; }).filter(Boolean);
         html += '<button class="ms-chip" style="cursor:pointer;padding:6px 10px;background:rgba(91,138,240,0.1);border-color:rgba(91,138,240,0.28)" '
-          + 'onclick="MS.peersHighlight([' + ips.map(function(ip) { return '\'' + esc(ip) + '\''; }).join(',') + '])" '
+          + 'onclick="MS.peersHighlight([' + ips.map(function(ip) { return '\'' + escjs(ip) + '\''; }).join(',') + '])" '
           + 'title="Click to focus the map on these assets">'
           + '<strong>' + esc(k) + '</strong> '
           + '<span style="color:var(--text-dim);margin-left:4px;">' + nodes.length + '</span>'
@@ -6743,7 +6743,7 @@ var MS = (function() {
       html += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
       oddOnes.forEach(function(n) {
         html += '<button class="ms-chip" style="cursor:pointer;font-family:var(--font-mono);color:var(--sev-medium);border-color:var(--sev-medium)44" '
-          + 'onclick="MS.selectNodeByIp(\'' + esc(n.ip) + '\',true)" '
+          + 'onclick="MS.selectNodeByIp(\'' + escjs(n.ip) + '\',true)" '
           + 'title="' + esc((n.role || 'unknown') + ' is unique at Purdue Level ' + (n.purdue_level !== undefined ? n.purdue_level : '?')) + '">'
           + esc(n.ip) + '</button>';
       });
@@ -6902,7 +6902,7 @@ var MS = (function() {
       html += '<div class="ms-connection-list">';
       n._edges.slice(0, 6).forEach(function(e) {
         var peer = e.src === n._ip ? e.dst : e.src;
-        html += '<div class="ms-connection-item" style="cursor:pointer" onclick="MS.selectNodeByIp(\'' + esc(peer) + '\',true)">'
+        html += '<div class="ms-connection-item" style="cursor:pointer" onclick="MS.selectNodeByIp(\'' + escjs(peer) + '\',true)">'
           + '<span style="color:' + (e._color || '#64748b') + '">' + esc(e.protocol || '?') + '</span>'
           + ' &middot; <code>' + esc(peer) + '</code>'
           + ' &middot; ' + esc(e.conversation_count || 0) + ' ' + esc(tjs('viewer.conv_short'))
@@ -6940,7 +6940,7 @@ var MS = (function() {
       + esc(tjs('viewer.inspector.pivot.findings'))
       + '</button>';
     if (VIEWER_CONTEXT.project_id != null) {
-      html += '<button class="ms-inspector-pivot-btn" onclick="MS.extractSubPcap({src:\'' + esc(n._ip) + '\'})">'
+      html += '<button class="ms-inspector-pivot-btn" onclick="MS.extractSubPcap({src:\'' + escjs(n._ip) + '\'})">'
         + '<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M8 3v7M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="2" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>'
         + esc(tjs('viewer.inspector.pivot.extract'))
         + '</button>';
@@ -7031,7 +7031,7 @@ var MS = (function() {
       var sevVar = { CRITICAL: '--sev-critical', HIGH: '--sev-high', MEDIUM: '--sev-medium', LOW: '--sev-low', INFO: '--sev-info' }[sev] || '--text-dim';
       var affected = toArray(f.affected_nodes);
       var affectedHtml = affected.length ? affected.slice(0, 2).map(function(ip) {
-        return '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(ip) + '\',true)">' + esc(ip) + '</span>';
+        return '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(ip) + '\',true)">' + esc(ip) + '</span>';
       }).join(' ') + (affected.length > 2 ? ' +' + (affected.length - 2) : '') : '—';
       var note = f._note || {};
       var status = note.status || '';
@@ -7048,8 +7048,8 @@ var MS = (function() {
     if (!convs.length) return '<div style="color:var(--text-dim);padding:16px;">' + esc(tjs('viewer.traffic.conversations_empty') || 'No conversations.') + '</div>';
     var html = tableHeader([tjs('viewer.drawer.conversations.col.src'), tjs('viewer.drawer.conversations.col.dst'), tjs('viewer.drawer.conversations.col.proto'), tjs('viewer.drawer.conversations.col.bytes'), tjs('viewer.drawer.conversations.col.pkts')]);
     convs.slice(0, 200).forEach(function(c) {
-      var srcHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(c.src_ip || c.src) + '\',true)">' + esc(c.src_ip || c.src) + '</span>';
-      var dstHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(c.dst_ip || c.dst) + '\',true)">' + esc(c.dst_ip || c.dst) + '</span>';
+      var srcHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(c.src_ip || c.src) + '\',true)">' + esc(c.src_ip || c.src) + '</span>';
+      var dstHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(c.dst_ip || c.dst) + '\',true)">' + esc(c.dst_ip || c.dst) + '</span>';
       html += tableRow([srcHtml, dstHtml, esc(c.protocol || ''), esc(formatBytes(c.bytes_total || c.bytes || 0)), esc(String(c.packet_count || c.packets || ''))]);
     });
     html += '</tbody></table>';
@@ -7062,7 +7062,7 @@ var MS = (function() {
     html += tableHeader([tjs('viewer.drawer.assets.col.ip'), tjs('viewer.drawer.assets.col.role'), tjs('viewer.drawer.assets.col.vendor'), tjs('viewer.drawer.assets.col.level'), tjs('viewer.drawer.assets.col.risk')]);
     var sorted = nodes.slice().sort(function(a, b) { return (b._riskFindings || b._risk_count || 0) - (a._riskFindings || a._risk_count || 0); });
     sorted.forEach(function(n) {
-      var ipHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(n._ip) + '\',true)">' + esc(n._ip) + '</span>';
+      var ipHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(n._ip) + '\',true)">' + esc(n._ip) + '</span>';
       var roleColor = n._style ? n._style.color : '#64748b';
       var roleHtml = '<span style="color:' + roleColor + '">' + esc(n._role || '—') + '</span>';
       var risk = n._riskCount || n._risk_count || 0;
@@ -7083,7 +7083,7 @@ var MS = (function() {
     html += tableHeader([tjs('viewer.drawer.iocs.col.indicator'), tjs('viewer.drawer.iocs.col.type'), tjs('viewer.drawer.iocs.col.matched')]);
     iocMatches.forEach(function(match) {
       var indHtml = '<code style="font-size:0.9em">' + esc(match.indicator || match.value || '') + '</code>';
-      var matchHtml = match.matched_asset ? '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(match.matched_asset) + '\',true)">' + esc(match.matched_asset) + '</span>' : '—';
+      var matchHtml = match.matched_asset ? '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(match.matched_asset) + '\',true)">' + esc(match.matched_asset) + '</span>' : '—';
       html += tableRow([indHtml, esc(match.type || ''), matchHtml]);
     });
     html += '</tbody></table>';
@@ -7117,7 +7117,7 @@ var MS = (function() {
       var tactics = toArray(item.tactics).map(function(t) { return t.name || t; }).join(', ');
       var affected = toArray(item.affected_nodes);
       var affectedHtml = affected.length ? affected.slice(0, 2).map(function(ip) {
-        return '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(ip) + '\',true)">' + esc(ip) + '</span>';
+        return '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(ip) + '\',true)">' + esc(ip) + '</span>';
       }).join(' ') : '—';
       html += tableRow([tidHtml, esc(tactics), affectedHtml]);
     });
@@ -7130,7 +7130,7 @@ var MS = (function() {
     if (!dnsItems.length) return '<div style="color:var(--text-dim);padding:16px;">No DNS observations in this report.</div>';
     var html = tableHeader([tjs('viewer.drawer.dns.col.query'), tjs('viewer.drawer.dns.col.type'), tjs('viewer.drawer.dns.col.answer'), tjs('viewer.drawer.dns.col.asset')]);
     dnsItems.slice(0, 200).forEach(function(d) {
-      var assetHtml = d.asset_ip ? '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + esc(d.asset_ip) + '\',true)">' + esc(d.asset_ip) + '</span>' : '—';
+      var assetHtml = d.asset_ip ? '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(d.asset_ip) + '\',true)">' + esc(d.asset_ip) + '</span>' : '—';
       html += tableRow(['<code style="font-size:0.85em">' + esc(d.query || d.name || '') + '</code>', esc(d.record_type || d.type || ''), esc(d.answer || d.rdata || ''), assetHtml]);
     });
     html += '</tbody></table>';
