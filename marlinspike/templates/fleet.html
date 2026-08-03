@@ -535,9 +535,14 @@ var FLEET = (function() {
     document.getElementById('fleet-token-value').textContent = rawToken;
 
     fetchGatewayInfo().then(function(info) {
-      var gatewayAddr = info && info.gateway_host
-        ? info.gateway_host + ':' + info.gateway_port
-        : '<your-gateway-host>:<port>';
+      // Host and port are independently known/unknown — FLEET_GATEWAY_PUBLIC_PORT
+      // defaults to 8765 so the port is virtually always real, even on a
+      // deployment where the host still needs FLEET_GATEWAY_PUBLIC_HOST set
+      // (or isn't auto-detectable, e.g. reached over loopback). Only
+      // placeholder whichever half is actually missing, instead of
+      // discarding a known port just because the host isn't known.
+      var gatewayAddr = (info && info.gateway_host ? info.gateway_host : '<your-gateway-host>')
+        + ':' + (info && info.gateway_port ? info.gateway_port : '<port>');
       var warningEl = document.getElementById('fleet-gateway-host-warning');
       if (!info || !info.gateway_host) {
         // Nothing usable at all (e.g. this page was reached over
