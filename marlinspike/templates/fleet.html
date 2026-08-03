@@ -184,9 +184,11 @@
             </div>
 
             <p style="margin-top:14px;"><strong>{{ t('fleet.step_4_start') }}</strong></p>
+            <p>{{ t('fleet.step_4_start_hint') }}</p>
             <div class="fleet-cmd-box">
               <pre class="fleet-cmd">sudo chown marlinspike-agent:marlinspike-agent /etc/marlinspike-agent/credential.json
-sudo systemctl enable --now marlinspike-agent</pre>
+sudo systemctl enable marlinspike-agent
+sudo systemctl restart marlinspike-agent</pre>
             </div>
 
             <p style="margin-top:14px;"><strong>{{ t('fleet.step_5_capd') }}</strong></p>
@@ -458,6 +460,8 @@ var FLEET = (function() {
         if (a.status !== 'revoked') {
           actionsTd.appendChild(actionBtn({{ t("fleet.rotate_credential") | tojson }}, 'btn btn-sm', function() { showRotateCredential(a.id); }));
           actionsTd.appendChild(actionBtn({{ t("common.revoke") | tojson }}, 'btn btn-sm btn-danger', function() { revokeAgent(a.id); }));
+        } else {
+          actionsTd.appendChild(actionBtn({{ t("common.delete") | tojson }}, 'btn btn-sm btn-danger', function() { deleteAgent(a.id); }));
         }
         tr.appendChild(actionsTd);
 
@@ -472,6 +476,16 @@ var FLEET = (function() {
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok) { msToast({{ t("fleet.agent_revoked") | tojson }}, 'success'); loadAgents(selectedProjectId); }
+        else msToast(d.error || {{ t("common.failed") | tojson }}, true);
+      });
+  }
+
+  function deleteAgent(agentId) {
+    if (!confirm({{ t("fleet.confirm_delete_agent") | tojson }})) return;
+    fetch('/api/fleet/agents/' + agentId, { method: 'DELETE' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) { msToast({{ t("fleet.agent_deleted") | tojson }}, 'success'); loadAgents(selectedProjectId); }
         else msToast(d.error || {{ t("common.failed") | tojson }}, true);
       });
   }

@@ -589,6 +589,37 @@ def revoke_agent(agent_id):
     return jsonify({"ok": True, "agent": _serialize_agent(agent)})
 
 
+@bp.route("/agents/<int:agent_id>", methods=["DELETE"])
+@login_required
+def delete_agent(agent_id):
+    """Permanently remove a revoked agent's row from the Fleet page's list.
+
+    Only ever offered for already-revoked agents (enforced here, not just
+    in the UI) — deleting a live one would silently orphan a still-running
+    remote process instead of properly revoking it first. Safe to delete:
+    AgentCredential/AgentEnrollmentToken cascade-delete with it, and any
+    CaptureSession/ScanHistory it was ever attributed to keeps its history
+    with agent_id set to NULL (ondelete=SET NULL) rather than being deleted
+    too.
+    """
+    agent = db.session.get(Agent, agent_id)
+    if not agent:
+        return jsonify({"ok": False, "error": "Agent not found"}), 404
+    project = _get_project_for_user(agent.project_id, "editor")
+    if not project:
+        return jsonify({"ok": False, "error": "Agent not found"}), 404
+    if agent.status != "revoked":
+        return jsonify({"ok": False, "error": "Only a revoked agent can be deleted — revoke it first"}), 409
+
+    project_id = agent.project_id
+    db.session.delete(agent)
+    db.session.commit()
+
+    audit("fleet.agent_deleted", target_type="agent", target_id=str(agent_id),
+          detail=f"project_id={project_id}")
+    return jsonify({"ok": True})
+
+
 @bp.route("/agents/<int:agent_id>/rotate-credential", methods=["POST"])
 @login_required
 def rotate_agent_credential(agent_id):
