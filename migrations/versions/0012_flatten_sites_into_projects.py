@@ -147,14 +147,21 @@ def downgrade() -> None:
     op.create_index("ix_site_members_site_id", "site_members", ["site_id"])
     op.create_index("ix_site_members_user_id", "site_members", ["user_id"])
 
-    # One synthetic site per project that owns at least one agent, carrying
-    # over that project's (flattened) capture_schedule.
+    # One synthetic site per project that owns at least one agent OR
+    # enrollment token (a standing token can exist on a project before any
+    # agent has ever enrolled against it — see fleet/api.py's
+    # issue_enrollment_token), carrying over that project's (flattened)
+    # capture_schedule. Missing the token half of this guard left any
+    # project with an unredeemed standing token but zero agents with no
+    # synthesized site, so agent_enrollment_tokens.site_id below backfills
+    # to NULL and the following NOT NULL alter hard-crashes the downgrade.
     op.execute(
         """
         INSERT INTO sites (name, project_id, capture_schedule, capture_schedule_last_triggered_at)
         SELECT 'Site 1', p.id, p.capture_schedule, p.capture_schedule_last_triggered_at
         FROM projects p
         WHERE EXISTS (SELECT 1 FROM agents a WHERE a.project_id = p.id)
+           OR EXISTS (SELECT 1 FROM agent_enrollment_tokens t WHERE t.project_id = p.id)
         """
     )
 
