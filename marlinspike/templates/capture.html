@@ -989,34 +989,26 @@
   }
 
   // ── remote agents (Phase 3) ────────────────────────────────
-  // Populated from sites bound to the currently-selected project; only
-  // online agents are offered. Local (the default, empty value) always
-  // stays available regardless of fleet reachability.
+  // Agents are enrolled directly under a project; only online agents are
+  // offered. Local (the default, empty value) always stays available
+  // regardless of fleet reachability.
   function loadAgents() {
     var pid = currentProjectId();
     var sel = document.getElementById('cap-agent');
     var previous = sel.value;
     sel.innerHTML = '<option value="">' + T.run_on_local + '</option>';
     if (pid == null) return Promise.resolve();
-    return fetchJson('/api/fleet/sites').then(function(j){
-      var sites = ((j && j.sites) || []).filter(function(s){ return s.project_id === pid; });
-      if (!sites.length) return;
-      return Promise.all(sites.map(function(s){
-        return fetchJson('/api/fleet/sites/' + s.id + '/agents').then(function(aj){
-          return ((aj && aj.agents) || []).filter(function(a){ return a.status === 'online'; });
-        }).catch(function(){ return []; });
-      })).then(function(lists){
-        var agents = [].concat.apply([], lists);
-        agents.forEach(function(a){
-          var opt = document.createElement('option');
-          opt.value = a.id;
-          opt.textContent = a.name + ' (' + a.agent_uuid.slice(0, 8) + ')';
-          sel.appendChild(opt);
-        });
-        if (previous && agents.some(function(a){ return String(a.id) === previous; })) {
-          sel.value = previous;
-        }
+    return fetchJson('/api/fleet/projects/' + pid + '/agents').then(function(j){
+      var agents = ((j && j.agents) || []).filter(function(a){ return a.status === 'online'; });
+      agents.forEach(function(a){
+        var opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.name + ' (' + a.agent_uuid.slice(0, 8) + ')';
+        sel.appendChild(opt);
       });
+      if (previous && agents.some(function(a){ return String(a.id) === previous; })) {
+        sel.value = previous;
+      }
     }).catch(function(){ /* fleet feature unreachable — local-only stays offered */ });
   }
 

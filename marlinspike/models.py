@@ -53,6 +53,17 @@ class Project(db.Model):
     #         "max_total_bytes": int|null,  # retained ring-buffer bytes on disk
     #         "operator_warning": str|null}
     capture_policy = db.Column(db.Text, nullable=True)
+    # JSON-encoded automated-capture schedule: {"enabled": bool,
+    # "times_utc": ["06:00", "18:00"], "duration_s": int, "interface": str,
+    # "bpf_filter": str}. NULL = no schedule configured. Applies to every
+    # online fleet agent enrolled under this project when a slot fires —
+    # see marlinspike/scheduler.py and fleet/api.py's capture-schedule
+    # endpoints.
+    capture_schedule = db.Column(db.Text, nullable=True)
+    # Dedup guard against double-firing the same slot — survives an app
+    # restart near a scheduled time (a fresh in-memory "already fired
+    # today" set would not). See scheduler.py's _due_slot_today.
+    capture_schedule_last_triggered_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "name", name="uq_project_user_name"),
@@ -301,80 +312,15 @@ class SavedFilter(db.Model):
 
 # ── Fleet (remote sensor agents) ─────────────────────────────────
 
-class Site(db.Model):
-    """A physical site running one or more remote sensor agents.
-
-    Bound to a project so a site's reports land in that project's existing
-    REPORTS_DIR — the report-viewing UI needs no changes to show them.
-    """
-
-    __tablename__ = "sites"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    project_id = db.Column(
-        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    # JSON-encoded per-site capture policy — same shape as Project.capture_policy
-    # (enabled, allowed_interfaces, max_session_duration_s, max_total_bytes,
-    # operator_warning). NULL = no site-level restriction. For a remote-agent
-    # capture, the effective policy is project policy merged with site policy
-    # (most-restrictive-wins) — see capture/api.py's _merge_site_policy.
-    capture_policy = db.Column(db.Text, nullable=True)
-    # JSON-encoded automated-capture schedule: {"enabled": bool,
-    # "times_utc": ["06:00", "18:00"], "duration_s": int, "interface": str,
-    # "bpf_filter": str}. NULL = no schedule configured. Applies to every
-    # online agent at this site when a slot fires — see marlinspike/
-    # scheduler.py and fleet/api.py's capture-schedule endpoints.
-    capture_schedule = db.Column(db.Text, nullable=True)
-    # Dedup guard against double-firing the same slot — survives an app
-    # restart near a scheduled time (a fresh in-memory "already fired
-    # today" set would not). See scheduler.py's _due_slot_today.
-    capture_schedule_last_triggered_at = db.Column(db.DateTime, nullable=True)
-
-    project = db.relationship("Project", backref="sites")
-
-    __table_args__ = (
-        db.UniqueConstraint("project_id", "name", name="uq_site_project_name"),
-    )
-
-
-class SiteMember(db.Model):
-    """Additional members of a site beyond the creator.
-
-    Mirrors ProjectMember: the site creator (sites.created_by) is implicitly
-    owner and is not stored here — this table only holds invited members.
-    """
-
-    __tablename__ = "site_members"
-
-    id = db.Column(db.Integer, primary_key=True)
-    site_id = db.Column(
-        db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    user_id = db.Column(
-        db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    role = db.Column(db.String(20), nullable=False, default="viewer")  # viewer | editor | owner
-    invited_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-
-    __table_args__ = (
-        db.UniqueConstraint("site_id", "user_id", name="uq_site_member"),
-    )
-
-
 class Agent(db.Model):
-    """A remote sensor agent enrolled at a site."""
+    """A remote sensor agent enrolled under a project."""
 
     __tablename__ = "agents"
 
     id = db.Column(db.Integer, primary_key=True)
     agent_uuid = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    site_id = db.Column(
-        db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name = db.Column(db.String(200), nullable=False)
     # 'pending' (token issued, never connected) | 'enrolled' (connected once,
@@ -401,19 +347,19 @@ class Agent(db.Model):
     capture_active = db.Column(db.Boolean, nullable=True)
     last_error = db.Column(db.Text, nullable=True)
 
-    site = db.relationship("Site", backref="agents")
+    project = db.relationship("Project", backref="agents")
 
 
 class AgentEnrollmentToken(db.Model):
-    """Token used to enroll a new agent at a site, or (via ``agent_id``) to
-    rotate an existing agent's credential.
+    """Token used to enroll a new agent under a project, or (via
+    ``agent_id``) to rotate an existing agent's credential.
 
     Two lifecycles share this table:
-    - Standing site-enrollment token (``is_standing=True``): long-lived,
-      reusable across any number of agents at the site. Never expires and
-      is never marked used_at — only ``revoked_at`` ends its life, set when
-      an owner/editor rotates it (see api.py:_mint_standing_token). This is
-      the one an operator gets from the Fleet page and pastes into
+    - Standing project-enrollment token (``is_standing=True``): long-lived,
+      reusable across any number of agents under the project. Never expires
+      and is never marked used_at — only ``revoked_at`` ends its life, set
+      when an owner/editor rotates it (see api.py:_mint_standing_token).
+      This is the one an operator gets from the Fleet page and pastes into
       ``marlinspike-agent enroll``.
     - One-time rotation token (``agent_id`` set, ``is_standing=False``):
       mirrors PasswordResetToken's hash-at-rest / expire / single-use shape
@@ -426,8 +372,8 @@ class AgentEnrollmentToken(db.Model):
     __tablename__ = "agent_enrollment_tokens"
 
     id = db.Column(db.Integer, primary_key=True)
-    site_id = db.Column(
-        db.Integer, db.ForeignKey("sites.id", ondelete="CASCADE"), nullable=False, index=True
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Set only for a credential-rotation token (Phase 6.2): redeeming it
     # reuses this existing Agent row (same agent_uuid, name, history) and

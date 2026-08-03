@@ -1,5 +1,5 @@
 """Automated capture scheduling — triggers a capture start on every online
-agent at a site when one of its configured daily UTC time slots is due.
+agent under a project when one of its configured daily UTC time slots is due.
 
 A plain threading.Thread + sleep-loop, matching the pattern already used
 by recovery.py's own background watcher — no new dependency
@@ -30,7 +30,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from marlinspike.models import Agent, Project, Site, db
+from marlinspike.models import Agent, Project, db
 
 log = logging.getLogger("marlinspike.scheduler")
 
@@ -83,26 +83,21 @@ def _run_due_schedules(app) -> None:
 
     now = datetime.now(timezone.utc)
     with app.app_context():
-        sites = Site.query.filter(Site.capture_schedule.isnot(None)).all()
-        for site in sites:
-            schedule = _parse_schedule(site.capture_schedule)
+        projects = Project.query.filter(Project.capture_schedule.isnot(None)).all()
+        for project in projects:
+            schedule = _parse_schedule(project.capture_schedule)
             if not schedule or not schedule.get("enabled"):
                 continue
-            if not _due_slot_today(schedule, now, site.capture_schedule_last_triggered_at):
+            if not _due_slot_today(schedule, now, project.capture_schedule_last_triggered_at):
                 continue
 
             interface = str(schedule.get("interface") or "").strip()
             duration_s = int(schedule.get("duration_s") or 300)
             bpf_filter = str(schedule.get("bpf_filter") or "")
 
-            project = Project.query.get(site.project_id)
-            if project is None:
-                log.warning("scheduler: site %s's project %s is gone — skipping", site.id, site.project_id)
-                continue
-
-            online_agents = Agent.query.filter_by(site_id=site.id, status="online").all()
+            online_agents = Agent.query.filter_by(project_id=project.id, status="online").all()
             if not online_agents:
-                log.info("scheduler: site %s has a due slot but no online agents", site.id)
+                log.info("scheduler: project %s has a due slot but no online agents", project.id)
             for agent in online_agents:
                 result, status = _start_capture_session(
                     user_id=project.user_id, project=project, agent=agent,
@@ -111,16 +106,16 @@ def _run_due_schedules(app) -> None:
                     actor_username="scheduler",
                 )
                 if status == 201:
-                    log.info("scheduler: started capture on agent %s (site %s)", agent.id, site.id)
+                    log.info("scheduler: started capture on agent %s (project %s)", agent.id, project.id)
                 else:
-                    log.warning("scheduler: failed to start capture on agent %s (site %s): %s",
-                                agent.id, site.id, result.get("error"))
+                    log.warning("scheduler: failed to start capture on agent %s (project %s): %s",
+                                agent.id, project.id, result.get("error"))
 
             # Marked fired even with zero online agents — deliberate,
-            # otherwise a site with no online agents would retry every
+            # otherwise a project with no online agents would retry every
             # tick for the rest of the grace window instead of just
             # waiting for its next scheduled slot.
-            site.capture_schedule_last_triggered_at = now
+            project.capture_schedule_last_triggered_at = now
             db.session.commit()
 
 

@@ -1,6 +1,6 @@
 """DB access for the fleet gateway — a plain asyncio process, not Flask.
 
-The gateway needs the same models/tables the web app uses (Site, Agent,
+The gateway needs the same models/tables the web app uses (Agent,
 AgentEnrollmentToken, AgentCredential) but doesn't run inside a Flask
 request. Flask-SQLAlchemy's ``db.session`` needs an app context to work,
 so we build a minimal Flask app here purely to get that context — the
@@ -119,7 +119,7 @@ def lookup_agent_instance(agent_uuid: str) -> dict | None:
         return None
 
 
-def _publish_agent_status(*, agent_uuid: str, site_id: int, status: str) -> None:
+def _publish_agent_status(*, agent_uuid: str, project_id: int, status: str) -> None:
     """Best-effort: publish a status change for live fleet-page updates
     (fleet/api.py's SSE endpoint). Never raises — a Redis hiccup should
     never take down enroll/auth/heartbeat handling."""
@@ -128,7 +128,7 @@ def _publish_agent_status(*, agent_uuid: str, site_id: int, status: str) -> None
         return
     try:
         r.publish(config.FLEET_STATUS_REDIS_CHANNEL, json.dumps({
-            "agent_uuid": agent_uuid, "site_id": site_id, "status": status,
+            "agent_uuid": agent_uuid, "project_id": project_id, "status": status,
         }))
     except Exception:
         log.exception("failed to publish agent status for %s", agent_uuid)
@@ -283,7 +283,7 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
         else:
             agent = Agent(
                 agent_uuid=str(uuid.uuid4()),
-                site_id=token.site_id,
+                project_id=token.project_id,
                 name=(name or f"agent-{secrets.token_hex(4)}")[:200],
                 status="enrolled",
                 agent_version=agent_version,
@@ -309,7 +309,7 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
 
         from marlinspike.audit import audit
         audit("fleet.agent_enrolled", target_type="agent", target_id=str(agent.id),
-              detail=f"site_id={token.site_id} name={agent.name!r}")
+              detail=f"project_id={token.project_id} name={agent.name!r}")
         # Purely informational (see server.py's wire compatibility contract
         # docstring) — a version mismatch is never itself a reason to
         # reject an agent, just something worth an operator noticing.
@@ -322,7 +322,7 @@ def enroll_agent(*, raw_token: str, name: str | None, agent_version: str | None,
         if agent_version and current_agent_version is not None and agent_version != current_agent_version:
             log.info("agent %s enrolled with agent_version=%s (current agent release is %s)",
                       agent.agent_uuid, agent_version, current_agent_version)
-        _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
+        _publish_agent_status(agent_uuid=agent.agent_uuid, project_id=agent.project_id, status=agent.status)
 
         return result
 
@@ -361,7 +361,7 @@ def authenticate_agent(*, agent_uuid: str, raw_credential: str,
         agent.status = "online"
         agent.last_seen_at = datetime.now(timezone.utc)
         db.session.commit()
-        _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
+        _publish_agent_status(agent_uuid=agent.agent_uuid, project_id=agent.project_id, status=agent.status)
         return {"agent_id": agent.id}
 
 
@@ -417,7 +417,7 @@ def record_heartbeat(*, agent_uuid: str, cpu_percent: float | None = None,
         # would just be noise the SSE endpoint filters right back out, and
         # the fleet UI shows last-seen via its own periodic agent-list poll.
         if not was_online:
-            _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
+            _publish_agent_status(agent_uuid=agent.agent_uuid, project_id=agent.project_id, status=agent.status)
 
 
 def mark_offline(*, agent_uuid: str) -> None:
@@ -429,7 +429,7 @@ def mark_offline(*, agent_uuid: str) -> None:
             return
         agent.status = "offline"
         db.session.commit()
-        _publish_agent_status(agent_uuid=agent.agent_uuid, site_id=agent.site_id, status=agent.status)
+        _publish_agent_status(agent_uuid=agent.agent_uuid, project_id=agent.project_id, status=agent.status)
 
 
 def _session_owned_by_agent(cs: CaptureSession, agent_uuid: str) -> bool:

@@ -1,9 +1,10 @@
 """Flask blueprint mounted at /api/fleet/*.
 
-Phase 1 of the distributed-agent architecture: pure schema + admin UI for
-managing sites and enrolling remote sensor agents. No live transport exists
-yet — nothing here dials out or accepts agent connections. See
-/root/.claude/plans/bright-jumping-tower.md for the full phased plan.
+Manages remote sensor agents enrolled directly under an existing Project
+(no separate Site layer — every agent belongs to exactly one Project, the
+same one that owns its reports/captures). See
+/root/.claude/plans/rustling-painting-hanrahan.md for the flattening
+rationale.
 
 Mirrors marlinspike/capture/api.py's structure (blueprint-per-concern,
 local ACL check to avoid importing from app.py and creating a circular
@@ -34,9 +35,6 @@ from marlinspike.models import (
     AgentCredential,
     AgentEnrollmentToken,
     Project,
-    Site,
-    SiteMember,
-    User,
     db,
 )
 
@@ -44,39 +42,21 @@ bp = Blueprint("fleet", __name__, url_prefix="/api/fleet")
 
 ENROLLMENT_TOKEN_TTL_MINUTES = 60
 
-# Mirrors app.py's _MEMBER_ROLE_RANK / _VALID_MEMBER_ROLES exactly (kept as a
-# local copy, not an import, for the same reason capture/api.py doesn't
-# import _get_project_for_user from app.py: app.py registers this blueprint,
-# so importing back from app.py would be circular).
+# Mirrors app.py's _MEMBER_ROLE_RANK exactly (kept as a local copy, not an
+# import, for the same reason capture/api.py doesn't import
+# _get_project_for_user from app.py: app.py registers this blueprint, so
+# importing back from app.py would be circular).
 _MEMBER_ROLE_RANK: dict[str, int] = {"viewer": 1, "editor": 2, "owner": 3}
-_VALID_MEMBER_ROLES = frozenset(_MEMBER_ROLE_RANK)
-
-
-def _get_site_for_user(site_id: int, min_role: str = "viewer") -> "Site | None":
-    """Return the site if the current session user can access it.
-
-    Mirrors app.py's _get_project_for_user: access is granted when the user
-    created the site (always owner) OR has a SiteMember row whose role rank
-    >= min_role. Returns None when the site doesn't exist or access denied.
-    """
-    uid = session.get("user_id")
-    if not uid:
-        return None
-    site = db.session.get(Site, site_id)
-    if site is None:
-        return None
-    if site.created_by == uid:
-        return site
-    member = SiteMember.query.filter_by(site_id=site_id, user_id=uid).first()
-    if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get(min_role, 1):
-        return site
-    return None
 
 
 def _get_project_for_user(pid: int, min_role: str = "viewer") -> "Project | None":
-    """Local copy of app.py's project ACL check — a site must bind to a
-    project the caller can at least edit, and this blueprint can't import
-    app.py's version without a circular import."""
+    """Return the project if the current session user can access it.
+
+    Access is granted when the user is the project creator (always owner)
+    OR has a ProjectMember row whose role rank >= min_role. Returns None
+    when the project doesn't exist or the user lacks access. Local copy of
+    app.py's version — see module docstring for why.
+    """
     from marlinspike.models import ProjectMember
 
     uid = session.get("user_id")
@@ -98,19 +78,20 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _mint_standing_token(site_id: int, created_by: int) -> str:
+def _mint_standing_token(project_id: int, created_by: int) -> str:
     """Mint a fresh standing (reusable, non-expiring) enrollment token for a
-    site, revoking any previously active standing token first — a site has
-    at most one live standing token at a time, so "rotate" means "replace",
-    not "add another". Returns the raw token (shown once, hashed at rest).
+    project, revoking any previously active standing token first — a
+    project has at most one live standing token at a time, so "rotate"
+    means "replace", not "add another". Returns the raw token (shown once,
+    hashed at rest).
     """
     AgentEnrollmentToken.query.filter_by(
-        site_id=site_id, is_standing=True, revoked_at=None
+        project_id=project_id, is_standing=True, revoked_at=None
     ).update({"revoked_at": datetime.now(timezone.utc)})
 
     raw_token = secrets.token_urlsafe(32)
     token = AgentEnrollmentToken(
-        site_id=site_id,
+        project_id=project_id,
         token_hash=_hash_token(raw_token),
         is_standing=True,
         created_by=created_by,
@@ -142,13 +123,12 @@ def _force_disconnect(agent_uuid: str) -> None:
         logging.getLogger(__name__).exception("failed to force-disconnect agent %s", agent_uuid)
 
 
-def _serialize_site(site: Site, *, agent_count: int | None = None) -> dict:
+def _serialize_project(project: Project, *, agent_count: int | None = None) -> dict:
     return {
-        "id": site.id,
-        "name": site.name,
-        "project_id": site.project_id,
-        "created_by": site.created_by,
-        "created_at": site.created_at.isoformat() if site.created_at else None,
+        "id": project.id,
+        "name": project.name,
+        "user_id": project.user_id,
+        "created_at": project.created_at.isoformat() if project.created_at else None,
         "agent_count": agent_count,
     }
 
@@ -196,7 +176,7 @@ def _serialize_agent(agent: Agent) -> dict:
     return {
         "id": agent.id,
         "agent_uuid": agent.agent_uuid,
-        "site_id": agent.site_id,
+        "project_id": agent.project_id,
         "name": agent.name,
         "status": agent.status,
         "agent_version": agent.agent_version,
@@ -220,222 +200,45 @@ def _serialize_agent(agent: Agent) -> dict:
     }
 
 
-# ── Sites ─────────────────────────────────────────────────────────
+# ── Projects ──────────────────────────────────────────────────────
+# Project creation/rename/deletion/membership already exist at
+# /api/projects/... (app.py) — this blueprint only adds the fleet-specific
+# view (agent counts) and fleet-specific actions on top of an existing
+# project, it never creates one.
 
-@bp.route("/sites", methods=["GET"])
+@bp.route("/projects", methods=["GET"])
 @login_required
-def list_sites():
+def list_projects():
     from sqlalchemy import or_
 
+    from marlinspike.models import ProjectMember
+
     uid = session["user_id"]
-    shared_site_ids = db.session.query(SiteMember.site_id).filter_by(user_id=uid)
-    sites = Site.query.filter(
-        or_(Site.created_by == uid, Site.id.in_(shared_site_ids))
-    ).order_by(Site.created_at).all()
+    shared_pids = db.session.query(ProjectMember.project_id).filter_by(user_id=uid)
+    projects = Project.query.filter(
+        or_(Project.user_id == uid, Project.id.in_(shared_pids))
+    ).order_by(Project.created_at).all()
     result = []
-    for s in sites:
-        agent_count = Agent.query.filter_by(site_id=s.id).filter(Agent.status != "revoked").count()
-        result.append(_serialize_site(s, agent_count=agent_count))
-    return jsonify({"ok": True, "sites": result})
+    for p in projects:
+        agent_count = Agent.query.filter_by(project_id=p.id).filter(Agent.status != "revoked").count()
+        result.append(_serialize_project(p, agent_count=agent_count))
+    return jsonify({"ok": True, "projects": result})
 
 
-@bp.route("/sites", methods=["POST"])
+@bp.route("/projects/<int:project_id>", methods=["GET"])
 @login_required
-def create_site():
-    body = request.get_json(silent=True) or {}
-    name = (body.get("name") or "").strip()
-    project_id = body.get("project_id")
-    if not name:
-        return jsonify({"ok": False, "error": "name is required"}), 400
-    try:
-        project_id = int(project_id)
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "project_id is required"}), 400
-
-    proj = _get_project_for_user(project_id, "editor")
-    if not proj:
+def get_project(project_id):
+    project = _get_project_for_user(project_id)
+    if not project:
         return jsonify({"ok": False, "error": "Project not found"}), 404
-
-    site = Site(name=name, project_id=project_id, created_by=session["user_id"])
-    db.session.add(site)
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        return jsonify({"ok": False, "error": "A site with that name already exists in this project"}), 409
-
-    raw_token = _mint_standing_token(site.id, session["user_id"])
-
-    audit("fleet.site_created", target_type="site", target_id=str(site.id),
-          detail=f"project_id={project_id} name={name!r}")
-    return jsonify({
-        "ok": True,
-        "site": _serialize_site(site, agent_count=0),
-        "enrollment_token": raw_token,
-    }), 201
+    agent_count = Agent.query.filter_by(project_id=project.id).filter(Agent.status != "revoked").count()
+    return jsonify({"ok": True, "project": _serialize_project(project, agent_count=agent_count)})
 
 
-@bp.route("/sites/<int:site_id>", methods=["GET"])
-@login_required
-def get_site(site_id):
-    site = _get_site_for_user(site_id)
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    agent_count = Agent.query.filter_by(site_id=site.id).filter(Agent.status != "revoked").count()
-    return jsonify({"ok": True, "site": _serialize_site(site, agent_count=agent_count)})
-
-
-# ── Site members ─────────────────────────────────────────────────
-# Mirrors app.py's /api/projects/<pid>/members routes exactly — same
-# shape, same rules (creator is an implicit, unremovable, unchangeable
-# owner; SiteMember only holds invited members). Exercises the ACL
-# helper that's existed since Phase 1 with no UI to actually add anyone.
-
-@bp.route("/sites/<int:site_id>/members", methods=["GET"])
-@login_required
-def list_site_members(site_id):
-    site = _get_site_for_user(site_id)
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    creator = db.session.get(User, site.created_by)
-    members = [{
-        "user_id": site.created_by,
-        "username": creator.username if creator else "unknown",
-        "role": "owner",
-        "is_creator": True,
-        "invited_by": None,
-        "created_at": None,
-    }]
-    for m in SiteMember.query.filter_by(site_id=site_id).all():
-        u = db.session.get(User, m.user_id)
-        members.append({
-            "user_id": m.user_id,
-            "username": u.username if u else "unknown",
-            "role": m.role,
-            "is_creator": False,
-            "invited_by": m.invited_by,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
-        })
-    return jsonify({"ok": True, "members": members})
-
-
-@bp.route("/sites/<int:site_id>/members", methods=["POST"])
-@login_required
-def add_site_member(site_id):
-    site = _get_site_for_user(site_id, "owner")
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    body = request.get_json(silent=True) or {}
-    username = (body.get("username") or "").strip()
-    role = body.get("role", "viewer")
-    if role not in _VALID_MEMBER_ROLES:
-        return jsonify({"ok": False, "error": f"role must be one of: {sorted(_VALID_MEMBER_ROLES)}"}), 400
-    target = User.query.filter_by(username=username).first()
-    if not target:
-        return jsonify({"ok": False, "error": "User not found"}), 404
-    if target.id == site.created_by:
-        return jsonify({"ok": False, "error": "Site creator is already an owner"}), 409
-    existing = SiteMember.query.filter_by(site_id=site_id, user_id=target.id).first()
-    if existing:
-        existing.role = role
-    else:
-        existing = SiteMember(site_id=site_id, user_id=target.id, role=role, invited_by=session["user_id"])
-        db.session.add(existing)
-    db.session.commit()
-
-    audit("fleet.site_member_added", target_type="site", target_id=str(site_id),
-          detail=f"user_id={target.id} username={target.username!r} role={role}")
-    return jsonify({"ok": True, "user_id": target.id, "username": target.username, "role": role})
-
-
-@bp.route("/sites/<int:site_id>/members/<int:uid>", methods=["PUT"])
-@login_required
-def update_site_member(site_id, uid):
-    site = _get_site_for_user(site_id, "owner")
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    if uid == site.created_by:
-        return jsonify({"ok": False, "error": "Cannot change the site creator's role"}), 400
-    body = request.get_json(silent=True) or {}
-    role = body.get("role")
-    if role not in _VALID_MEMBER_ROLES:
-        return jsonify({"ok": False, "error": f"role must be one of: {sorted(_VALID_MEMBER_ROLES)}"}), 400
-    member = SiteMember.query.filter_by(site_id=site_id, user_id=uid).first()
-    if not member:
-        return jsonify({"ok": False, "error": "Member not found"}), 404
-    member.role = role
-    db.session.commit()
-    return jsonify({"ok": True})
-
-
-@bp.route("/sites/<int:site_id>/members/<int:uid>", methods=["DELETE"])
-@login_required
-def remove_site_member(site_id, uid):
-    site = _get_site_for_user(site_id, "owner")
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    if uid == site.created_by:
-        return jsonify({"ok": False, "error": "Cannot remove the site creator"}), 400
-    member = SiteMember.query.filter_by(site_id=site_id, user_id=uid).first()
-    if member:
-        db.session.delete(member)
-        db.session.commit()
-    return jsonify({"ok": True})
-
-
-# ── Site capture policy ──────────────────────────────────────────
-# Mirrors capture/api.py's GET/PUT /api/capture/policy/<pid> exactly —
-# reuses that module's parse/validate helpers rather than duplicating them
-# (both live in the same deployable package, unlike the agent's
-# deliberately-duplicated wire framing).
-
-@bp.route("/sites/<int:site_id>/policy", methods=["GET"])
-@login_required
-def get_site_policy(site_id):
-    site = _get_site_for_user(site_id, "owner")
-    if site is None:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    policy = _parse_policy(site.capture_policy)
-    return jsonify({
-        "ok": True,
-        "site_id": site_id,
-        "policy": policy,
-        "effective_allowed_interfaces": _resolve_interface_allowlist(policy),
-    })
-
-
-@bp.route("/sites/<int:site_id>/policy", methods=["PUT"])
-@login_required
-def set_site_policy(site_id):
-    site = _get_site_for_user(site_id, "owner")
-    if site is None:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-
-    body = request.get_json(silent=True)
-    if body is None or not isinstance(body, dict):
-        return jsonify({"ok": False, "error": "JSON body required"}), 400
-
-    err = _validate_policy_body(body)
-    if err:
-        return jsonify({"ok": False, "error": f"invalid policy: {err}"}), 400
-
-    old_raw = site.capture_policy
-    site.capture_policy = json.dumps(body) if body else None
-    db.session.commit()
-
-    audit("fleet.site_policy_set", target_type="site", target_id=str(site_id),
-          detail=json.dumps({
-              "site_id": site_id,
-              "old_policy": json.loads(old_raw) if old_raw else None,
-              "new_policy": body,
-          }))
-    return jsonify({"ok": True, "policy": body})
-
-
-# ── Site automated capture schedule ──────────────────────────────
+# ── Project automated capture schedule ───────────────────────────
 # See marlinspike/scheduler.py — a schedule set here drives a background
-# thread that automatically starts a capture on every online agent at
-# this site when a configured times_utc slot is due, reusing the exact
+# thread that automatically starts a capture on every online agent under
+# this project when a configured times_utc slot is due, reusing the exact
 # same policy-gated _start_capture_session core logic a manual click uses.
 
 _SCHEDULE_ALLOWED_KEYS = frozenset({"enabled", "times_utc", "duration_s", "interface", "bpf_filter"})
@@ -477,28 +280,28 @@ def _validate_schedule_body(body: dict) -> str | None:
     return None
 
 
-@bp.route("/sites/<int:site_id>/capture-schedule", methods=["GET"])
+@bp.route("/projects/<int:project_id>/capture-schedule", methods=["GET"])
 @login_required
-def get_capture_schedule(site_id):
-    site = _get_site_for_user(site_id, "owner")
-    if site is None:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    schedule = json.loads(site.capture_schedule) if site.capture_schedule else None
+def get_capture_schedule(project_id):
+    project = _get_project_for_user(project_id, "owner")
+    if project is None:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    schedule = json.loads(project.capture_schedule) if project.capture_schedule else None
     return jsonify({
-        "ok": True, "site_id": site_id, "schedule": schedule,
+        "ok": True, "project_id": project_id, "schedule": schedule,
         "last_triggered_at": (
-            site.capture_schedule_last_triggered_at.isoformat()
-            if site.capture_schedule_last_triggered_at else None
+            project.capture_schedule_last_triggered_at.isoformat()
+            if project.capture_schedule_last_triggered_at else None
         ),
     })
 
 
-@bp.route("/sites/<int:site_id>/capture-schedule", methods=["PUT"])
+@bp.route("/projects/<int:project_id>/capture-schedule", methods=["PUT"])
 @login_required
-def set_capture_schedule(site_id):
-    site = _get_site_for_user(site_id, "owner")
-    if site is None:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
+def set_capture_schedule(project_id):
+    project = _get_project_for_user(project_id, "owner")
+    if project is None:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
 
     body = request.get_json(silent=True)
     if body is None or not isinstance(body, dict):
@@ -508,13 +311,13 @@ def set_capture_schedule(site_id):
     if err:
         return jsonify({"ok": False, "error": f"invalid schedule: {err}"}), 400
 
-    old_raw = site.capture_schedule
-    site.capture_schedule = json.dumps(body) if body else None
+    old_raw = project.capture_schedule
+    project.capture_schedule = json.dumps(body) if body else None
     db.session.commit()
 
-    audit("fleet.site_capture_schedule_set", target_type="site", target_id=str(site_id),
+    audit("fleet.project_capture_schedule_set", target_type="project", target_id=str(project_id),
           detail=json.dumps({
-              "site_id": site_id,
+              "project_id": project_id,
               "old_schedule": json.loads(old_raw) if old_raw else None,
               "new_schedule": body,
           }))
@@ -532,9 +335,9 @@ def download_agent_package():
     from config.MARLINSPIKE_AGENT_SOURCE_DIR on every request (small,
     source-only, no compiled artifacts) rather than a cached/prebuilt
     file, so it can never drift from whatever agent code this exact
-    running deployment actually ships. Not site- or project-scoped — the
-    package itself is generic; only the enrollment token (issued
-    separately, per-site) ties a specific install to a specific site.
+    running deployment actually ships. Not project-scoped — the package
+    itself is generic; only the enrollment token (issued separately, per
+    project) ties a specific install to a specific project.
     """
     source_dir = config.MARLINSPIKE_AGENT_SOURCE_DIR
     if not os.path.isdir(source_dir):
@@ -545,7 +348,7 @@ def download_agent_package():
         tar.add(source_dir, arcname="marlinspike-agent", filter=_agent_tar_filter)
     buf.seek(0)
 
-    audit("fleet.agent_package_downloaded", target_type="site", target_id=None)
+    audit("fleet.agent_package_downloaded", target_type="project", target_id=None)
     return send_file(
         buf, mimetype="application/gzip", as_attachment=True,
         download_name="marlinspike-agent.tar.gz",
@@ -581,7 +384,7 @@ def download_agent_package_deb():
     if not matches:
         return jsonify({"ok": False, "error": "agent .deb not available on this deployment"}), 404
 
-    audit("fleet.agent_package_deb_downloaded", target_type="site", target_id=None)
+    audit("fleet.agent_package_deb_downloaded", target_type="project", target_id=None)
     return send_file(matches[-1], mimetype="application/vnd.debian.binary-package", as_attachment=True,
                       download_name=os.path.basename(matches[-1]))
 
@@ -601,7 +404,7 @@ def download_capd_package_deb():
     if not matches:
         return jsonify({"ok": False, "error": "capd .deb not available on this deployment"}), 404
 
-    audit("fleet.capd_package_deb_downloaded", target_type="site", target_id=None)
+    audit("fleet.capd_package_deb_downloaded", target_type="project", target_id=None)
     return send_file(matches[-1], mimetype="application/vnd.debian.binary-package", as_attachment=True,
                       download_name=os.path.basename(matches[-1]))
 
@@ -621,7 +424,7 @@ def download_ca_cert():
     if not ca_cert_path or not os.path.isfile(ca_cert_path):
         return jsonify({"ok": False, "error": "fleet CA certificate not available on this deployment"}), 404
 
-    audit("fleet.ca_cert_downloaded", target_type="site", target_id=None)
+    audit("fleet.ca_cert_downloaded", target_type="project", target_id=None)
     return send_file(ca_cert_path, mimetype="application/x-x509-ca-cert", as_attachment=True,
                       download_name="fleet-ca.crt")
 
@@ -673,47 +476,47 @@ def gateway_info():
 
 # ── Enrollment tokens ────────────────────────────────────────────
 
-@bp.route("/sites/<int:site_id>/enrollment-tokens", methods=["POST"])
+@bp.route("/projects/<int:project_id>/enrollment-tokens", methods=["POST"])
 @login_required
-def issue_enrollment_token(site_id):
-    """Rotate this site's standing enrollment token: revoke whichever one is
-    currently active and mint a fresh one, returned exactly once to the
-    authenticated, already-authorized caller who requested it — unlike
+def issue_enrollment_token(project_id):
+    """Rotate this project's standing enrollment token: revoke whichever
+    one is currently active and mint a fresh one, returned exactly once to
+    the authenticated, already-authorized caller who requested it — unlike
     auth.py's password-reset token (deliberately never returned in a
     response, since an unauthenticated party can trigger that flow for
-    someone else's account), this token is minted on-demand by a site
+    someone else's account), this token is minted on-demand by a project
     editor/owner for their own use, so returning it directly here is the
     correct and intended UX (same shape as e.g. a personal access token
     shown once at creation). The token is reusable — every existing
     enrolled agent keeps working; only *future* enrollments need the new
     value.
     """
-    site = _get_site_for_user(site_id, "editor")
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
+    project = _get_project_for_user(project_id, "editor")
+    if not project:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
 
-    raw_token = _mint_standing_token(site_id, session["user_id"])
+    raw_token = _mint_standing_token(project_id, session["user_id"])
 
-    audit("fleet.enrollment_token_issued", target_type="site", target_id=str(site_id))
+    audit("fleet.enrollment_token_issued", target_type="project", target_id=str(project_id))
     return jsonify({"ok": True, "token": raw_token}), 201
 
 
 # ── Agents ────────────────────────────────────────────────────────
 
-@bp.route("/sites/<int:site_id>/agents", methods=["GET"])
+@bp.route("/projects/<int:project_id>/agents", methods=["GET"])
 @login_required
-def list_agents(site_id):
-    site = _get_site_for_user(site_id)
-    if not site:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
-    agents = Agent.query.filter_by(site_id=site_id).order_by(Agent.created_at).all()
+def list_agents(project_id):
+    project = _get_project_for_user(project_id)
+    if not project:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    agents = Agent.query.filter_by(project_id=project_id).order_by(Agent.created_at).all()
     return jsonify({"ok": True, "agents": [_serialize_agent(a) for a in agents]})
 
 
-@bp.route("/sites/<int:site_id>/stream", methods=["GET"])
+@bp.route("/projects/<int:project_id>/stream", methods=["GET"])
 @login_required
-def stream_site_status(site_id):
-    """Live agent status updates for one site (Phase 5).
+def stream_project_status(project_id):
+    """Live agent status updates for one project (Phase 5).
 
     Agent status changes happen in the fleet gateway — a separate process
     from every Flask/gunicorn worker — so there's no in-process signal to
@@ -724,9 +527,9 @@ def stream_site_status(site_id):
     Falls back to nothing (no live updates, just the periodic poll the
     fleet page already does) if no Redis URL is configured.
     """
-    site = _get_site_for_user(site_id)
-    if site is None:
-        return jsonify({"ok": False, "error": "Site not found"}), 404
+    project = _get_project_for_user(project_id)
+    if project is None:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
 
     if not config.FLEET_STATUS_REDIS_URL:
         def _unavailable():
@@ -749,8 +552,8 @@ def stream_site_status(site_id):
                     data = json.loads(message["data"])
                 except (ValueError, TypeError):
                     continue
-                if data.get("site_id") != site_id:
-                    continue  # this channel carries every site's events
+                if data.get("project_id") != project_id:
+                    continue  # this channel carries every project's events
                 yield f"data: {json.dumps(data)}\n\n"
         except GeneratorExit:
             return
@@ -769,8 +572,8 @@ def revoke_agent(agent_id):
     agent = db.session.get(Agent, agent_id)
     if not agent:
         return jsonify({"ok": False, "error": "Agent not found"}), 404
-    site = _get_site_for_user(agent.site_id, "editor")
-    if not site:
+    project = _get_project_for_user(agent.project_id, "editor")
+    if not project:
         return jsonify({"ok": False, "error": "Agent not found"}), 404
 
     agent.status = "revoked"
@@ -782,7 +585,7 @@ def revoke_agent(agent_id):
     _force_disconnect(agent.agent_uuid)
 
     audit("fleet.agent_revoked", target_type="agent", target_id=str(agent_id),
-          detail=f"site_id={agent.site_id}")
+          detail=f"project_id={agent.project_id}")
     return jsonify({"ok": True, "agent": _serialize_agent(agent)})
 
 
@@ -801,8 +604,8 @@ def rotate_agent_credential(agent_id):
     agent = db.session.get(Agent, agent_id)
     if not agent:
         return jsonify({"ok": False, "error": "Agent not found"}), 404
-    site = _get_site_for_user(agent.site_id, "editor")
-    if not site:
+    project = _get_project_for_user(agent.project_id, "editor")
+    if not project:
         return jsonify({"ok": False, "error": "Agent not found"}), 404
     if agent.status == "revoked":
         return jsonify({"ok": False, "error": "Agent is revoked — cannot rotate its credential"}), 409
@@ -812,7 +615,7 @@ def rotate_agent_credential(agent_id):
     )
     raw_token = secrets.token_urlsafe(32)
     token = AgentEnrollmentToken(
-        site_id=agent.site_id,
+        project_id=agent.project_id,
         agent_id=agent.id,
         token_hash=_hash_token(raw_token),
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=ENROLLMENT_TOKEN_TTL_MINUTES),
@@ -823,7 +626,7 @@ def rotate_agent_credential(agent_id):
     _force_disconnect(agent.agent_uuid)
 
     audit("fleet.agent_credential_rotated", target_type="agent", target_id=str(agent_id),
-          detail=f"site_id={agent.site_id}")
+          detail=f"project_id={agent.project_id}")
     return jsonify({
         "ok": True,
         "token": raw_token,

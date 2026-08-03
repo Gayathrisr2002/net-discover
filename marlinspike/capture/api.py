@@ -44,7 +44,7 @@ from marlinspike.capture import consumer
 from marlinspike.capture.client import CapdClient, CapdError, CapdUnavailable
 from marlinspike.capture.sessions import StatsHub, manager
 from marlinspike.fleet.gateway_client import GatewayAdminClient
-from marlinspike.models import Agent, CaptureSession, Project, SavedFilter, Site, SiteMember, db
+from marlinspike.models import Agent, CaptureSession, Project, ProjectMember, SavedFilter, db
 
 log = logging.getLogger(__name__)
 
@@ -169,66 +169,6 @@ def _apply_max_total_bytes_cap(
     )
 
 
-def _merge_site_policy(policy: dict, site_policy: dict) -> dict:
-    """Merge a remote agent's site policy into the project policy dict,
-    most-restrictive-wins (Phase 5). Only called when a capture targets an
-    agent — the local path never has a site policy to merge.
-
-    - enabled: site can turn OFF what the project allows, never turn ON
-      what the project disabled.
-    - allowed_interfaces: intersected (fewest-interfaces-wins), same
-      semantics _resolve_interface_allowlist already uses for system ∩ project.
-    - max_session_duration_s / max_total_bytes: the smaller of the two
-      caps that are actually set applies.
-    - operator_warning: both shown if both set.
-    """
-    merged = dict(policy)
-
-    if site_policy.get("enabled") is False:
-        merged["enabled"] = False
-
-    proj_allow = policy.get("allowed_interfaces")
-    site_allow = site_policy.get("allowed_interfaces")
-    if site_allow is not None:
-        merged["allowed_interfaces"] = (
-            [i for i in proj_allow if i in set(site_allow)] if proj_allow is not None else list(site_allow)
-        )
-
-    # max_session_duration_s and max_total_bytes use DIFFERENT "0" semantics
-    # downstream (start_session's Gate 3 / Gate 4 / _apply_max_total_bytes_cap),
-    # so they can't share one merge rule:
-    #   - max_session_duration_s: 0 (or unset) means "no cap" — a value of
-    #     0 must be treated the same as "this site didn't set one," never
-    #     as a valid override, or a site setting {"max_session_duration_s":
-    #     0} (intending "no extra site restriction, defer to the project")
-    #     would flip an effective project cap into "unlimited," inverting
-    #     most-restrictive-wins. Confirmed real: a project editor could
-    #     create a site under someone's stricter project and set exactly
-    #     this to erase that project owner's duration cap.
-    #   - max_total_bytes: 0 is downstream-*rejected* outright (below
-    #     dumpcap's 1024-byte minimum ring), which is itself a legitimately
-    #     more-restrictive-than-any-cap outcome — no equivalent bug here,
-    #     so it keeps the same >=0 comparison as before.
-    site_dur = site_policy.get("max_session_duration_s")
-    if isinstance(site_dur, int) and site_dur > 0:
-        proj_dur = policy.get("max_session_duration_s")
-        if not isinstance(proj_dur, int) or proj_dur <= 0 or site_dur < proj_dur:
-            merged["max_session_duration_s"] = site_dur
-
-    proj_bytes = policy.get("max_total_bytes")
-    site_bytes = site_policy.get("max_total_bytes")
-    if isinstance(site_bytes, int) and site_bytes >= 0:
-        if not isinstance(proj_bytes, int) or proj_bytes <= 0 or site_bytes < proj_bytes:
-            merged["max_total_bytes"] = site_bytes
-
-    proj_warn = policy.get("operator_warning")
-    site_warn = site_policy.get("operator_warning")
-    if site_warn:
-        merged["operator_warning"] = f"{proj_warn} {site_warn}" if proj_warn else site_warn
-
-    return merged
-
-
 # ── Helpers ───────────────────────────────────────────────────
 
 def _client() -> CapdClient:
@@ -244,17 +184,18 @@ _MEMBER_ROLE_RANK: dict[str, int] = {"viewer": 1, "editor": 2, "owner": 3}
 
 def _require_agent(agent_id, min_role: str = "viewer") -> Agent | None:
     """Return the agent if it exists, isn't revoked, and the caller has at
-    least ``min_role`` on the site it belongs to (owner or SiteMember) —
-    the same ACL shape as _require_project, just via Site/SiteMember
-    instead of Project/ProjectMember.
+    least ``min_role`` on the project it's enrolled under (owner or
+    ProjectMember) — the same ACL shape as _require_project, just
+    supporting shared (non-owner) access the way _require_project's strict
+    owner-only check doesn't.
 
     Default is "viewer" for the read-only list_interfaces call site.
     Starting/stopping an actual capture is mutating and must pass
     min_role="editor" explicitly — every other mutating fleet action
-    (revoke, rotate-credential, policy edits) already requires editor+;
-    leaving this at the default viewer level let a site member explicitly
+    (revoke, rotate-credential, schedule edits) already requires editor+;
+    leaving this at the default viewer level let a project member explicitly
     granted read-only access still start/stop live captures on that
-    site's agents.
+    project's agents.
     """
     try:
         aid = int(agent_id)
@@ -264,12 +205,12 @@ def _require_agent(agent_id, min_role: str = "viewer") -> Agent | None:
     if agent is None or agent.status == "revoked":
         return None
     uid = session["user_id"]
-    site = Site.query.get(agent.site_id)
-    if site is None:
+    project = Project.query.get(agent.project_id)
+    if project is None:
         return None
-    if site.created_by == uid:
+    if project.user_id == uid:
         return agent
-    member = SiteMember.query.filter_by(site_id=site.id, user_id=uid).first()
+    member = ProjectMember.query.filter_by(project_id=project.id, user_id=uid).first()
     if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get(min_role, 1):
         return agent
     return None
@@ -476,21 +417,15 @@ def _start_capture_session(*, user_id, project, agent, interface, bpf_filter,
     if project is None:
         return {"ok": False, "error": "valid project_id required"}, 400
 
-    # ── Gate 0: site policy (remote-agent captures only) ──────
-    # Merged in before Gate 1 so every gate below sees one effective
-    # policy dict — a site can only add restrictions on top of the
-    # project's, never loosen them (most-restrictive-wins).
+    # ── Gate 1: per-project enabled flag ──────────────────────
+    # A fleet agent is enrolled directly under a project, so its capture
+    # is governed by that same project's capture_policy — no separate
+    # per-agent-group policy layer to merge in.
     policy = _parse_policy(project.capture_policy)
-    if agent is not None:
-        site = Site.query.get(agent.site_id)
-        if site is not None and site.capture_policy:
-            policy = _merge_site_policy(policy, _parse_policy(site.capture_policy))
-
-    # ── Gate 1: per-project (+ site, if merged above) enabled flag ─
     if policy.get("enabled") is False:
-        return {"ok": False, "error": "Live capture disabled for this project or site"}, 403
+        return {"ok": False, "error": "Live capture disabled for this project"}, 403
 
-    # ── Gate 2: interface allowlist (system ∩ project ∩ site) ─
+    # ── Gate 2: interface allowlist (system ∩ project) ────────
     effective_allowlist = _resolve_interface_allowlist(policy)
     if effective_allowlist is not None and interface not in effective_allowlist:
         if effective_allowlist:
@@ -697,20 +632,19 @@ def start_session():
             return jsonify({"ok": False, "error": "Agent not found"}), 404
         # project_id and agent_id are each independently ACL-checked above
         # (caller must own/edit the project, and at least view the agent's
-        # site) but that alone doesn't mean they're the *same* deployment:
-        # a user with their own unrelated project plus only viewer access
-        # to someone else's site could otherwise pair their own (looser)
-        # project policy with that site's agent, bypassing the site
-        # owner's actual project's capture_policy entirely, and would also
-        # misattribute the resulting CaptureSession/report to the wrong
-        # project. A site is only ever supposed to run captures for the
-        # one project it's bound to (Site.project_id) — enforce that here.
-        # (A missing/invalid project_id itself is reported by the existing
-        # "valid project_id required" check further below, not here.)
-        if project is not None:
-            agent_site = Site.query.get(agent.site_id)
-            if agent_site is None or agent_site.project_id != project.id:
-                return jsonify({"ok": False, "error": "Agent not found"}), 404
+        # own project) but that alone doesn't mean they're the *same*
+        # project: a user with their own unrelated project plus only
+        # viewer access to someone else's project could otherwise pair
+        # their own (looser) project_id with that other project's agent,
+        # bypassing the agent's actual project's capture_policy entirely,
+        # and would also misattribute the resulting CaptureSession/report
+        # to the wrong project. An agent only ever runs captures for the
+        # one project it's enrolled under (Agent.project_id) — enforce
+        # that here. (A missing/invalid project_id itself is reported by
+        # the existing "valid project_id required" check further below,
+        # not here.)
+        if project is not None and agent.project_id != project.id:
+            return jsonify({"ok": False, "error": "Agent not found"}), 404
 
     result, status = _start_capture_session(
         user_id=session["user_id"], project=project, agent=agent,

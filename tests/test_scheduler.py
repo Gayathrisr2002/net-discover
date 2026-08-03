@@ -19,7 +19,7 @@ import pytest
 
 from marlinspike import scheduler
 from marlinspike.app import create_app
-from marlinspike.models import Agent, Project, Site, User, db
+from marlinspike.models import Agent, Project, User, db
 
 
 # ── _due_slot_today (pure logic, no DB) ────────────────────────────────
@@ -134,10 +134,9 @@ def _due_schedule_json():
 
 
 def test_run_due_schedules_starts_capture_on_online_agents(app, app_ctx, project, monkeypatch):
-    site = Site(name="site-1", project_id=project.id, capture_schedule=_due_schedule_json())
-    db.session.add(site)
+    project.capture_schedule = _due_schedule_json()
     db.session.commit()
-    agent = Agent(agent_uuid="a1", site_id=site.id, name="agent-1", status="online")
+    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="online")
     db.session.add(agent)
     db.session.commit()
 
@@ -163,14 +162,12 @@ def test_run_due_schedules_starts_capture_on_online_agents(app, app_ctx, project
     assert calls[0]["agent_id"] == agent.id
     assert calls[0]["actor_username"] == "scheduler"
 
-    refreshed = Site.query.get(site.id)
+    refreshed = Project.query.get(project.id)
     assert refreshed.capture_schedule_last_triggered_at is not None
 
 
 def test_run_due_schedules_skips_disabled_schedule(app, app_ctx, project, monkeypatch):
-    site = Site(name="site-1", project_id=project.id,
-                capture_schedule=json.dumps({"enabled": False, "times_utc": ["00:00"]}))
-    db.session.add(site)
+    project.capture_schedule = json.dumps({"enabled": False, "times_utc": ["00:00"]})
     db.session.commit()
 
     calls = []
@@ -184,10 +181,9 @@ def test_run_due_schedules_no_online_agents_still_marks_slot_fired(app, app_ctx,
     """No online agents right now -> nothing to start, but the slot is
     still marked fired rather than retried every tick for the rest of its
     grace window."""
-    site = Site(name="site-1", project_id=project.id, capture_schedule=_due_schedule_json())
-    db.session.add(site)
+    project.capture_schedule = _due_schedule_json()
     db.session.commit()
-    agent = Agent(agent_uuid="a1", site_id=site.id, name="agent-1", status="offline")
+    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="offline")
     db.session.add(agent)
     db.session.commit()
 
@@ -196,18 +192,16 @@ def test_run_due_schedules_no_online_agents_still_marks_slot_fired(app, app_ctx,
                          lambda **kw: calls.append(kw))
     scheduler._run_due_schedules(app)
     assert calls == []
-    refreshed = Site.query.get(site.id)
+    refreshed = Project.query.get(project.id)
     assert refreshed.capture_schedule_last_triggered_at is not None
 
 
 def test_run_due_schedules_not_due_yet_does_not_trigger(app, app_ctx, project, monkeypatch):
     far_future = (datetime.now(timezone.utc) + timedelta(hours=5)).strftime("%H:%M")
-    site = Site(name="site-1", project_id=project.id,
-                capture_schedule=json.dumps({"enabled": True, "times_utc": [far_future],
-                                              "duration_s": 300, "interface": "eth0"}))
-    db.session.add(site)
+    project.capture_schedule = json.dumps({"enabled": True, "times_utc": [far_future],
+                                            "duration_s": 300, "interface": "eth0"})
     db.session.commit()
-    agent = Agent(agent_uuid="a1", site_id=site.id, name="agent-1", status="online")
+    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="online")
     db.session.add(agent)
     db.session.commit()
 
@@ -216,5 +210,5 @@ def test_run_due_schedules_not_due_yet_does_not_trigger(app, app_ctx, project, m
                          lambda **kw: calls.append(kw))
     scheduler._run_due_schedules(app)
     assert calls == []
-    refreshed = Site.query.get(site.id)
+    refreshed = Project.query.get(project.id)
     assert refreshed.capture_schedule_last_triggered_at is None

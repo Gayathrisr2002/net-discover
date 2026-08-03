@@ -15,7 +15,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-gateway-db-pcap")
 
 from marlinspike.app import create_app
 from marlinspike.fleet.gateway import db as gw_db
-from marlinspike.models import Agent, CaptureSession, Project, Site, User, db
+from marlinspike.models import Agent, CaptureSession, Project, User, db
 
 
 @pytest.fixture
@@ -58,24 +58,16 @@ def project(app_ctx, owner):
 
 
 @pytest.fixture
-def site(app_ctx, project):
-    s = Site(name="site-1", project_id=project.id)
-    db.session.add(s)
-    db.session.commit()
-    return s
-
-
-@pytest.fixture
-def agent(app_ctx, site):
-    a = Agent(agent_uuid="agent-uuid-1", site_id=site.id, name="agent-1", status="online")
+def agent(app_ctx, project):
+    a = Agent(agent_uuid="agent-uuid-1", project_id=project.id, name="agent-1", status="online")
     db.session.add(a)
     db.session.commit()
     return a
 
 
 @pytest.fixture
-def other_agent(app_ctx, site):
-    a = Agent(agent_uuid="agent-uuid-2", site_id=site.id, name="agent-2", status="online")
+def other_agent(app_ctx, project):
+    a = Agent(agent_uuid="agent-uuid-2", project_id=project.id, name="agent-2", status="online")
     db.session.add(a)
     db.session.commit()
     return a
@@ -141,7 +133,7 @@ def test_begin_pcap_upload_rejects_local_session_with_no_agent(app_ctx, project)
     assert result is None
 
 
-def test_begin_pcap_upload_rejects_session_with_no_project(app_ctx, owner, site, agent):
+def test_begin_pcap_upload_rejects_session_with_no_project(app_ctx, owner, agent):
     cs = CaptureSession(
         session_uuid="no-project-sess", user_id=owner.id, project_id=None,
         agent_id=agent.id, interface="eth0", status="running",

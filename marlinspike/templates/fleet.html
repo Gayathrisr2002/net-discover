@@ -12,10 +12,10 @@
 @media (max-width: 980px) {
   .fleet-grid { grid-template-columns: 1fr; }
 }
-.fleet-site-row {
+.fleet-project-row {
   cursor: pointer;
 }
-.fleet-site-row.active {
+.fleet-project-row.active {
   background: var(--panel-alt);
 }
 .fleet-empty {
@@ -85,14 +85,13 @@
 
   <div class="fleet-grid">
 
-    <!-- Sites list -->
+    <!-- Projects list -->
     <div class="panel">
       <div class="panel-header">
-        <h2>{{ t('fleet.sites') }}</h2>
+        <h2>{{ t('fleet.projects') }}</h2>
         <div>
           <a class="btn btn-sm" href="/api/fleet/agent-package" download>{{ t('fleet.download_agent') }}</a>
           <a class="btn btn-sm" href="/api/fleet/agent-package.deb" download>{{ t('fleet.download_agent_deb') }}</a>
-          <button class="btn btn-primary btn-sm" onclick="FLEET.showAddSite()">{{ t('fleet.add_site') }}</button>
         </div>
       </div>
       <div class="panel-body" style="padding:0;">
@@ -103,24 +102,24 @@
               <th>{{ t('fleet.agents') }}</th>
             </tr>
           </thead>
-          <tbody id="fleet-sites-body">
+          <tbody id="fleet-projects-body">
             <tr><td colspan="2"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('common.loading') }}</div></td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- Selected site detail -->
+    <!-- Selected project detail -->
     <div class="panel" id="fleet-detail-panel">
       <div class="panel-header">
-        <h2 id="fleet-detail-title">{{ t('fleet.select_site') }}</h2>
+        <h2 id="fleet-detail-title">{{ t('fleet.select_project') }}</h2>
         <div>
           <button class="btn btn-sm" id="fleet-members-btn" style="display:none;" onclick="FLEET.showMembers()">{{ t('fleet.members') }}</button>
           <button class="btn btn-sm" id="fleet-issue-token-btn" style="display:none;" onclick="FLEET.showIssueToken()">{{ t('fleet.issue_enrollment_token') }}</button>
         </div>
       </div>
       <div class="panel-body">
-        <div id="fleet-detail-empty" class="fleet-empty">{{ t('fleet.select_site_hint') }}</div>
+        <div id="fleet-detail-empty" class="fleet-empty">{{ t('fleet.select_project_hint') }}</div>
         <table class="ms-table" id="fleet-agents-table" style="display:none;">
           <thead>
             <tr>
@@ -139,32 +138,6 @@
       </div>
     </div>
 
-  </div>
-
-  <!-- Add site modal -->
-  <div class="ms-modal-backdrop" id="modal-add-site">
-    <div class="ms-modal">
-      <div class="ms-modal-header">
-        <h3>{{ t('fleet.add_site') }}</h3>
-        <button class="ms-modal-close" onclick="msModal.close('modal-add-site')">&times;</button>
-      </div>
-      <div class="ms-modal-body">
-        <div class="modal-form-grid">
-          <div class="modal-field">
-            <label for="fleet-new-site-name">{{ t('common.name') }}</label>
-            <input type="text" id="fleet-new-site-name" class="ms-input" placeholder="{{ t('fleet.site_name_placeholder') }}">
-          </div>
-          <div class="modal-field">
-            <label for="fleet-new-site-project">{{ t('fleet.bound_project') }}</label>
-            <select id="fleet-new-site-project" class="ms-input"></select>
-          </div>
-        </div>
-      </div>
-      <div class="ms-modal-footer">
-        <button class="btn" onclick="msModal.close('modal-add-site')">{{ t('common.cancel') }}</button>
-        <button class="btn btn-success" onclick="FLEET.createSite()">{{ t('common.create') }}</button>
-      </div>
-    </div>
   </div>
 
   <!-- Issue enrollment token modal -->
@@ -262,12 +235,12 @@ sudo systemctl enable --now marlinspike-capd</pre>
     </div>
   </div>
 
-  <!-- Site members modal -->
-  <div class="ms-modal-backdrop" id="modal-site-members">
+  <!-- Project members modal -->
+  <div class="ms-modal-backdrop" id="modal-project-members">
     <div class="ms-modal">
       <div class="ms-modal-header">
         <h3>{{ t('fleet.members') }}</h3>
-        <button class="ms-modal-close" onclick="msModal.close('modal-site-members')">&times;</button>
+        <button class="ms-modal-close" onclick="msModal.close('modal-project-members')">&times;</button>
       </div>
       <div class="ms-modal-body">
         <table class="ms-table" id="fleet-members-table">
@@ -296,7 +269,7 @@ sudo systemctl enable --now marlinspike-capd</pre>
         </div>
       </div>
       <div class="ms-modal-footer">
-        <button class="btn" onclick="msModal.close('modal-site-members')">{{ t('common.close') }}</button>
+        <button class="btn" onclick="msModal.close('modal-project-members')">{{ t('common.close') }}</button>
         <button class="btn btn-success" onclick="FLEET.addMember()">{{ t('fleet.add_member') }}</button>
       </div>
     </div>
@@ -310,9 +283,9 @@ sudo systemctl enable --now marlinspike-capd</pre>
 var FLEET = (function() {
   'use strict';
 
-  var sites = [];
-  var selectedSiteId = null;
-  var statusStream = null; // EventSource for the currently-selected site
+  var projects = [];
+  var selectedProjectId = null;
+  var statusStream = null; // EventSource for the currently-selected project
   var rotatingAgentId = null;
 
   // Never build markup by interpolating user-controlled strings — same
@@ -355,64 +328,65 @@ var FLEET = (function() {
     return Math.floor(seconds / 3600) + 'h ago';
   }
 
-  function loadSites() {
-    fetch('/api/fleet/sites').then(function(r) { return r.json(); }).then(function(d) {
-      sites = d.sites || [];
-      var tbody = document.getElementById('fleet-sites-body');
+  function loadProjects() {
+    fetch('/api/fleet/projects').then(function(r) { return r.json(); }).then(function(d) {
+      projects = d.projects || [];
+      var tbody = document.getElementById('fleet-projects-body');
       tbody.innerHTML = '';
-      if (!sites.length) {
+      if (!projects.length) {
         var tr = document.createElement('tr');
         var td = document.createElement('td');
         td.colSpan = 2;
         td.className = 'fleet-empty';
-        td.textContent = {{ t("fleet.no_sites") | tojson }};
+        td.textContent = {{ t("fleet.no_projects") | tojson }};
         tr.appendChild(td);
         tbody.appendChild(tr);
         return;
       }
-      sites.forEach(function(s) {
+      projects.forEach(function(p) {
         var tr = document.createElement('tr');
-        tr.className = 'fleet-site-row' + (s.id === selectedSiteId ? ' active' : '');
-        tr.appendChild(cell(s.name));
-        tr.appendChild(cell(s.agent_count, 'mono dim'));
-        tr.addEventListener('click', function() { selectSite(s.id); });
+        tr.className = 'fleet-project-row' + (p.id === selectedProjectId ? ' active' : '');
+        tr.appendChild(cell(p.name));
+        tr.appendChild(cell(p.agent_count, 'mono dim'));
+        tr.addEventListener('click', function() { selectProject(p.id); });
         tbody.appendChild(tr);
       });
     });
   }
 
-  function selectSite(siteId) {
-    selectedSiteId = siteId;
-    loadSites();
-    var site = sites.filter(function(s) { return s.id === siteId; })[0];
-    document.getElementById('fleet-detail-title').textContent = site ? site.name : '';
+  function selectProject(projectId) {
+    selectedProjectId = projectId;
+    loadProjects();
+    var project = projects.filter(function(p) { return p.id === projectId; })[0];
+    document.getElementById('fleet-detail-title').textContent = project ? project.name : '';
     document.getElementById('fleet-detail-empty').style.display = 'none';
     document.getElementById('fleet-agents-table').style.display = '';
     document.getElementById('fleet-issue-token-btn').style.display = '';
     document.getElementById('fleet-members-btn').style.display = '';
-    loadAgents(siteId);
-    openStatusStream(siteId);
+    loadAgents(projectId);
+    openStatusStream(projectId);
   }
 
-  // Live status updates (Phase 5) — a full agents/sites re-fetch on every
-  // event is simple and correct; these lists are small and events are
-  // infrequent (enroll/auth/heartbeat-transition/offline), so there's no
-  // real cost to not diffing individual rows.
-  function openStatusStream(siteId) {
+  // Live status updates (Phase 5) — a full agents/projects re-fetch on
+  // every event is simple and correct; these lists are small and events
+  // are infrequent (enroll/auth/heartbeat-transition/offline), so there's
+  // no real cost to not diffing individual rows.
+  function openStatusStream(projectId) {
     if (statusStream) { statusStream.close(); statusStream = null; }
-    statusStream = new EventSource('/api/fleet/sites/' + siteId + '/stream');
+    statusStream = new EventSource('/api/fleet/projects/' + projectId + '/stream');
     statusStream.onmessage = function() {
-      if (selectedSiteId === siteId) {
-        loadAgents(siteId);
-        loadSites();
+      if (selectedProjectId === projectId) {
+        loadAgents(projectId);
+        loadProjects();
       }
     };
     // No onerror-driven reconnect loop: EventSource retries automatically
-    // on its own, and switching sites (or leaving the page) simply closes it.
+    // on its own, and switching projects (or leaving the page) simply
+    // closes it.
   }
 
-  function loadAgents(siteId) {
-    fetch('/api/fleet/sites/' + siteId + '/agents').then(function(r) { return r.json(); }).then(function(d) {
+  function loadAgents(projectId) {
+    fetch('/api/fleet/projects/' + projectId + '/agents').then(function(r) { return r.json(); }).then(function(d) {
       var tbody = document.getElementById('fleet-agents-body');
       tbody.innerHTML = '';
       var agents = d.agents || [];
@@ -497,7 +471,7 @@ var FLEET = (function() {
     fetch('/api/fleet/agents/' + agentId + '/revoke', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (d.ok) { msToast({{ t("fleet.agent_revoked") | tojson }}, 'success'); loadAgents(selectedSiteId); }
+        if (d.ok) { msToast({{ t("fleet.agent_revoked") | tojson }}, 'success'); loadAgents(selectedProjectId); }
         else msToast(d.error || {{ t("common.failed") | tojson }}, true);
       });
   }
@@ -520,48 +494,11 @@ var FLEET = (function() {
           document.getElementById('fleet-rotate-pending').style.display = 'none';
           document.getElementById('fleet-rotate-result').style.display = '';
           document.getElementById('fleet-rotate-confirm').style.display = 'none';
-          loadAgents(selectedSiteId);
+          loadAgents(selectedProjectId);
         } else {
           msToast(d.error || {{ t("common.failed") | tojson }}, true);
         }
       });
-  }
-
-  function showAddSite() {
-    fetch('/api/projects').then(function(r) { return r.json(); }).then(function(d) {
-      var sel = document.getElementById('fleet-new-site-project');
-      sel.innerHTML = '';
-      (d.projects || []).forEach(function(p) {
-        var opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name;
-        sel.appendChild(opt);
-      });
-      document.getElementById('fleet-new-site-name').value = '';
-      msModal.open('modal-add-site');
-    });
-  }
-
-  function createSite() {
-    var name = document.getElementById('fleet-new-site-name').value.trim();
-    var projectId = parseInt(document.getElementById('fleet-new-site-project').value, 10);
-    if (!name || !projectId) { msToast({{ t("fleet.name_and_project_required") | tojson }}, true); return; }
-    fetch('/api/fleet/sites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, project_id: projectId }),
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.ok) {
-        msToast({{ t("fleet.site_created") | tojson }}, 'success');
-        msModal.close('modal-add-site');
-        loadSites();
-        selectedSiteId = d.site.id;
-        msModal.open('modal-issue-token');
-        _showTokenResult(d.enrollment_token);
-      } else {
-        msToast(d.error || {{ t("common.failed") | tojson }}, true);
-      }
-    });
   }
 
   function showIssueToken() {
@@ -574,8 +511,8 @@ var FLEET = (function() {
   }
 
   function doIssueToken() {
-    if (!selectedSiteId) return;
-    fetch('/api/fleet/sites/' + selectedSiteId + '/enrollment-tokens', { method: 'POST' })
+    if (!selectedProjectId) return;
+    fetch('/api/fleet/projects/' + selectedProjectId + '/enrollment-tokens', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok) {
@@ -661,16 +598,19 @@ var FLEET = (function() {
     return _gatewayInfoPromise;
   }
 
-  // ── site members ────────────────────────────────────────────
+  // ── project members ─────────────────────────────────────────
+  // Reuses the existing /api/projects/<id>/members endpoints (app.py) —
+  // a fleet agent's project already has its own member management, no
+  // separate copy needed here.
 
   function showMembers() {
-    if (!selectedSiteId) return;
+    if (!selectedProjectId) return;
     loadMembers();
-    msModal.open('modal-site-members');
+    msModal.open('modal-project-members');
   }
 
   function loadMembers() {
-    fetch('/api/fleet/sites/' + selectedSiteId + '/members').then(function(r) { return r.json(); }).then(function(d) {
+    fetch('/api/projects/' + selectedProjectId + '/members').then(function(r) { return r.json(); }).then(function(d) {
       var tbody = document.getElementById('fleet-members-body');
       tbody.innerHTML = '';
       (d.members || []).forEach(function(m) {
@@ -693,7 +633,7 @@ var FLEET = (function() {
     var username = document.getElementById('fleet-member-username').value.trim();
     var role = document.getElementById('fleet-member-role').value;
     if (!username) { msToast({{ t("fleet.username_required") | tojson }}, true); return; }
-    fetch('/api/fleet/sites/' + selectedSiteId + '/members', {
+    fetch('/api/projects/' + selectedProjectId + '/members', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username, role: role }),
@@ -709,18 +649,16 @@ var FLEET = (function() {
   }
 
   function removeMember(userId) {
-    fetch('/api/fleet/sites/' + selectedSiteId + '/members/' + userId, { method: 'DELETE' })
+    fetch('/api/projects/' + selectedProjectId + '/members/' + userId, { method: 'DELETE' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.ok) { loadMembers(); } else { msToast(d.error || {{ t("common.failed") | tojson }}, true); }
       });
   }
 
-  document.addEventListener('DOMContentLoaded', loadSites);
+  document.addEventListener('DOMContentLoaded', loadProjects);
 
   return {
-    showAddSite: showAddSite,
-    createSite: createSite,
     showIssueToken: showIssueToken,
     doIssueToken: doIssueToken,
     copyEnrollCmd: copyEnrollCmd,
