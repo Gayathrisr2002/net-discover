@@ -42,6 +42,10 @@ These cover *how to use* MarlinSpike during an engagement.
 - **[live-capture.md](live-capture.md)** — the optional capd
   sidecar daemon. SPAN/tap capture with ring-buffer rotation.
   Linux only.
+- **[fleet-agents.md](fleet-agents.md)** — remote sensor agents:
+  enrolling a `marlinspike-agent` host, revoking/rotating/deleting
+  agents, running a capture on one from Live Capture, and the
+  project-wide automated capture schedule.
 - **[mitre-attack-guide.md](mitre-attack-guide.md)** — how
   MarlinSpike presents MITRE ATT&CK in the workbench.
 - **[i18n-and-locale.md](i18n-and-locale.md)** — bilingual UI
@@ -90,6 +94,8 @@ Forward-looking and structural.
   verified end-to-end on real hardware, every bug found along the way,
   and the ranked punch list of what's still missing before it's
   production-ready (start here if you're picking up this feature next).
+  For day-to-day operator usage, see
+  [fleet-agents.md](fleet-agents.md) instead.
 - **[repo-family.md](repo-family.md)** — the suite + component
   repos model.
 - **[repo-family-migration-spec.md](repo-family-migration-spec.md)**
@@ -132,6 +138,7 @@ These live at the repository root, not in `docs/`:
 | New analyst about to triage your first capture | [triage-methodology.md](triage-methodology.md), then [workbench-guide.md](workbench-guide.md) when you need pane-level reference. |
 | Setting up MarlinSpike for the first time | [../INSTALL.md](../INSTALL.md), then [admin-and-audit.md](admin-and-audit.md) for user setup. |
 | Adding live capture to an existing deployment | [live-capture.md](live-capture.md) and the live-capture section of [../INSTALL.md](../INSTALL.md). |
+| Enrolling and managing remote sensor agents | [fleet-agents.md](fleet-agents.md) — enrollment, revoke/rotate/delete, automated capture schedule. |
 | Writing a Python plugin | [extensibility-contracts.md](extensibility-contracts.md). |
 | Running the engine headlessly in a pipeline | [cli-and-headless.md](cli-and-headless.md). |
 | Doing a long-running engagement with many captures | [projects-and-engagements.md](projects-and-engagements.md), [asset-context.md](asset-context.md), [asset-baselines.md](asset-baselines.md). |

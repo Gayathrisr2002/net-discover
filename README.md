@@ -10,7 +10,7 @@
 > If you run this as a network service, the AGPL requires you to offer users the complete
 > corresponding source (this repository satisfies that).
 
-Current release: `3.5.5` (derived from upstream MarlinSpike; see traceability matrix for fork changes)
+Current release: `3.6.0` (derived from upstream MarlinSpike; see traceability matrix for fork changes)
 
 MarlinSpike is a ground-up passive OT/ICS network analysis platform built in the tradition of GrassMarlin-style topology mapping, but wrapped in a multi-user web workbench designed for real engagements. It analyzes PCAP and PCAPNG captures, builds a topology graph, infers Purdue levels, fingerprints vendors, and surfaces responder-grade risk indicators such as cross-zone communication, cleartext services, beaconing, suspicious external communications, and DNS exfiltration, then exports everything as portable JSON report artifacts that travel with the team.
 
@@ -63,6 +63,7 @@ Interactive browser features can improve speed and convenience, but the core tri
 - Project Overview tab as the default project landing surface: walks every report in a project, dedupes assets (MAC-keyed, IP fallback) and findings (`(category, sorted(affected_nodes), sorted(affected_edges))`) across captures, promotes finding severity to the highest seen, and renders one rolled-up KPI strip, severity bar, findings table, asset inventory, protocol list, and ATT&CK coverage chip set — pure compute, no schema migration
 - Pip-installable Python package (v3.0.0): `pip install marlinspike` exposes `from marlinspike import create_app, db`; downstream wrappers (e.g. cloudmarlin) can extend the app without forking via the new `csrf_exempt` and `set_concurrent_check_fn` extension hooks
 - Optional **live capture** sidecar (`marlinspike-capd`, off by default, Linux only): unprivileged web app talks to a privileged daemon over a unix-domain socket; daemon supervises `dumpcap` with a 2 GB rolling ring, validates BPF filters live, enumerates physical NICs, and feeds rotated PCAPs into the existing analysis pipeline so reports accumulate in the project as the capture runs. Per-project saved-filter library, per-interface locking, admin-override stop. See [docs/live-capture.md](docs/live-capture.md)
+- **Fleet — remote sensor agents:** enroll a small `marlinspike-agent` process on a remote host over mTLS; it forwards raw capture traffic back to a central `fleet-gateway` for analysis rather than analyzing anything locally, so reports stay authoritative and land in the same project's Reports as any local scan. Agents are project-scoped (shared via the same viewer/editor/owner roles as everything else), can be revoked/rotated/deleted from the Fleet page, can be driven from the Live Capture page's "Run on" remote-agent picker, and support a project-wide automated capture schedule (recurring times of day, editable from the Fleet page). See [docs/fleet-agents.md](docs/fleet-agents.md)
 - **Mid-scan recovery (v3.4.0):** Flask restarts no longer leave scans stuck in `running`. The engine subprocess is reparented to init/launchd and continues to completion; on the next boot, marlinspike's reaper finds it again via saved PID + argv (PID-reuse defense), re-attaches a watcher thread, and ingests the report when the engine exits. Dead engines whose reports finished get auto-completed; truly-dead engines surface as `failed` with a diagnostic `error_tail`. Optional `MARLINSPIKE_RUN_STORE=db` mode routes the active-run lookup through `scan_history` so per-tier concurrency limits stay correct across multiple Gunicorn workers. See [docs/run-store-and-recovery.md](docs/run-store-and-recovery.md)
 - **Map-first workbench + multi-lens relational graphing (v3.5.0):** the analyst workbench was rebuilt around a persistent **map canvas** with a **lens chip strip** at the top, a **dockable inspector** on the right, and a **slide-up drawer** with seven tabbed tables (Findings / Conversations / Assets / IOCs / Anomalies / ATT&CK / DNS) at the bottom. Six lenses re-render the map with different edge types: Comms (host-host conversations), Findings (severity-sorted card overlay with click-to-pivot), IOC (matched-asset halos), ATT&CK (live tactic-grouped technique grid from the `marlinspike-mitre` plugin output, ICS + Enterprise domains), Baseline (per-asset novelty cards fetched from the project-level baseline endpoint), and Peers (Role / Vendor / Purdue grouping with anomalous-by-context flagging). All entity rendering derives from a formal taxonomy module (`marlinspike/taxonomy.py`, 12 entities + 12 relationships) — every chip, badge, table column, and tooltip on every page consumes the same source of truth. See [docs/taxonomy.md](docs/taxonomy.md) and [docs/workbench-guide.md](docs/workbench-guide.md)
 - **HP-HMI mode (v3.5.0):** ISA-101 / ASM Consortium discipline applied app-wide. Toggle in the nav (or the workbench lens-strip control bar) flips the entire UI to the High-Performance HMI convention — color reserved for actionable abnormality only, equipment desaturates to gray, the eye is drawn directly to alarm-state assets. CRITICAL and HIGH severity stay loud; MEDIUM / LOW / INFO desaturate (informational, not actionable). The topology canvas re-renders in-place — normal-state assets fade, alarm-state assets retain alarm color. Particularly relevant for control-room wall-mount and dense-network triage. Persisted per-browser. See [docs/workbench-guide.md#hp-hmi-mode](docs/workbench-guide.md#hp-hmi-mode)
@@ -173,6 +174,9 @@ The most-used entry points:
   `/iocs` page workflow.
 - [docs/live-capture.md](docs/live-capture.md) — optional capd
   sidecar (Linux only).
+- [docs/fleet-agents.md](docs/fleet-agents.md) — remote sensor
+  agents: enrollment, revoke/rotate/delete, automated capture
+  schedule.
 - [docs/mitre-attack-guide.md](docs/mitre-attack-guide.md) — ATT&CK
   in the workbench.
 - [docs/i18n-and-locale.md](docs/i18n-and-locale.md) — bilingual
@@ -396,6 +400,14 @@ MarlinSpike turns raw packet captures into a workflow an OT operator, asset owne
 - Project Overview tab as the default project landing surface — cross-report aggregation across every capture in the project (asset dedup, finding dedup with severity promotion, protocol roll-up, ATT&CK coverage)
 - Report history, retry support, and baseline-versus-drift review between report artifacts
 - Portable JSON report artifacts that can be reviewed inside MarlinSpike or elsewhere
+
+### Fleet — Remote Sensor Agents
+
+- Project-scoped remote agents that forward raw capture traffic for central analysis rather than analyzing locally
+- Enrollment via standing, rotatable per-project tokens; agent revoke, credential rotation, and delete (once revoked)
+- Remote-agent capture from the Live Capture page's "Run on" picker, same policy gates as a local session
+- Project-wide automated capture schedule: recurring times of day, editable from the Fleet page
+- See [docs/fleet-agents.md](docs/fleet-agents.md)
 
 ### Administration
 

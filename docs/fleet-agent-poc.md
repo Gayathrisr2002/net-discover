@@ -1,5 +1,11 @@
 # Remote Fleet Agent + Live Capture — Proof of Concept
 
+> **Looking for day-to-day usage instead?** See
+> [fleet-agents.md](fleet-agents.md) — enrolling an agent, managing it
+> from the Fleet page, and the automated capture schedule. This
+> document is the design/debugging history for whoever picks up the
+> feature's remaining gaps next, not an operator guide.
+
 **Status:** validated end-to-end on real hardware, then re-architected (§6)
 so the agent forwards raw traffic instead of analyzing it locally, plus
 automated capture scheduling. §1-2 below describe the original design
@@ -196,10 +202,13 @@ from `app.py`'s `if __name__ == "__main__":` block, never from
 `create_app()` itself — every test calls `create_app()` directly, and a
 persistent thread started there would leak across the whole suite.
 
-`Site.capture_schedule` (JSON: `enabled`/`times_utc`/`duration_s`/
-`interface`/`bpf_filter`) + `Site.capture_schedule_last_triggered_at`
+`Project.capture_schedule` (JSON: `enabled`/`times_utc`/`duration_s`/
+`interface`/`bpf_filter`) + `Project.capture_schedule_last_triggered_at`
 (dedup guard against double-firing a slot, survives app restarts near a
-scheduled time) are new nullable columns (migration `0011`). A future
+scheduled time) were originally added as `Site.*` columns (migration
+`0011`) and moved onto `Project` when the `Site`/`SiteMember` layer was
+removed and agents were flattened to belong directly to a project
+(migration `0012` — see `fleet-agents.md` for current-state usage). A future
 multi-worker deployment would need an additional DB-level claim
 (mirroring `run_store.claim_for_recovery`'s pattern) — out of scope while
 the deployment model is single-process.
@@ -407,19 +416,20 @@ if long outages are a real risk for a given deployment.
 ### 8.5 Automated scheduling is single-process-only
 
 `marlinspike/scheduler.py`'s dedup guard
-(`Site.capture_schedule_last_triggered_at`) prevents a slot from
+(`Project.capture_schedule_last_triggered_at`) prevents a slot from
 double-firing across app restarts, but a true multi-worker deployment
 (gunicorn with >1 worker) would need an additional DB-level claim
 (mirroring `run_store.claim_for_recovery`'s pattern) to guarantee only one
 worker actually fires a given slot. Out of scope while the deployment
 model is a single process (`Dockerfile`'s `CMD`, plain `app.run()`).
 
-### 8.6 No Fleet-page UI for capture scheduling
+### 8.6 ~~No Fleet-page UI for capture scheduling~~ — resolved
 
-`PUT /api/fleet/sites/<id>/capture-schedule` is API-only — there's no form
-on the Fleet page to configure it, matching (not regressing from) the
-existing `capture_policy` feature, which is also API-only today with no
-UI either.
+**Resolved.** The Fleet page now has a "Capture Schedule" modal
+(enable toggle, editable `times_utc` list, duration/interface/BPF
+fields, last-triggered visibility) — see
+[fleet-agents.md#automated-capture-schedule](fleet-agents.md#automated-capture-schedule).
+`capture_policy` remains API-only with no form, as originally noted.
 
 ### 8.7 Environment resets during this validation
 
