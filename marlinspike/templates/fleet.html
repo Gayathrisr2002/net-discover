@@ -115,6 +115,7 @@
         <h2 id="fleet-detail-title">{{ t('fleet.select_project') }}</h2>
         <div>
           <button class="btn btn-sm" id="fleet-members-btn" style="display:none;" onclick="FLEET.showMembers()">{{ t('fleet.members') }}</button>
+          <button class="btn btn-sm" id="fleet-schedule-btn" style="display:none;" onclick="FLEET.showSchedule()">{{ t('fleet.capture_schedule') }}</button>
           <button class="btn btn-sm" id="fleet-issue-token-btn" style="display:none;" onclick="FLEET.showIssueToken()">{{ t('fleet.issue_enrollment_token') }}</button>
         </div>
       </div>
@@ -277,6 +278,56 @@ sudo systemctl enable --now marlinspike-capd</pre>
     </div>
   </div>
 
+  <!-- Capture schedule modal -->
+  <div class="ms-modal-backdrop" id="modal-capture-schedule">
+    <div class="ms-modal">
+      <div class="ms-modal-header">
+        <h3>{{ t('fleet.capture_schedule') }}</h3>
+        <button class="ms-modal-close" onclick="msModal.close('modal-capture-schedule')">&times;</button>
+      </div>
+      <div class="ms-modal-body">
+        <p>{{ t('fleet.capture_schedule_hint') }}</p>
+        <div class="modal-form-grid">
+          <div class="modal-field" style="flex-direction:row; align-items:center; gap:8px;">
+            <input type="checkbox" id="fleet-schedule-enabled" style="width:auto;min-width:auto;margin:0;">
+            <label for="fleet-schedule-enabled" style="text-transform:none; font-weight:normal; font-size:1em;">{{ t('fleet.schedule_enabled') }}</label>
+          </div>
+
+          <div class="modal-field">
+            <label>{{ t('fleet.schedule_times_utc') }}</label>
+            <table class="ms-table" id="fleet-schedule-times-table">
+              <tbody id="fleet-schedule-times-body"></tbody>
+            </table>
+            <div style="display:flex; gap:8px; margin-top:6px;">
+              <input type="text" id="fleet-schedule-new-time" class="ms-input" placeholder="HH:MM" style="max-width:120px;">
+              <button class="btn btn-sm" onclick="FLEET.addScheduleTime()">{{ t('fleet.schedule_add_time') }}</button>
+            </div>
+          </div>
+
+          <div class="modal-field">
+            <label for="fleet-schedule-duration">{{ t('fleet.schedule_duration_s') }}</label>
+            <input type="number" id="fleet-schedule-duration" class="ms-input" min="1" step="60" value="300">
+          </div>
+
+          <div class="modal-field">
+            <label for="fleet-schedule-interface">{{ t('fleet.schedule_interface') }}</label>
+            <input type="text" id="fleet-schedule-interface" class="ms-input" placeholder="eth0">
+          </div>
+
+          <div class="modal-field">
+            <label for="fleet-schedule-bpf">{{ t('fleet.schedule_bpf_filter') }}</label>
+            <input type="text" id="fleet-schedule-bpf" class="ms-input" placeholder="tcp port 502 or tcp port 102">
+          </div>
+        </div>
+        <div class="fleet-token-warning" id="fleet-schedule-last-triggered" style="color: var(--text-dim);"></div>
+      </div>
+      <div class="ms-modal-footer">
+        <button class="btn" onclick="msModal.close('modal-capture-schedule')">{{ t('common.close') }}</button>
+        <button class="btn btn-success" onclick="FLEET.saveSchedule()">{{ t('common.save') }}</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
@@ -365,6 +416,7 @@ var FLEET = (function() {
     document.getElementById('fleet-agents-table').style.display = '';
     document.getElementById('fleet-issue-token-btn').style.display = '';
     document.getElementById('fleet-members-btn').style.display = '';
+    document.getElementById('fleet-schedule-btn').style.display = '';
     loadAgents(projectId);
     openStatusStream(projectId);
   }
@@ -675,6 +727,100 @@ var FLEET = (function() {
       });
   }
 
+  // ── capture schedule ─────────────────────────────────────────
+  // Project-wide automated capture trigger (marlinspike/scheduler.py):
+  // fires on every online agent under this project when a configured
+  // times_utc slot is due. Unlike the members list above, times_utc is
+  // just one field of a single JSON object PUT on Save — no per-item
+  // API round trip, so it's edited as a plain in-memory array here.
+  var scheduleTimes = [];
+  var _TIME_UTC_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  function showSchedule() {
+    if (!selectedProjectId) return;
+    fetch('/api/fleet/projects/' + selectedProjectId + '/capture-schedule').then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.ok) { msToast(d.error || {{ t("common.failed") | tojson }}, true); return; }
+      var s = d.schedule || {};
+      document.getElementById('fleet-schedule-enabled').checked = !!s.enabled;
+      document.getElementById('fleet-schedule-duration').value = s.duration_s || 300;
+      document.getElementById('fleet-schedule-interface').value = s.interface || '';
+      document.getElementById('fleet-schedule-bpf').value = s.bpf_filter || '';
+      scheduleTimes = (s.times_utc || []).slice();
+      renderScheduleTimes();
+      var lastEl = document.getElementById('fleet-schedule-last-triggered');
+      lastEl.textContent = d.last_triggered_at
+        ? {{ t("fleet.schedule_last_triggered") | tojson }} + ' ' + formatDate(d.last_triggered_at)
+        : {{ t("fleet.schedule_never_triggered") | tojson }};
+      msModal.open('modal-capture-schedule');
+    });
+  }
+
+  function renderScheduleTimes() {
+    var tbody = document.getElementById('fleet-schedule-times-body');
+    tbody.innerHTML = '';
+    scheduleTimes.forEach(function(time, i) {
+      var tr = document.createElement('tr');
+      tr.appendChild(cell(time, 'mono'));
+      var actionsTd = document.createElement('td');
+      actionsTd.appendChild(actionBtn({{ t("common.delete") | tojson }}, 'btn btn-sm btn-danger', function() {
+        scheduleTimes.splice(i, 1);
+        renderScheduleTimes();
+      }));
+      tr.appendChild(actionsTd);
+      tbody.appendChild(tr);
+    });
+  }
+
+  function addScheduleTime() {
+    var input = document.getElementById('fleet-schedule-new-time');
+    var val = input.value.trim();
+    if (!_TIME_UTC_RE.test(val)) {
+      msToast({{ t("fleet.schedule_invalid_time") | tojson }}, true);
+      return;
+    }
+    if (scheduleTimes.indexOf(val) === -1) {
+      scheduleTimes.push(val);
+      scheduleTimes.sort();
+      renderScheduleTimes();
+    }
+    input.value = '';
+  }
+
+  function saveSchedule() {
+    if (!selectedProjectId) return;
+    var enabled = document.getElementById('fleet-schedule-enabled').checked;
+    var interfaceName = document.getElementById('fleet-schedule-interface').value.trim();
+    var durationS = parseInt(document.getElementById('fleet-schedule-duration').value, 10) || 300;
+    var bpfFilter = document.getElementById('fleet-schedule-bpf').value.trim();
+
+    if (enabled && scheduleTimes.length === 0) {
+      msToast({{ t("fleet.schedule_time_required") | tojson }}, true);
+      return;
+    }
+    if (enabled && !interfaceName) {
+      msToast({{ t("fleet.schedule_interface_required") | tojson }}, true);
+      return;
+    }
+
+    // times_utc/interface/bpf_filter are kept even when disabling, so
+    // re-enabling later doesn't mean retyping everything.
+    var body = { enabled: enabled, duration_s: durationS, interface: interfaceName, bpf_filter: bpfFilter };
+    if (scheduleTimes.length) body.times_utc = scheduleTimes;
+
+    fetch('/api/fleet/projects/' + selectedProjectId + '/capture-schedule', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast({{ t("fleet.schedule_saved") | tojson }}, 'success');
+        msModal.close('modal-capture-schedule');
+      } else {
+        msToast(d.error || {{ t("common.failed") | tojson }}, true);
+      }
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', loadProjects);
 
   return {
@@ -684,6 +830,9 @@ var FLEET = (function() {
     showMembers: showMembers,
     addMember: addMember,
     doRotateCredential: doRotateCredential,
+    showSchedule: showSchedule,
+    addScheduleTime: addScheduleTime,
+    saveSchedule: saveSchedule,
   };
 })();
 </script>
