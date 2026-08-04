@@ -4829,25 +4829,47 @@ def create_app():
     def api_reports_list():
         project_id = request.args.get("project_id", None, type=int)
         limit = request.args.get("limit", None, type=int)
+
+        if project_id is not None:
+            proj = _get_project_for_user(project_id)
+            if proj is None:
+                abort(404)
+            dirs = [proj]
+        else:
+            # No project_id — the Reports page's own dropdown calls this its
+            # "All Projects" default, not "just my auto-created Default
+            # project" (which user_reports_dir(None) would resolve to). Union
+            # across every project the caller can access to match that.
+            from sqlalchemy import or_
+            uid = session["user_id"]
+            shared_pids = db.session.query(ProjectMember.project_id).filter_by(user_id=uid)
+            dirs = Project.query.filter(
+                or_(Project.user_id == uid, Project.id.in_(shared_pids))
+            ).all()
+
         reports = []
-        rdir = user_reports_dir(project_id)
-        if os.path.isdir(rdir):
+        for proj in dirs:
+            rdir = os.path.join(config.REPORTS_DIR, str(proj.user_id), str(proj.id))
+            if not os.path.isdir(rdir):
+                continue
             for fn in os.listdir(rdir):
-                if _is_primary_report_filename(fn):
-                    path = os.path.join(rdir, fn)
-                    try:
-                        stat = os.stat(path)
-                        size = stat.st_size
-                        mtime_ts = stat.st_mtime
-                        mtime = datetime.fromtimestamp(
-                            mtime_ts, tz=timezone.utc
-                        ).isoformat()
-                    except Exception:
-                        size = 0
-                        mtime_ts = 0
-                        mtime = ""
-                    reports.append({"filename": fn, "size": size, "modified": mtime, "_sort": mtime_ts})
-            reports.sort(key=lambda r: r.pop("_sort"), reverse=True)
+                if not _is_primary_report_filename(fn):
+                    continue
+                path = os.path.join(rdir, fn)
+                try:
+                    stat = os.stat(path)
+                    size = stat.st_size
+                    mtime_ts = stat.st_mtime
+                    mtime = datetime.fromtimestamp(mtime_ts, tz=timezone.utc).isoformat()
+                except Exception:
+                    size = 0
+                    mtime_ts = 0
+                    mtime = ""
+                reports.append({
+                    "filename": fn, "size": size, "modified": mtime, "_sort": mtime_ts,
+                    "project_id": proj.id, "project_name": proj.name,
+                })
+        reports.sort(key=lambda r: r.pop("_sort"), reverse=True)
         total = len(reports)
         if limit and limit > 0:
             reports = reports[:limit]

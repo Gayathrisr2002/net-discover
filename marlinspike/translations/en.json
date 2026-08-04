@@ -674,6 +674,7 @@
   "reports.column_project": "Project",
   "reports.compare_hint": "Select two reports using the checkboxes to compare them as a Baseline Drift analysis — identifies new, removed, and changed assets between captures.",
   "reports.compare_limit": "Select only 2 reports for baseline and drift review",
+  "reports.compare_same_project": "Compare two reports from the same project",
   "reports.confirm_delete": "Delete {filename}?",
   "reports.deleted": "Report deleted",
   "reports.empty_action": "Go to Dashboard",

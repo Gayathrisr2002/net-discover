@@ -671,6 +671,7 @@
   "reports.column_project": "Projet",
   "reports.compare_hint": "Sélectionnez deux rapports avec les cases à cocher pour les comparer dans une analyse de dérive de référence — identifie les actifs ajoutés, supprimés et modifiés entre captures.",
   "reports.compare_limit": "Sélectionnez seulement 2 rapports pour la revue de dérive de référence",
+  "reports.compare_same_project": "Comparez deux rapports du même projet",
   "reports.confirm_delete": "Supprimer {filename} ?",
   "reports.deleted": "Rapport supprimé",
   "reports.empty_action": "Aller au tableau de bord",

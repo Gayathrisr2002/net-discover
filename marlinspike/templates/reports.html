@@ -77,6 +77,7 @@
           <tr>
             <th style="width:30px;"></th>
             <th>{{ t('reports.column_filename') }}</th>
+            <th>{{ t('reports.column_project') }}</th>
             <th>{{ t('common.size') }}</th>
             <th>{{ t('reports.column_modified') }}</th>
             <th>{{ t('common.actions') }}</th>
@@ -98,6 +99,7 @@ var RP = (function() {
   'use strict';
 
   var compareA = null, compareB = null;
+  var compareAProjectId = null, compareBProjectId = null;
   var currentProjectId = null;
 
   function init() {
@@ -132,32 +134,37 @@ var RP = (function() {
     fetch(url).then(function(r) { return r.json(); }).then(function(d) {
       var tbody = document.getElementById('reports-body');
       if (!d.reports || d.reports.length === 0) {
-        tbody.innerHTML = msEmptyHTML({ icon: 'report', title: msT('reports.empty_title'), sub: msT('reports.empty_run_a_scan'), action: msT('reports.empty_action'), href: '/dashboard' }, 5);
+        tbody.innerHTML = msEmptyHTML({ icon: 'report', title: msT('reports.empty_title'), sub: msT('reports.empty_run_a_scan'), action: msT('reports.empty_action'), href: '/dashboard' }, 6);
         return;
       }
       tbody.innerHTML = '';
       d.reports.forEach(function(r) {
+        // Each report carries its own project_id/project_name from the API
+        // now (covers "All Projects" view, where reports span more than one
+        // project) — use that for this row's links, not the page-level
+        // filter, which is null in that view and would otherwise 404.
+        var pidParam = 'project_id=' + r.project_id;
         var tr = document.createElement('tr');
         tr.innerHTML =
-          '<td><input type="checkbox" class="compare-cb" data-fn="' + esc(r.filename) + '" onchange="RP.toggleCompare(this)"></td>'
+          '<td><input type="checkbox" class="compare-cb" data-fn="' + esc(r.filename) + '" data-pid="' + r.project_id + '" onchange="RP.toggleCompare(this)"></td>'
           + '<td class="mono">' + esc(r.filename) + '</td>'
+          + '<td class="dim">' + esc(r.project_name || '') + '</td>'
           + '<td class="dim">' + formatSize(r.size) + '</td>'
           + '<td class="dim">' + formatDate(r.modified) + '</td>'
           + '<td class="report-actions">'
-          + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer' + (currentProjectId ? '?project_id=' + currentProjectId : '') + '" target="_blank">' + msT('reports.view', 'View') + '</a>'
-          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + (currentProjectId ? '?project_id=' + currentProjectId : '') + '">' + msT('common.download', 'Download') + '</a>'
-          + '<button class="del-btn" onclick="RP.deleteReport(\'' + escjs(r.filename) + '\')">' + msT('common.delete', 'Delete') + '</button>'
+          + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?' + pidParam + '" target="_blank">' + msT('reports.view', 'View') + '</a>'
+          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?' + pidParam + '">' + msT('common.download', 'Download') + '</a>'
+          + '<button class="del-btn" onclick="RP.deleteReport(\'' + escjs(r.filename) + '\', ' + r.project_id + ')">' + msT('common.delete', 'Delete') + '</button>'
           + '</td>';
         tbody.appendChild(tr);
       });
     });
   }
 
-  function deleteReport(filename) {
+  function deleteReport(filename, projectId) {
     var prompt = msT('reports.confirm_delete', 'Delete {filename}?').replace('{filename}', filename);
     if (!confirm(prompt)) return;
-    var url = '/api/reports/' + encodeURIComponent(filename);
-    if (currentProjectId) url += '?project_id=' + currentProjectId;
+    var url = '/api/reports/' + encodeURIComponent(filename) + '?project_id=' + projectId;
     fetch(url, { method: 'DELETE' })
       .then(function(r) { return r.json(); })
       .then(function() { loadReports(); msToast(msT('reports.deleted', 'Report deleted'), 'success'); });
@@ -165,13 +172,26 @@ var RP = (function() {
 
   function toggleCompare(cb) {
     var fn = cb.dataset.fn;
+    var pid = parseInt(cb.dataset.pid, 10);
     if (cb.checked) {
-      if (!compareA) compareA = fn;
-      else if (!compareB) compareB = fn;
+      // The diff endpoint only ever compares two reports from the same
+      // project (it resolves one shared reports dir for both sides) — with
+      // reports now spanning projects in "All Projects" view, reject a
+      // cross-project pair up front rather than sending a project_id that's
+      // wrong for one of the two filenames.
+      if (!compareA) { compareA = fn; compareAProjectId = pid; }
+      else if (!compareB) {
+        if (pid !== compareAProjectId) {
+          cb.checked = false;
+          msToast(msT('reports.compare_same_project', 'Compare two reports from the same project'), true);
+          return;
+        }
+        compareB = fn; compareBProjectId = pid;
+      }
       else { cb.checked = false; msToast(msT('reports.compare_limit', 'Select only 2 reports for baseline and drift review'), true); return; }
     } else {
-      if (compareA === fn) compareA = null;
-      if (compareB === fn) compareB = null;
+      if (compareA === fn) { compareA = null; compareAProjectId = null; }
+      if (compareB === fn) { compareB = null; compareBProjectId = null; }
     }
     updateCompareBar();
   }
@@ -189,14 +209,16 @@ var RP = (function() {
 
   function compareDiff() {
     if (!compareA || !compareB) return;
-    var url = '/api/reports/diff?a=' + encodeURIComponent(compareA) + '&b=' + encodeURIComponent(compareB);
-    if (currentProjectId) url += '&project_id=' + currentProjectId;
+    var url = '/api/reports/diff?a=' + encodeURIComponent(compareA) + '&b=' + encodeURIComponent(compareB)
+      + '&project_id=' + compareAProjectId;
     window.open(url, '_blank');
   }
 
   function clearCompare() {
     compareA = null;
     compareB = null;
+    compareAProjectId = null;
+    compareBProjectId = null;
     document.querySelectorAll('.compare-cb').forEach(function(c) { c.checked = false; });
     updateCompareBar();
   }
