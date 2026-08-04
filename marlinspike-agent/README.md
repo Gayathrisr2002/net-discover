@@ -34,6 +34,24 @@ pip install -e ./marlinspike-agent
 
 Zero third-party dependencies — stdlib `ssl`/`asyncio` only.
 
+Live capture needs `marlinspike-capd` running locally too (see "Why a
+separate process from capd" above) — `pip install` alone won't pull that
+in, since pip has no notion of a sibling system package. Install it
+separately:
+
+```bash
+pip install -e ./marlinspike-capd
+sudo bash marlinspike-capd/systemd/install.sh
+```
+
+The `.deb` package instead declares a `Recommends: marlinspike-capd`, so
+`sudo apt install ./marlinspike-agent*.deb` (with both `.deb`s available,
+e.g. built side by side or from the same local repo) pulls in capd —
+and its own dependencies (`wireshark-common`, `libpcap0.8`) — and wires
+up the uid allow-list automatically (see both packages' `postinst`).
+Without capd, the agent still runs and relays fine, it just reports
+`capd_reachable: false` and can't actually start captures.
+
 ## Usage
 
 ```bash

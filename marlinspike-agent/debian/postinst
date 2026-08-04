@@ -13,7 +13,32 @@ case "$1" in
     chown marlinspike-agent:marlinspike-agent /etc/marlinspike-agent
     chmod 0700 /etc/marlinspike-agent
 
-    # If marlinspike-capd is already installed on this host, this agent
+    # Install the bundled marlinspike-capd .deb (built alongside this
+    # package — see scripts/build_agent_deb.sh) so a plain `dpkg -i` /
+    # `apt install` of just this ONE file sets up a fully working sensor
+    # host, not just the relay half. `Recommends: marlinspike-capd` in
+    # debian/control alone isn't enough for that — it only resolves when
+    # apt is given capd's own path in the same install command (or a repo
+    # serves it, which this project doesn't have), so dpkg -i or a
+    # single-file apt install would otherwise silently skip it. Skipped
+    # if capd is already present (idempotent, matches the rest of this
+    # script's re-run safety).
+    CAPD_DEB="/usr/share/marlinspike-agent/marlinspike-capd.deb"
+    if [ -f "$CAPD_DEB" ] && ! dpkg -s marlinspike-capd >/dev/null 2>&1; then
+      echo "marlinspike-agent: installing bundled marlinspike-capd..."
+      # wireshark-common (capd's own Depends) asks via debconf whether to
+      # install dumpcap setuid-root for non-root capture — capd instead
+      # grants CAP_NET_RAW/CAP_NET_ADMIN directly and gates access via
+      # group membership (see marlinspike-capd's own postinst), so answer
+      # "no" here. Necessary since this runs inside our own postinst,
+      # non-interactively, with no TTY to answer an unanswered prompt.
+      echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections
+      DEBIAN_FRONTEND=noninteractive apt-get install -y "$CAPD_DEB" || \
+        echo "marlinspike-agent: warning: automatic marlinspike-capd install failed — install it manually: sudo apt install $CAPD_DEB" >&2
+    fi
+
+    # If marlinspike-capd is present on this host (just installed above,
+    # or already was), this agent
     # needs read access to the state directory it writes rotated PCAPs
     # into (StateDirectoryMode=0750, group-restricted — not the socket's
     # own directory, which is a separate, deliberately more permissive

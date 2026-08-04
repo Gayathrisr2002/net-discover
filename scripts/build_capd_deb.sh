@@ -68,7 +68,10 @@ cp "$CAPD_SRC/debian/copyright" "$PKG_ROOT/usr/share/doc/marlinspike-capd/copyri
 cp "$REPO_ROOT/LICENSE" "$PKG_ROOT/usr/share/doc/marlinspike-capd/LICENSE"
 
 # ── Build ─────────────────────────────────────────────────────
+# --root-owner-group already forces root:root ownership in the archive
+# metadata without needing an actual root/fakeroot process — that's the
+# flag's whole purpose (dpkg >= 1.19), so no fakeroot dependency here.
 DEB_PATH="$OUT_DIR/marlinspike-capd_${VERSION}_all.deb"
-fakeroot dpkg-deb --build --root-owner-group "$PKG_ROOT" "$DEB_PATH"
+dpkg-deb --build --root-owner-group "$PKG_ROOT" "$DEB_PATH"
 
 echo "Wrote $DEB_PATH"

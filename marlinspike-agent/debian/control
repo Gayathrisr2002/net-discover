@@ -4,6 +4,7 @@ Section: net
 Priority: optional
 Architecture: all
 Depends: python3 (>= 3.10), openssl
+Recommends: marlinspike-capd
 Maintainer: MarlinSpike Project <noreply@localhost>
 Description: Remote sensor agent for MarlinSpike fleet management
  Enrolls with a central MarlinSpike fleet gateway over TLS and maintains
@@ -13,3 +14,10 @@ Description: Remote sensor agent for MarlinSpike fleet management
  actual analysis engine and produces the report; no analysis happens on
  this host. Zero third-party Python dependencies (stdlib ssl/asyncio
  only), no tshark or engine bundling needed.
+ .
+ Recommends marlinspike-capd (which itself pulls in wireshark-common /
+ libpcap) so a plain `apt install ./marlinspike-agent*.deb` sets up a
+ working sensor host in one shot — live capture relays to the local capd
+ named in the Fleet page's start/stop calls, without a second manual
+ install step. This agent still runs fine without it (relay-only host),
+ just reporting capd_reachable: false / live capture unavailable.

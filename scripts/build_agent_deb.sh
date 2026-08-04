@@ -41,6 +41,17 @@ mkdir -p "$PKG_ROOT/usr/lib/marlinspike-agent"
 mkdir -p "$PKG_ROOT/usr/bin"
 mkdir -p "$PKG_ROOT/lib/systemd/system"
 mkdir -p "$PKG_ROOT/usr/share/doc/marlinspike-agent"
+mkdir -p "$PKG_ROOT/usr/share/marlinspike-agent"
+
+# ── Bundle marlinspike-capd's own .deb inside this package's payload ──
+# postinst installs it automatically (see debian/postinst) so a plain
+# `dpkg -i`/single-file `apt install` of just this .deb sets up a fully
+# working sensor host, not just the relay half — Recommends alone can't
+# guarantee that without a real apt repo serving both packages.
+CAPD_BUILD_DIR="$(mktemp -d)"
+bash "$REPO_ROOT/scripts/build_capd_deb.sh" "$CAPD_BUILD_DIR" >&2
+cp "$CAPD_BUILD_DIR"/marlinspike-capd_*_all.deb "$PKG_ROOT/usr/share/marlinspike-agent/marlinspike-capd.deb"
+rm -rf "$CAPD_BUILD_DIR"
 
 # ── Control files ─────────────────────────────────────────────
 sed "s/__VERSION__/${VERSION}/" "$AGENT_SRC/debian/control" > "$PKG_ROOT/DEBIAN/control"
@@ -72,7 +83,10 @@ cp "$AGENT_SRC/debian/copyright" "$PKG_ROOT/usr/share/doc/marlinspike-agent/copy
 cp "$REPO_ROOT/LICENSE" "$PKG_ROOT/usr/share/doc/marlinspike-agent/LICENSE"
 
 # ── Build ─────────────────────────────────────────────────────
+# --root-owner-group already forces root:root ownership in the archive
+# metadata without needing an actual root/fakeroot process — that's the
+# flag's whole purpose (dpkg >= 1.19), so no fakeroot dependency here.
 DEB_PATH="$OUT_DIR/marlinspike-agent_${VERSION}_all.deb"
-fakeroot dpkg-deb --build --root-owner-group "$PKG_ROOT" "$DEB_PATH"
+dpkg-deb --build --root-owner-group "$PKG_ROOT" "$DEB_PATH"
 
 echo "Wrote $DEB_PATH"
