@@ -762,7 +762,16 @@ var FLEET = (function() {
   // there's no single host to ask. The previously saved name is always kept
   // as an option even if no online agent currently reports it, so opening
   // the modal never silently drops what was configured.
+  // Bumped on every call and captured per-invocation below — msModal.open/
+  // close only toggle a CSS class, they never recreate the <select>, so a
+  // slower earlier call landing after a newer one would otherwise clobber
+  // it with stale options/value (e.g. rapid close+reopen of the modal).
+  // Only the most-recently-started invocation is allowed to write to the
+  // DOM.
+  var scheduleInterfacesGen = 0;
+
   function loadScheduleInterfaces(previous) {
+    var gen = ++scheduleInterfacesGen;
     var sel = document.getElementById('fleet-schedule-interface');
     sel.disabled = true;
     sel.innerHTML = '';
@@ -779,6 +788,7 @@ var FLEET = (function() {
           .catch(function() { return null; });
       }));
     }).then(function(results) {
+      if (gen !== scheduleInterfacesGen) return;
       var names = {};
       (results || []).forEach(function(r) {
         if (r && r.ok && r.interfaces) r.interfaces.forEach(function(i) { names[i.name] = true; });
@@ -803,6 +813,7 @@ var FLEET = (function() {
       }
       sel.disabled = false;
     }).catch(function() {
+      if (gen !== scheduleInterfacesGen) return;
       sel.innerHTML = '';
       var opt = document.createElement('option');
       opt.value = previous || '';
