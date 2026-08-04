@@ -20,9 +20,23 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$REPO_ROOT/dist"
 
 echo "Building marlinspike-agent (bundling marlinspike-capd)..."
-bash "$REPO_ROOT/scripts/build_agent_deb.sh" "$OUT_DIR"
-
-AGENT_DEB="$(ls -t "$OUT_DIR"/marlinspike-agent_*_all.deb | head -1)"
+# Captured rather than picked via `ls -t dist/*.deb | head -1` — a stale
+# .deb left in dist/ from a prior run, combined with clock skew (e.g. an
+# NTP correction mid-run), could otherwise sort ahead of the file just
+# built and get installed instead, silently. build_agent_deb.sh's only
+# stdout line is its own "Wrote <path>", so this is the exact path it
+# just wrote, not a guess.
+BUILD_OUTPUT="$(bash "$REPO_ROOT/scripts/build_agent_deb.sh" "$OUT_DIR")"
+echo "$BUILD_OUTPUT"
+# dpkg-deb --build itself also writes a "building package..." line to
+# stdout ahead of build_agent_deb.sh's own final "Wrote <path>" — grab
+# that exact last line rather than assuming the whole captured output is
+# just the one line.
+AGENT_DEB="$(printf '%s\n' "$BUILD_OUTPUT" | sed -n 's/^Wrote //p' | tail -1)"
+if [ -z "$AGENT_DEB" ]; then
+  echo "error: could not determine built .deb path from build_agent_deb.sh output" >&2
+  exit 1
+fi
 
 echo
 echo "Installing $AGENT_DEB (sudo will prompt)..."

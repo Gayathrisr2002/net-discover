@@ -49,6 +49,7 @@ mkdir -p "$PKG_ROOT/usr/share/marlinspike-agent"
 # working sensor host, not just the relay half — Recommends alone can't
 # guarantee that without a real apt repo serving both packages.
 CAPD_BUILD_DIR="$(mktemp -d)"
+trap 'rm -rf "$BUILD_DIR" "$CAPD_BUILD_DIR"' EXIT
 bash "$REPO_ROOT/scripts/build_capd_deb.sh" "$CAPD_BUILD_DIR" >&2
 cp "$CAPD_BUILD_DIR"/marlinspike-capd_*_all.deb "$PKG_ROOT/usr/share/marlinspike-agent/marlinspike-capd.deb"
 rm -rf "$CAPD_BUILD_DIR"

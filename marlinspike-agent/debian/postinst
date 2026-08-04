@@ -20,26 +20,49 @@ case "$1" in
     # debian/control alone isn't enough for that — it only resolves when
     # apt is given capd's own path in the same install command (or a repo
     # serves it, which this project doesn't have), so dpkg -i or a
-    # single-file apt install would otherwise silently skip it. Skipped
-    # if capd is already present (idempotent, matches the rest of this
-    # script's re-run safety).
+    # single-file apt install would otherwise silently skip it.
+    #
+    # Skipped only when an equal-or-newer capd is already genuinely
+    # installed (not just "has a dpkg database entry" — `dpkg -s` still
+    # succeeds for a removed-but-not-purged package in `deinstall ok
+    # config-files` state, which would otherwise make this look done when
+    # it isn't) — this also means a later agent upgrade bundling a newer
+    # capd still gets applied instead of being silently skipped forever
+    # by a stale "already present" check.
     CAPD_DEB="/usr/share/marlinspike-agent/marlinspike-capd.deb"
-    if [ -f "$CAPD_DEB" ] && ! dpkg -s marlinspike-capd >/dev/null 2>&1; then
-      echo "marlinspike-agent: installing bundled marlinspike-capd..."
-      # wireshark-common (capd's own Depends) asks via debconf whether to
-      # install dumpcap setuid-root for non-root capture — capd instead
-      # grants CAP_NET_RAW/CAP_NET_ADMIN directly and gates access via
-      # group membership (see marlinspike-capd's own postinst), so answer
-      # "no" here. Necessary since this runs inside our own postinst,
-      # non-interactively, with no TTY to answer an unanswered prompt.
-      echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections
-      DEBIAN_FRONTEND=noninteractive apt-get install -y "$CAPD_DEB" || \
-        echo "marlinspike-agent: warning: automatic marlinspike-capd install failed — install it manually: sudo apt install $CAPD_DEB" >&2
+    if [ -f "$CAPD_DEB" ]; then
+      need_capd_install=1
+      installed_status="$(dpkg-query -W -f='${Status}' marlinspike-capd 2>/dev/null || true)"
+      if [ "$installed_status" = "install ok installed" ]; then
+        installed_version="$(dpkg-query -W -f='${Version}' marlinspike-capd 2>/dev/null || true)"
+        bundled_version="$(dpkg-deb -f "$CAPD_DEB" Version 2>/dev/null || true)"
+        if [ -n "$installed_version" ] && [ -n "$bundled_version" ] && \
+           dpkg --compare-versions "$installed_version" ge "$bundled_version" 2>/dev/null; then
+          need_capd_install=0
+        fi
+      fi
+      if [ "$need_capd_install" = "1" ]; then
+        echo "marlinspike-agent: installing bundled marlinspike-capd..."
+        # wireshark-common (capd's own Depends) asks via debconf whether to
+        # install dumpcap setuid-root for non-root capture — capd instead
+        # grants CAP_NET_RAW/CAP_NET_ADMIN directly and gates access via
+        # group membership (see marlinspike-capd's own postinst), so answer
+        # "no" here. Necessary since this runs inside our own postinst,
+        # non-interactively, with no TTY to answer an unanswered prompt.
+        # Best-effort: a minimal image (debootstrap --variant=minbase)
+        # can lack debconf entirely — `set -e` is active in this script,
+        # so letting this line fail unguarded would abort the *entire*
+        # postinst (uid/group wiring, systemd reload, everything below),
+        # not just this optional step.
+        echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "$CAPD_DEB" || \
+          echo "marlinspike-agent: warning: automatic marlinspike-capd install failed (no network/apt access, or apt busy elsewhere?) — install it manually: sudo apt install $CAPD_DEB" >&2
+      fi
     fi
 
     # If marlinspike-capd is present on this host (just installed above,
-    # or already was), this agent
-    # needs read access to the state directory it writes rotated PCAPs
+    # or already was), this agent needs read access to the state
+    # directory it writes rotated PCAPs
     # into (StateDirectoryMode=0750, group-restricted — not the socket's
     # own directory, which is a separate, deliberately more permissive
     # concern) to actually scan what it captures. See marlinspike-capd's
