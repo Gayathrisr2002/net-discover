@@ -77,6 +77,29 @@ def _record_finish(*, run_id: str, status: str, error_tail: str | None,
         )
 
 
+# One lock per session_uuid serializes rotations of the *same* capture
+# session through launch_scan. Without it, two pcap_complete events close
+# enough together (rotation N's engine subprocess still running when
+# rotation N+1's pcap finishes uploading) run concurrently: record_start
+# always overwrites report_path/pcap_path for the row keyed by run_id
+# (=session_uuid), so rotation N+1's record_start can land while rotation
+# N is still running — when N then finishes and calls record_finish, its
+# status/node_count/edge_count get written onto a row whose
+# report_path/pcap_path already point at rotation N+1 instead. Rotation
+# N's own report file still exists on disk but the DB row never points at
+# it again — a silent, permanent loss of that rotation's result. Entries
+# are never removed; bounded by the number of distinct capture sessions
+# this gateway process ever handles, small relative to process lifetime.
+_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def _lock_for(session_uuid: str) -> asyncio.Lock:
+    lock = _session_locks.get(session_uuid)
+    if lock is None:
+        lock = _session_locks[session_uuid] = asyncio.Lock()
+    return lock
+
+
 async def launch_scan(*, pcap_path: str, user_id: int, project_id: int, session_uuid: str,
                        agent_id: int | None, loop: asyncio.AbstractEventLoop) -> None:
     """Spawn the analysis engine for a fully-received agent pcap and wait
@@ -84,8 +107,19 @@ async def launch_scan(*, pcap_path: str, user_id: int, project_id: int, session_
     record_start is an upsert-by-run_id (run_store.record_start queries
     the existing row first), so a session that ships more than one
     rotation just updates the same row on each subsequent call rather than
-    colliding on run_id's unique constraint.
+    colliding on run_id's unique constraint. Serialized per session_uuid
+    via _lock_for so concurrent rotations can't interleave their
+    record_start/record_finish pairs (see _session_locks docstring above).
     """
+    async with _lock_for(session_uuid):
+        await _launch_scan_locked(
+            pcap_path=pcap_path, user_id=user_id, project_id=project_id,
+            session_uuid=session_uuid, agent_id=agent_id, loop=loop,
+        )
+
+
+async def _launch_scan_locked(*, pcap_path: str, user_id: int, project_id: int, session_uuid: str,
+                               agent_id: int | None, loop: asyncio.AbstractEventLoop) -> None:
     run_id = session_uuid
     report_path = _report_path_for(pcap_path, user_id, project_id, run_id)
 
