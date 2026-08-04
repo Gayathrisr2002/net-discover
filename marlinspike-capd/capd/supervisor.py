@@ -200,7 +200,23 @@ class CaptureSupervisor:
         if self._stderr_thread is not None:
             self._stderr_thread.join(timeout=2.0)
 
-        # Final stats from stderr summary.
+        self._parse_final_stats()
+
+        # The active file at stop time is now closed too.
+        snap = self._snapshot(running=False, finalize=True)
+        self._proc = None
+        return snap
+
+    def _parse_final_stats(self) -> None:
+        """Parse dumpcap's own exit summary out of the stderr buffer.
+
+        dumpcap prints this same "Packets captured: N" / "Packets
+        dropped: N" summary on any exit — an explicit SIGINT (stop()) or
+        its own -a duration:N timer elapsing (self-expiration, observed
+        via poll()) — so this isn't stop()-specific. Idempotent: safe to
+        call again on an already-finalized session (re-parses the same
+        buffer, same result).
+        """
         joined = "\n".join(self._stderr_buf)
         m = _PKTS_RE.search(joined)
         if m:
@@ -208,11 +224,6 @@ class CaptureSupervisor:
         m = _DROPS_RE.search(joined)
         if m:
             self.final_drops = int(m.group(1))
-
-        # The active file at stop time is now closed too.
-        snap = self._snapshot(running=False, finalize=True)
-        self._proc = None
-        return snap
 
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
@@ -236,6 +247,14 @@ class CaptureSupervisor:
         # finalize repeatedly — _closed_emitted already makes this
         # idempotent per file.
         running = self.is_running()
+        if not running and self.final_packets is None:
+            # dumpcap has already exited on its own (self-expiration, not
+            # an explicit stop()) — its final summary line may have only
+            # just hit the stderr reader thread; give it a brief moment to
+            # drain rather than risk parsing an empty/partial buffer.
+            if self._stderr_thread is not None:
+                self._stderr_thread.join(timeout=1.0)
+            self._parse_final_stats()
         return self._snapshot(running=running, finalize=not running)
 
     def _snapshot(self, running: bool, finalize: bool = False) -> CaptureStats:

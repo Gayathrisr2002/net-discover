@@ -299,6 +299,16 @@ def _make_session_finalizer(app_obj, cs_id: int, interface: str, session_uuid: s
                 file_index = final_frame.get("file_index")
                 if file_index is not None:
                     cs.rotation_count = max(cs.rotation_count, int(file_index))
+                # Only set once capd has actually finalized the session
+                # (poll()'s finalize path parses dumpcap's exit summary on
+                # self-expiration too, not just an explicit /stop) — a
+                # session ending via a genuine capd crash before that ever
+                # happened correctly leaves these at their prior value
+                # rather than stamping a false 0.
+                if final_frame.get("packets") is not None:
+                    cs.packets_captured = int(final_frame["packets"])
+                if final_frame.get("drops") is not None:
+                    cs.drop_count = int(final_frame["drops"])
             else:
                 # Loop exited via CapdUnavailable/CapdError/an unhandled
                 # crash rather than a clean final frame — capd's own state

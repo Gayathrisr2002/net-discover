@@ -464,6 +464,12 @@ class AgentClient:
                         # unaffected — they already finalize synchronously
                         # from the app's own stop_session handler.
                         "running": still_running,
+                        # None until capd has actually finalized the
+                        # session (self-expired or explicitly stopped) —
+                        # see capd's _parse_final_stats. A still-running
+                        # session just reports null each tick.
+                        "packets_captured": status.get("packets"),
+                        "drop_count": status.get("drops"),
                     },
                 })
                 if not still_running:

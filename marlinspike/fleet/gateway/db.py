@@ -448,7 +448,8 @@ def _session_owned_by_agent(cs: CaptureSession, agent_uuid: str) -> bool:
 
 
 def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_count: int,
-                          agent_uuid: str, running: bool = True) -> None:
+                          agent_uuid: str, running: bool = True,
+                          packets_captured: int | None = None, drop_count: int | None = None) -> None:
     """Persist a periodic progress snapshot an agent relayed for one of its
     active capture sessions. Writes straight into the same CaptureSession
     columns the local capture path already uses (capture/api.py's
@@ -482,6 +483,14 @@ def record_session_stats(*, session_uuid: str, bytes_captured: int, rotation_cou
             return
         cs.bytes_captured = bytes_captured
         cs.rotation_count = max(cs.rotation_count, rotation_count)
+        # None until the agent's own capd has actually finalized the
+        # session (self-expired or explicitly stopped) — only overwrite
+        # once a real value shows up, never stamp a false 0 over an
+        # earlier tick's (equally provisional) value.
+        if packets_captured is not None:
+            cs.packets_captured = packets_captured
+        if drop_count is not None:
+            cs.drop_count = drop_count
         if not running:
             cs.status = "stopped"
             cs.stopped_at = datetime.now(timezone.utc)

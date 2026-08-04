@@ -580,6 +580,8 @@ class GatewayServer:
 
         if method == "session_stats":
             try:
+                packets_captured = params.get("packets_captured")
+                drop_count = params.get("drop_count")
                 await loop.run_in_executor(None, functools.partial(
                     db.record_session_stats,
                     session_uuid=str(params.get("session_id", "")),
@@ -587,6 +589,8 @@ class GatewayServer:
                     rotation_count=int(params.get("rotation_count") or 0),
                     agent_uuid=agent_uuid,
                     running=bool(params.get("running", True)),
+                    packets_captured=int(packets_captured) if packets_captured is not None else None,
+                    drop_count=int(drop_count) if drop_count is not None else None,
                 ))
             except Exception:
                 log.exception("failed to record session_stats event from agent %s", agent_uuid)

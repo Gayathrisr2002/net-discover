@@ -324,6 +324,12 @@ class CapdServer:
             "files_closed": stats.files_closed,
             "running": stats.running,
             "files_lost_count": stats.files_lost_count,
+            # None until the session has actually finished (poll() only
+            # parses dumpcap's exit summary once it's no longer running —
+            # see CaptureSupervisor._parse_final_stats). A caller polling a
+            # still-running session just sees null and keeps polling.
+            "packets": sup.final_packets,
+            "drops": sup.final_drops,
         }
 
     async def _stream_stats(self, client_sock: socket.socket, session_id: str, interval_s: float) -> None:
@@ -346,6 +352,11 @@ class CapdServer:
                 "files_closed": stats.files_closed,
                 "running": stats.running,
                 "files_lost_count": stats.files_lost_count,
+                # None until the session actually finishes — see
+                # CaptureSupervisor._parse_final_stats / _session_status's
+                # matching field.
+                "packets": sup.final_packets,
+                "drops": sup.final_drops,
             }
             self._reap_if_finished(session_id, stats)
             try:
