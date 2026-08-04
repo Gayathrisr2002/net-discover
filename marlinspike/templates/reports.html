@@ -84,7 +84,7 @@
           </tr>
         </thead>
         <tbody id="reports-body">
-          <tr><td colspan="5"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('reports.loading') }}</div></td></tr>
+          <tr><td colspan="6"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('reports.loading') }}</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -178,16 +178,18 @@ var RP = (function() {
       // project (it resolves one shared reports dir for both sides) — with
       // reports now spanning projects in "All Projects" view, reject a
       // cross-project pair up front rather than sending a project_id that's
-      // wrong for one of the two filenames.
-      if (!compareA) { compareA = fn; compareAProjectId = pid; }
-      else if (!compareB) {
-        if (pid !== compareAProjectId) {
-          cb.checked = false;
-          msToast(msT('reports.compare_same_project', 'Compare two reports from the same project'), true);
-          return;
-        }
-        compareB = fn; compareBProjectId = pid;
+      // wrong for one of the two filenames. Checked against whichever slot
+      // is already filled — not just A — so unchecking A while B stays
+      // filled (or checking B before A) can't slip a mismatched pair past
+      // this guard.
+      var otherProjectId = compareA ? compareAProjectId : (compareB ? compareBProjectId : null);
+      if (otherProjectId !== null && pid !== otherProjectId) {
+        cb.checked = false;
+        msToast(msT('reports.compare_same_project', 'Compare two reports from the same project'), true);
+        return;
       }
+      if (!compareA) { compareA = fn; compareAProjectId = pid; }
+      else if (!compareB) { compareB = fn; compareBProjectId = pid; }
       else { cb.checked = false; msToast(msT('reports.compare_limit', 'Select only 2 reports for baseline and drift review'), true); return; }
     } else {
       if (compareA === fn) { compareA = null; compareAProjectId = null; }
