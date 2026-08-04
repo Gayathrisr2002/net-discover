@@ -57,3 +57,6 @@ data/*.db
 htmlcov/
 coverage.xml
 psutil_note.txt
+
+# Built .deb packages (scripts/build_agent_deb.sh, build_capd_deb.sh output)
+/dist/

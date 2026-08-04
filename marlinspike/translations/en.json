@@ -356,6 +356,8 @@
   "fleet.schedule_duration_s": "Duration (seconds)",
   "fleet.schedule_enabled": "Enabled",
   "fleet.schedule_interface": "Interface",
+  "fleet.schedule_interface_loading": "Loading…",
+  "fleet.schedule_interface_none": "No interfaces found on online agents",
   "fleet.schedule_interface_required": "Interface is required when the schedule is enabled",
   "fleet.schedule_invalid_time": "Enter a valid 24-hour UTC time (HH:MM)",
   "fleet.schedule_last_triggered": "Last triggered:",

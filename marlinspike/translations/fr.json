@@ -355,6 +355,8 @@
   "fleet.schedule_duration_s": "Durée (secondes)",
   "fleet.schedule_enabled": "Activé",
   "fleet.schedule_interface": "Interface",
+  "fleet.schedule_interface_loading": "Chargement…",
+  "fleet.schedule_interface_none": "Aucune interface trouvée sur les agents en ligne",
   "fleet.schedule_interface_required": "L'interface est requise lorsque la planification est activée",
   "fleet.schedule_invalid_time": "Saisissez une heure UTC valide au format 24 h (HH:MM)",
   "fleet.schedule_last_triggered": "Dernier déclenchement :",

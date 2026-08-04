@@ -311,7 +311,9 @@ sudo systemctl enable --now marlinspike-capd</pre>
 
           <div class="modal-field">
             <label for="fleet-schedule-interface">{{ t('fleet.schedule_interface') }}</label>
-            <input type="text" id="fleet-schedule-interface" class="ms-input" placeholder="eth0">
+            <select id="fleet-schedule-interface" class="ms-select" disabled>
+              <option value="">{{ t('fleet.schedule_interface_loading') }}</option>
+            </select>
           </div>
 
           <div class="modal-field">
@@ -743,7 +745,6 @@ var FLEET = (function() {
       var s = d.schedule || {};
       document.getElementById('fleet-schedule-enabled').checked = !!s.enabled;
       document.getElementById('fleet-schedule-duration').value = s.duration_s || 300;
-      document.getElementById('fleet-schedule-interface').value = s.interface || '';
       document.getElementById('fleet-schedule-bpf').value = s.bpf_filter || '';
       scheduleTimes = (s.times_utc || []).slice();
       renderScheduleTimes();
@@ -752,6 +753,62 @@ var FLEET = (function() {
         ? {{ t("fleet.schedule_last_triggered") | tojson }} + ' ' + formatDate(d.last_triggered_at)
         : {{ t("fleet.schedule_never_triggered") | tojson }};
       msModal.open('modal-capture-schedule');
+      loadScheduleInterfaces(s.interface || '');
+    });
+  }
+
+  // Interfaces come from whichever agents in the project are currently
+  // online, since the schedule fires on every online agent (scheduler.py) —
+  // there's no single host to ask. The previously saved name is always kept
+  // as an option even if no online agent currently reports it, so opening
+  // the modal never silently drops what was configured.
+  function loadScheduleInterfaces(previous) {
+    var sel = document.getElementById('fleet-schedule-interface');
+    sel.disabled = true;
+    sel.innerHTML = '';
+    var loadingOpt = document.createElement('option');
+    loadingOpt.value = '';
+    loadingOpt.textContent = {{ t("fleet.schedule_interface_loading") | tojson }};
+    sel.appendChild(loadingOpt);
+
+    fetch('/api/fleet/projects/' + selectedProjectId + '/agents').then(function(r) { return r.json(); }).then(function(j) {
+      var agents = ((j && j.agents) || []).filter(function(a) { return a.status === 'online'; });
+      return Promise.all(agents.map(function(a) {
+        return fetch('/api/capture/interfaces?agent_id=' + a.id)
+          .then(function(r) { return r.json(); })
+          .catch(function() { return null; });
+      }));
+    }).then(function(results) {
+      var names = {};
+      (results || []).forEach(function(r) {
+        if (r && r.ok && r.interfaces) r.interfaces.forEach(function(i) { names[i.name] = true; });
+      });
+      if (previous) names[previous] = true;
+      var list = Object.keys(names).sort();
+
+      sel.innerHTML = '';
+      if (!list.length) {
+        var noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = {{ t("fleet.schedule_interface_none") | tojson }};
+        sel.appendChild(noneOpt);
+      } else {
+        list.forEach(function(name) {
+          var opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+        });
+        if (previous && list.indexOf(previous) !== -1) sel.value = previous;
+      }
+      sel.disabled = false;
+    }).catch(function() {
+      sel.innerHTML = '';
+      var opt = document.createElement('option');
+      opt.value = previous || '';
+      opt.textContent = previous || {{ t("fleet.schedule_interface_none") | tojson }};
+      sel.appendChild(opt);
+      sel.disabled = false;
     });
   }
 
