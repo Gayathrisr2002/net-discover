@@ -101,8 +101,21 @@ def _header_safe(s: str) -> bool:
         return False
 
 
+def _strip_header_bound_fields(body: dict) -> None:
+    """Strip leading/trailing whitespace from every field that ends up in an
+    HTTP header, in place. A trailing newline or space from copy-pasting a
+    token/URL/group out of a web page is common and silently corrupts the
+    header value without tripping the latin-1 check — the receiver just
+    rejects the (subtly wrong) credential with its own generic auth error.
+    """
+    for key in ("url", "secret", "zammad_group", "zammad_customer"):
+        if isinstance(body.get(key), str):
+            body[key] = body[key].strip()
+
+
 def validate_config(body: dict) -> str | None:
     """Validate a webhook PUT body. Returns an error string, or None if valid."""
+    _strip_header_bound_fields(body)
     unknown = set(body.keys()) - ALLOWED_KEYS
     if unknown:
         return f"unknown keys: {', '.join(sorted(unknown))}"

@@ -1269,7 +1269,7 @@ var PROJ = (function() {
       body.zammad_group = document.getElementById('webhook-zammad-group').value.trim();
       body.zammad_customer = document.getElementById('webhook-zammad-customer').value.trim() || null;
     }
-    var secret = document.getElementById('webhook-secret').value;
+    var secret = document.getElementById('webhook-secret').value.trim();
     if (secret) body.secret = secret;
     fetch('/api/projects/' + currentProject.id + '/webhook', {
       method: 'PUT',
