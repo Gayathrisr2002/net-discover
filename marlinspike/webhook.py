@@ -48,6 +48,12 @@ _TIMEOUT_S = 8
 _MAX_FINDINGS_PER_DELIVERY = 200
 _MAX_TICKETS_PER_DELIVERY = 25
 _ZAMMAD_DEFAULT_PRIORITY_IDS = {"low": 1, "normal": 2, "high": 3}
+_HEADER_ENCODE_ERROR_HINT = (
+    "the configured URL, API token, group, or customer contains a character that "
+    "isn't valid in an HTTP header (e.g. a curly quote, em-dash, or a real '…' "
+    "character picked up from copy-pasting a truncated display value) — re-save "
+    "the webhook settings with the value retyped or copied in full"
+)
 
 
 def parse_config(raw: str | None) -> dict[str, Any]:
@@ -78,6 +84,23 @@ def _resolves_to_public_address(url: str) -> bool:
         return False
 
 
+def _header_safe(s: str) -> bool:
+    """True if ``s`` can be sent as an HTTP header value.
+
+    http.client encodes header values as latin-1 — a value copy-pasted from
+    a web page that truncates long tokens/secrets with a real "…" character
+    (or smart quotes, em-dashes, etc. from a rich-text source) fails at
+    delivery time with a cryptic UnicodeEncodeError instead of a validation
+    error the user can act on. Catching it here, at save time, is much
+    clearer than surfacing a raw codec error from deep inside urllib later.
+    """
+    try:
+        s.encode("latin-1")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 def validate_config(body: dict) -> str | None:
     """Validate a webhook PUT body. Returns an error string, or None if valid."""
     unknown = set(body.keys()) - ALLOWED_KEYS
@@ -91,21 +114,40 @@ def validate_config(body: dict) -> str | None:
         url = body["url"]
         if not isinstance(url, str) or not (url.startswith("http://") or url.startswith("https://")):
             return "url must be an http(s) URL string"
+        if not _header_safe(url):
+            return (
+                "url contains a character that isn't valid in an HTTP request "
+                "(e.g. a curly quote, em-dash, or '…' picked up by copy-paste) — retype it"
+            )
         if not config.MARLINSPIKE_WEBHOOK_ALLOW_PRIVATE_TARGETS and not _resolves_to_public_address(url):
             return (
                 "url resolves to a private/loopback/reserved address; set "
                 "MARLINSPIKE_WEBHOOK_ALLOW_PRIVATE_TARGETS=true on the server "
                 "to allow internal receivers (e.g. a self-hosted Zammad instance)"
             )
-    if "secret" in body and body["secret"] is not None and not isinstance(body["secret"], str):
-        return "secret must be a string"
+    if "secret" in body and body["secret"] is not None:
+        if not isinstance(body["secret"], str):
+            return "secret must be a string"
+        if not _header_safe(body["secret"]):
+            return (
+                "secret/API token contains a character that isn't valid in an HTTP header "
+                "— if you copy-pasted it from a page that displays it truncated (e.g. "
+                "'abc123…xyz789'), that '…' is a real character, not three dots; copy the "
+                "full untruncated value instead"
+            )
     if "min_severity" in body and body["min_severity"] is not None:
         if body["min_severity"] not in SEVERITY_ORDER:
             return f"min_severity must be one of {SEVERITY_ORDER}"
-    if "zammad_group" in body and body["zammad_group"] is not None and not isinstance(body["zammad_group"], str):
-        return "zammad_group must be a string"
-    if "zammad_customer" in body and body["zammad_customer"] is not None and not isinstance(body["zammad_customer"], str):
-        return "zammad_customer must be a string"
+    if "zammad_group" in body and body["zammad_group"] is not None:
+        if not isinstance(body["zammad_group"], str):
+            return "zammad_group must be a string"
+        if not _header_safe(body["zammad_group"]):
+            return "zammad_group contains a character that isn't valid in an HTTP header — retype it"
+    if "zammad_customer" in body and body["zammad_customer"] is not None:
+        if not isinstance(body["zammad_customer"], str):
+            return "zammad_customer must be a string"
+        if not _header_safe(body["zammad_customer"]):
+            return "zammad_customer contains a character that isn't valid in an HTTP header — retype it"
     return None
 
 
@@ -180,6 +222,8 @@ def _post(url: str, secret: str | None, payload: dict) -> dict:
             return {"ok": True, "status_code": resp.status, "error": None}
     except urllib.error.HTTPError as exc:
         return {"ok": False, "status_code": exc.code, "error": str(exc)}
+    except UnicodeEncodeError:
+        return {"ok": False, "status_code": None, "error": _HEADER_ENCODE_ERROR_HINT}
     except Exception as exc:
         return {"ok": False, "status_code": None, "error": str(exc)}
 
@@ -199,6 +243,8 @@ def _zammad_request(base_url: str, token: str, path: str, method: str, body: dic
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
         return {"ok": False, "status_code": exc.code, "body": None, "error": detail}
+    except UnicodeEncodeError:
+        return {"ok": False, "status_code": None, "body": None, "error": _HEADER_ENCODE_ERROR_HINT}
     except Exception as exc:
         return {"ok": False, "status_code": None, "body": None, "error": str(exc)}
 
