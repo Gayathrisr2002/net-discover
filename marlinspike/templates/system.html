@@ -197,6 +197,13 @@
   align-items: center;
 }
 .add-cat-row .ms-input { flex: 1; font-size: 0.85em; }
+.proj-settings-row { margin-bottom: 14px; }
+.proj-settings-row label { display: block; margin-bottom: 4px; font-size: 0.85em; color: var(--text-dim); }
+.proj-settings-row input[type="text"] {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-surface); color: var(--text); font-size: 0.85em;
+}
+.proj-settings-row .ms-hint { color: var(--text-dim); font-size: 0.82em; margin: 4px 0 0; }
 </style>
 {% endblock %}
 
@@ -263,6 +270,38 @@
         <div class="info-row"><span class="info-label">{{ t('system.data_submissions') }}</span><span class="info-value" id="s-submissions-info">--</span></div>
         <div class="info-row"><span class="info-label">{{ t('system.data_total') }}</span><span class="info-value" id="s-data-total">--</span></div>
       </div>
+    </div>
+  </div>
+
+  <!-- LLM connectivity -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>{{ t('system.llm_title') }}</h2>
+    </div>
+    <div class="panel-body">
+      <p class="stat-sub" style="margin-top:0;margin-bottom:14px;">{{ t('system.llm_hint') }}</p>
+      <div class="proj-settings-row">
+        <label><input type="checkbox" id="llm-enabled"> {{ t('system.llm_enabled') }}</label>
+      </div>
+      <div class="proj-settings-row">
+        <label for="llm-base-url">{{ t('system.llm_base_url') }}</label>
+        <input type="text" id="llm-base-url" placeholder="https://api.openai.com/v1" style="width:100%;max-width:420px;">
+        <div class="ms-hint">{{ t('system.llm_base_url_hint') }}</div>
+      </div>
+      <div class="proj-settings-row">
+        <label for="llm-api-key">{{ t('system.llm_api_key') }}</label>
+        <input type="text" id="llm-api-key" placeholder="{{ t('system.llm_api_key_placeholder') }}" style="width:100%;max-width:320px;">
+      </div>
+      <div class="proj-settings-row">
+        <label for="llm-model">{{ t('system.llm_model') }}</label>
+        <input type="text" id="llm-model" placeholder="gpt-4o-mini" style="width:100%;max-width:280px;">
+        <div class="ms-hint">{{ t('system.llm_model_hint') }}</div>
+      </div>
+      <div class="proj-settings-row" style="display:flex;gap:8px;">
+        <button class="btn btn-primary" type="button" onclick="LLMCFG.save()">{{ t('common.save') }}</button>
+        <button class="btn" type="button" onclick="LLMCFG.test()">{{ t('system.llm_send_test') }}</button>
+      </div>
+      <div id="llm-status" style="margin-top:10px;font-size:0.9em;"></div>
     </div>
   </div>
 
@@ -462,6 +501,67 @@ var SYS = (function() {
   });
 
   return { refresh: refresh };
+})();
+
+/* ── LLM connectivity module ── */
+var LLMCFG = (function() {
+  'use strict';
+
+  function load() {
+    fetch('/api/admin/llm-config').then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.ok) { msToast(d.error || 'Error', true); return; }
+      var cfg = d.config || {};
+      document.getElementById('llm-enabled').checked = !!cfg.enabled;
+      document.getElementById('llm-base-url').value = cfg.base_url || '';
+      document.getElementById('llm-model').value = cfg.model || '';
+      document.getElementById('llm-api-key').value = '';
+      document.getElementById('llm-api-key').placeholder = cfg.api_key
+        ? 'Configured (ends in ' + cfg.api_key.slice(-4) + ') — leave blank to keep'
+        : 'sk-... (leave blank if not changing)';
+      document.getElementById('llm-status').textContent = '';
+    }).catch(function(e) { msToast('Error: ' + e.message, true); });
+  }
+
+  function save() {
+    var body = {
+      enabled: document.getElementById('llm-enabled').checked,
+      base_url: document.getElementById('llm-base-url').value.trim(),
+      model: document.getElementById('llm-model').value.trim(),
+    };
+    var key = document.getElementById('llm-api-key').value.trim();
+    if (key) body.api_key = key;
+    fetch('/api/admin/llm-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast('LLM settings saved', 'success');
+        load();
+      } else {
+        msToast(d.error || 'Failed to save LLM settings', true);
+      }
+    }).catch(function(e) { msToast('Error: ' + e.message, true); });
+  }
+
+  function test() {
+    var status = document.getElementById('llm-status');
+    status.textContent = 'Sending test prompt…';
+    fetch('/api/admin/llm-config/test', { method: 'POST' })
+      .then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok) {
+          status.style.color = 'var(--color-success)';
+          status.textContent = 'Success — model replied: ' + (d.detail || '(empty)');
+        } else {
+          status.style.color = 'var(--sev-critical)';
+          status.textContent = 'Failed: ' + (d.error || 'unknown error');
+        }
+      }).catch(function(e) { status.style.color = 'var(--sev-critical)'; status.textContent = e.message; });
+  }
+
+  document.addEventListener('DOMContentLoaded', load);
+
+  return { save: save, test: test };
 })();
 
 /* ── Sample Library module ── */

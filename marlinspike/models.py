@@ -460,3 +460,54 @@ class AgentCredential(db.Model):
     # (revoked_at) implicitly revokes the cert too, since both checks gate on
     # the same non-revoked row — no separate CRL/OCSP infrastructure needed.
     cert_fingerprint_sha256 = db.Column(db.String(64), nullable=True, index=True)
+
+
+class LlmConfig(db.Model):
+    """System-wide LLM connectivity config — singleton (always id=1).
+
+    A single shared credential/endpoint for the whole deployment, set by an
+    admin on the System page, rather than per-project like webhook_config —
+    an LLM API key is an org-level resource, not something each project
+    owner should separately provision. See marlinspike/llm.py.
+    """
+
+    __tablename__ = "llm_config"
+
+    id = db.Column(db.Integer, primary_key=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=False)
+    base_url = db.Column(db.String(500), nullable=True)
+    api_key = db.Column(db.Text, nullable=True)
+    model = db.Column(db.String(200), nullable=True)
+    updated_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class FindingRecommendation(db.Model):
+    """Cached LLM-generated remediation text for one deduplicated finding.
+
+    Keyed by (project_id, dedup_key) — the same dedup_key scheme
+    webhook.finding_dedup_key uses — so a finding that recurs across many
+    scans gets one recommendation, generated once and reused, rather than
+    a fresh (costly, slow) LLM call every time a report is viewed.
+    """
+
+    __tablename__ = "finding_recommendations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    dedup_key = db.Column(db.String(64), nullable=False)
+    recommendation = db.Column(db.Text, nullable=False)
+    model = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("project_id", "dedup_key", name="uq_finding_recommendation_project_dedup"),
+    )

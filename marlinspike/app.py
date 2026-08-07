@@ -44,6 +44,7 @@ from limits.storage import storage_from_string
 
 from marlinspike import config
 from marlinspike import enrich as _enrich
+from marlinspike import llm as _llm
 from marlinspike import webhook as _webhook
 from marlinspike.aggregate import aggregate_reports
 from marlinspike.baselines import compute_asset_baseline
@@ -82,8 +83,10 @@ from marlinspike.models import (
     AssetTag,
     AuditLog,
     FindingNote,
+    FindingRecommendation,
     IocEntry,
     IocList,
+    LlmConfig,
     PasswordResetToken,
     Project,
     ProjectMember,
@@ -4038,6 +4041,82 @@ def create_app():
             "findings": out,
         })
 
+    def _project_findings_deduped(pid: int, proj) -> list[dict]:
+        """Every deduplicated finding in the project, each tagged with the
+        same dedup_key the webhook/findings-API/recommendations feature all
+        share. Shared by the recommendations routes below."""
+        report_paths = _project_report_paths(pid, proj.user_id)
+        report_meta: dict[str, dict] = {}
+        for path in report_paths:
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            report_meta[path] = {
+                "filename": os.path.basename(path),
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            }
+        aggregate = aggregate_reports(report_paths, loader=_load_report_with_extensions, report_meta=report_meta)
+        return [
+            {**f, "dedup_key": _webhook.finding_dedup_key(pid, f)}
+            for f in aggregate["findings"]
+        ]
+
+    @app.route("/api/projects/<int:pid>/recommendations")
+    @login_required
+    @limiter.limit("20 per minute")  # expensive: reads every report in the project (#5)
+    def api_project_recommendations(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        findings = _project_findings_deduped(pid, proj)
+        cached = {
+            r.dedup_key: r
+            for r in FindingRecommendation.query.filter_by(project_id=pid).all()
+        }
+        out = []
+        for f in findings:
+            rec = cached.get(f["dedup_key"])
+            out.append({
+                **f,
+                "recommendation": rec.recommendation if rec else None,
+                "recommendation_model": rec.model if rec else None,
+                "recommendation_updated_at": rec.updated_at.isoformat() if rec and rec.updated_at else None,
+            })
+        llm_cfg = _llm.get_config()
+        return jsonify({
+            "ok": True,
+            "project_id": pid,
+            "project_name": proj.name,
+            "llm_configured": bool(llm_cfg.enabled and llm_cfg.base_url and llm_cfg.api_key and llm_cfg.model),
+            "count": len(out),
+            "findings": out,
+        })
+
+    @app.route("/api/projects/<int:pid>/recommendations/generate", methods=["POST"])
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_project_recommendation_generate(pid):
+        proj = _get_project_for_user(pid, min_role="editor")
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        body = request.get_json(silent=True) or {}
+        dedup_key = (body.get("dedup_key") or "").strip()
+        if not dedup_key:
+            return jsonify({"ok": False, "error": "dedup_key required"}), 400
+
+        findings = _project_findings_deduped(pid, proj)
+        finding = next((f for f in findings if f["dedup_key"] == dedup_key), None)
+        if finding is None:
+            return jsonify({"ok": False, "error": "finding not found (it may no longer be present in any report)"}), 404
+
+        result = _llm.generate_for_finding(pid, dedup_key, finding)
+        if not result["ok"]:
+            return jsonify({"ok": False, "error": result["error"]}), 502
+        return jsonify({"ok": True, "dedup_key": dedup_key, "recommendation": result["text"]})
+
     @app.route("/api/projects/<int:pid>/ocsf")
     @login_required
     @limiter.limit("20 per minute")  # project-wide export: reads every report (#5)
@@ -5984,6 +6063,63 @@ def create_app():
         stats["user_storage"] = user_storage
 
         return jsonify(stats)
+
+    # ── LLM connectivity (admin) ─────────────────────────────
+
+    @app.route("/api/admin/llm-config", methods=["GET"])
+    @admin_required
+    def get_llm_config():
+        cfg = _llm.get_config()
+        return jsonify({"ok": True, "config": _llm.to_dict(cfg)})
+
+    @app.route("/api/admin/llm-config", methods=["PUT"])
+    @admin_required
+    def set_llm_config():
+        body = request.get_json(silent=True)
+        if body is None or not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+
+        err = _llm.validate(body)
+        if err:
+            return jsonify({"ok": False, "error": f"invalid LLM config: {err}"}), 400
+
+        cfg = _llm.get_config()
+        effective = {
+            "enabled": body.get("enabled", cfg.enabled),
+            "base_url": body.get("base_url", cfg.base_url),
+            "api_key": body.get("api_key", cfg.api_key),
+            "model": body.get("model", cfg.model),
+        }
+        err = _llm.validate_effective(effective)
+        if err:
+            return jsonify({"ok": False, "error": err}), 400
+
+        if "enabled" in body:
+            cfg.enabled = body["enabled"]
+        if "base_url" in body:
+            cfg.base_url = body["base_url"] or None
+        if "api_key" in body and body["api_key"]:
+            cfg.api_key = body["api_key"]
+        if "model" in body:
+            cfg.model = body["model"] or None
+        db.session.commit()
+
+        audit("system.llm_config_set", target_type="system", target_id="llm",
+              detail=json.dumps({
+                  "enabled": cfg.enabled, "base_url_set": bool(cfg.base_url), "model": cfg.model,
+              }))
+
+        return jsonify({"ok": True, "config": _llm.to_dict(cfg)})
+
+    @app.route("/api/admin/llm-config/test", methods=["POST"])
+    @admin_required
+    @limiter.limit("10 per minute")
+    def test_llm_config():
+        cfg = _llm.get_config()
+        result = _llm.send_test(cfg)
+        return jsonify({
+            "ok": result["ok"], "error": result.get("error"), "detail": result.get("detail"),
+        })
 
     # ── Admin preset (sample library) management ────────────
 
