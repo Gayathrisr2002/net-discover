@@ -1,5 +1,44 @@
 # Upgrading MarlinSpike
 
+## v3.6.0 → v3.7.0 — outbound webhook/ticketing + LLM recommendations
+
+Three new Alembic migrations and one new optional env var. Full feature
+writeup: [docs/webhook-and-recommendations.md](docs/webhook-and-recommendations.md).
+
+### What changed
+
+- `projects.webhook_config` (migration `0014`) — per-project outbound
+  delivery config (generic webhook / Zammad / Jira), JSON-encoded, NULL
+  by default (feature is opt-in per project).
+- `webhook_tickets` table (migration `0015`) — dedup ledger so a
+  Zammad/Jira delivery mode doesn't create a new ticket every time a
+  persisting finding is re-reported by a later scan.
+- `llm_config` + `finding_recommendations` tables (migration `0016`) —
+  system-wide LLM connectivity (System page, admin-only) and a cache of
+  generated remediation text per (project, finding).
+- New env var `MARLINSPIKE_WEBHOOK_ALLOW_PRIVATE_TARGETS` — **default
+  false**. Outbound webhook/Zammad/Jira URLs are rejected if they
+  resolve to a private/loopback/link-local/reserved address (SSRF
+  guard); set this to `true` only if your receiver genuinely lives on
+  an internal network reachable from the app container.
+
+### Existing deployments
+
+```sh
+python -m marlinspike.db upgrade head
+docker compose up -d --build app
+```
+
+Nothing else required — all three new tables are additive and every new
+feature is opt-in (disabled/unconfigured by default), so existing
+projects and behavior are unaffected until an owner/admin actually
+configures one of them.
+
+### Fresh deployments
+
+Nothing to do — the first boot's `alembic upgrade head` creates the full
+schema including these tables.
+
 ## v3.5.6 → v3.6.0 — enrichment runs in the engine
 
 Enrichment (MITRE / ARP / APT / CISA) moved out of the web app

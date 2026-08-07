@@ -10,7 +10,7 @@
 > If you run this as a network service, the AGPL requires you to offer users the complete
 > corresponding source (this repository satisfies that).
 
-Current release: `3.6.0` (derived from upstream MarlinSpike; see traceability matrix for fork changes)
+Current release: `3.7.0` (derived from upstream MarlinSpike; see traceability matrix for fork changes)
 
 MarlinSpike is a ground-up passive OT/ICS network analysis platform built in the tradition of GrassMarlin-style topology mapping, but wrapped in a multi-user web workbench designed for real engagements. It analyzes PCAP and PCAPNG captures, builds a topology graph, infers Purdue levels, fingerprints vendors, and surfaces responder-grade risk indicators such as cross-zone communication, cleartext services, beaconing, suspicious external communications, and DNS exfiltration, then exports everything as portable JSON report artifacts that travel with the team.
 

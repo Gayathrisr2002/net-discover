@@ -94,6 +94,13 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - Three extension surfaces: Rust engines (subprocess JSON), Python report plugins, and declarative YAML rule packs.
 - A **taxonomy module** (12 entities + 12 relationships) is the single UI source of truth; homegrown JSON-dictionary i18n; a preset sample-PCAP library.
 
+## 15. Ticketing integrations & AI remediation recommendations
+- **Outbound webhook** (per-project, owner-only): one signed HTTP POST per completed scan carrying every qualifying risk finding, with a stable `dedup_key` for receiver-side deduplication.
+- **Direct ticket creation** in **Zammad** and **Jira** — calls each platform's own REST API to file one ticket/issue per *new* finding, deduplicated against a persistent ledger so a recurring finding doesn't spawn a fresh ticket every scan. Ticket/issue priority is resolved by name against the target instance's own priority scheme rather than hardcoded IDs.
+- **Findings API** (`GET /api/projects/<id>/findings`) — a polling read counterpart to the webhook, for a ticketing/SIEM system's own sync job, filterable by severity and a since-timestamp.
+- **LLM-generated remediation recommendations**: an admin-configured, OpenAI-compatible LLM connection (OpenAI, Azure OpenAI, or a self-hosted Ollama/vLLM/LM Studio endpoint) generates a concise, ICS/OT-aware remediation suggestion per deduplicated finding, cached per project so it's produced once and reused. Shown on each project's **Recommendations** tab.
+- SSRF-guarded by default: a configured URL that resolves to a private/loopback/reserved address is rejected unless explicitly allowed for a self-hosted receiver.
+
 ---
 
-*For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, and more).*
+*For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*

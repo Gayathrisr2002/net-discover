@@ -46,6 +46,10 @@ These cover *how to use* MarlinSpike during an engagement.
   enrolling a `marlinspike-agent` host, revoking/rotating/deleting
   agents, running a capture on one from Live Capture, and the
   project-wide automated capture schedule.
+- **[webhook-and-recommendations.md](webhook-and-recommendations.md)**
+  — pushing findings to a generic webhook, Zammad, or Jira
+  (per-project, owner-only); the polling findings API; and
+  LLM-generated remediation recommendations per finding.
 - **[mitre-attack-guide.md](mitre-attack-guide.md)** — how
   MarlinSpike presents MITRE ATT&CK in the workbench.
 - **[i18n-and-locale.md](i18n-and-locale.md)** — bilingual UI
@@ -143,5 +147,6 @@ These live at the repository root, not in `docs/`:
 | Running the engine headlessly in a pipeline | [cli-and-headless.md](cli-and-headless.md). |
 | Doing a long-running engagement with many captures | [projects-and-engagements.md](projects-and-engagements.md), [asset-context.md](asset-context.md), [asset-baselines.md](asset-baselines.md). |
 | Hunting a specific threat actor | [ioc-threat-hunting.md](ioc-threat-hunting.md). |
+| Pushing findings into Zammad, Jira, or your own webhook receiver, or generating AI remediation suggestions | [webhook-and-recommendations.md](webhook-and-recommendations.md). |
 | Trying to understand the architecture | [../COMPATIBILITY.md](../COMPATIBILITY.md) → [repo-family.md](repo-family.md) → [extensibility-contracts.md](extensibility-contracts.md). |
 | Picking up the remote fleet agent / live capture feature | [fleet-agent-poc.md](fleet-agent-poc.md) — start with its "Known gaps" section. |
