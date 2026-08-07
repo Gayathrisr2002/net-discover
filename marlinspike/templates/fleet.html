@@ -296,11 +296,13 @@ sudo systemctl enable --now marlinspike-capd</pre>
           <div class="modal-field">
             <label>{{ t('fleet.schedule_times_utc') }}</label>
             <table class="ms-table" id="fleet-schedule-times-table">
+              <thead><tr><th>{{ t('fleet.schedule_times_utc') }}</th><th>{{ t('fleet.schedule_time_local') }}</th><th></th></tr></thead>
               <tbody id="fleet-schedule-times-body"></tbody>
             </table>
-            <div style="display:flex; gap:8px; margin-top:6px;">
-              <input type="text" id="fleet-schedule-new-time" class="ms-input" placeholder="HH:MM" style="max-width:120px;">
+            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+              <input type="text" id="fleet-schedule-new-time" class="ms-input" placeholder="HH:MM" style="max-width:120px;" oninput="FLEET.updateScheduleTimeHint()">
               <button class="btn btn-sm" onclick="FLEET.addScheduleTime()">{{ t('fleet.schedule_add_time') }}</button>
+              <span id="fleet-schedule-time-hint" style="color: var(--text-dim); font-size: 0.85em;"></span>
             </div>
           </div>
 
@@ -823,12 +825,41 @@ var FLEET = (function() {
     });
   }
 
+  // Schedule times are stored/fired in UTC (scheduler.py polls
+  // times_utc directly, deliberately never converting — avoids DST/
+  // timezone bugs across capture agents in different zones), but a "HH:MM"
+  // label with a small "(UTC)" field caption alone is easy to read as
+  // the browser's own local time — confirmed real: a schedule entered as
+  // "10:02" expecting it to fire at 10:02 local instead silently waits
+  // for 10:02 UTC, hours later. Shown next to both the input (as you
+  // type) and every already-added row so the mismatch is visible before
+  // saving, not discovered by a capture never running.
+  function _utcTimeTodayToLocalLabel(hhmm) {
+    if (!_TIME_UTC_RE.test(hhmm)) return '';
+    var parts = hhmm.split(':');
+    var d = new Date();
+    d.setUTCHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function updateScheduleTimeHint() {
+    var input = document.getElementById('fleet-schedule-new-time');
+    var hint = document.getElementById('fleet-schedule-time-hint');
+    var local = _utcTimeTodayToLocalLabel(input.value.trim());
+    hint.textContent = local ? ('= ' + local + ' your local time') : '';
+  }
+
   function renderScheduleTimes() {
     var tbody = document.getElementById('fleet-schedule-times-body');
     tbody.innerHTML = '';
     scheduleTimes.forEach(function(time, i) {
       var tr = document.createElement('tr');
       tr.appendChild(cell(time, 'mono'));
+      var localTd = document.createElement('td');
+      localTd.style.color = 'var(--text-dim)';
+      localTd.style.fontSize = '0.85em';
+      localTd.textContent = _utcTimeTodayToLocalLabel(time);
+      tr.appendChild(localTd);
       var actionsTd = document.createElement('td');
       actionsTd.appendChild(actionBtn({{ t("common.delete") | tojson }}, 'btn btn-sm btn-danger', function() {
         scheduleTimes.splice(i, 1);
@@ -852,6 +883,7 @@ var FLEET = (function() {
       renderScheduleTimes();
     }
     input.value = '';
+    updateScheduleTimeHint();
   }
 
   function saveSchedule() {
@@ -900,6 +932,7 @@ var FLEET = (function() {
     doRotateCredential: doRotateCredential,
     showSchedule: showSchedule,
     addScheduleTime: addScheduleTime,
+    updateScheduleTimeHint: updateScheduleTimeHint,
     saveSchedule: saveSchedule,
   };
 })();
