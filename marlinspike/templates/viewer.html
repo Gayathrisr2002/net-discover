@@ -2273,7 +2273,7 @@ textarea.ms-input {
       </select>
       <button class="ms-btn" onclick="MS.clearFilters()">{{ t('viewer.toolbar.clear_focus') }}</button>
       <div class="ms-lens-divider"></div>
-      <a class="ms-btn" href="/api/reports/{{ filename }}/assets" target="_blank">{{ t('viewer.utilities.assets') }}</a>
+      <a class="ms-btn" href="/api/reports/{{ filename }}/assets{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank">{{ t('viewer.utilities.assets') }}</a>
       <button class="ms-btn" onclick="MS.exportCsvAssets()">{{ t('viewer.utilities.csv_assets') }}</button>
       <button class="ms-btn" onclick="MS.exportCsvFindings()">{{ t('viewer.utilities.csv_findings') }}</button>
       <a class="ms-btn" href="/api/reports/{{ filename }}/ocsf{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.ocsf_tooltip') }}">{{ t('viewer.utilities.ocsf') }}</a>
@@ -3894,8 +3894,8 @@ var MS = (function() {
       anomBody += '</tbody></table></div>';
     }
 
-    var heroMeta = captureInfo.total_packets
-      ? tjs('viewer.traffic.meta.total_packets_in_capture', { count: captureInfo.total_packets.toLocaleString() })
+    var heroMeta = captureInfo.packet_count
+      ? tjs('viewer.traffic.meta.total_packets_in_capture', { count: captureInfo.packet_count.toLocaleString() })
       : tjs('viewer.traffic.meta.conversations', { count: conversations.length });
     var heroSection = stageSection(tjs('viewer.traffic.section.capture_volume'), hero, heroMeta);
     var convSection = stageSection(tjs('viewer.traffic.section.top_conversations'), convTable, tjs('viewer.traffic.meta.top_of', { top: topConvs.length, total: conversations.length }));
@@ -4467,8 +4467,8 @@ var MS = (function() {
     var ci = REPORT.capture_info || {};
     var stats = document.getElementById('ms-stats');
     var parts = [];
-    if (ci.total_packets) parts.push('<b>' + ci.total_packets.toLocaleString() + '</b> packets');
-    if (ci.duration_seconds) parts.push('<b>' + ci.duration_seconds.toFixed(1) + 's</b> duration');
+    if (ci.packet_count) parts.push('<b>' + ci.packet_count.toLocaleString() + '</b> packets');
+    if (ci.duration_s) parts.push('<b>' + ci.duration_s.toFixed(1) + 's</b> duration');
     parts.push('<b>' + nodes.length + '</b> nodes');
     parts.push('<b>' + edges.length + '</b> edges');
     parts.push('<b>' + Object.keys(REPORT.protocol_summary || {}).length + '</b> protocols');
@@ -5569,7 +5569,7 @@ var MS = (function() {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = (FILENAME || 'report').replace(/\.json$/, '') + '-' + suffix + '.csv';
+    a.download = (REPORT_FILENAME || 'report').replace(/\.json$/, '') + '-' + suffix + '.csv';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -5583,7 +5583,7 @@ var MS = (function() {
         n.ip, n.mac || '', n.role || '', n.purdue_level || '', n.vendor || '', n.device_type || '', n.asset_type || '',
         toArray(n.protocols).join('; '),
         toArray(n.service_ports).map(function(sp) { return (sp.port || '') + '/' + (sp.transport || '') + '(' + (sp.protocol || '') + ')'; }).join('; '),
-        (toArray(n.connections || n.edges)).length,
+        n._connCount || 0,
         n.attack_priority || 0,
         n.auth_observed != null ? String(n.auth_observed) : ''
       ].map(_csvEsc).join(','));
@@ -5593,15 +5593,20 @@ var MS = (function() {
   }
 
   function exportCsvFindings() {
+    // Column set matches the actual RiskFinding fields the engine emits
+    // (severity/category/description/affected_nodes/affected_edges/
+    // cvss_impact/remediation) — a finding has no title/src_ip/dst_ip/
+    // protocol/port/detection_id, so those columns were always blank.
     var findings = toArray(REPORT.risk_findings);
-    var headers = ['Category','Severity','Title','Description','Source IP','Dest IP','Protocol','Port','Detection ID'];
+    var headers = ['Severity','Category','Description','Affected Nodes','Affected Edges','CVSS Impact','Remediation'];
     var lines = [headers.join(',')];
     findings.forEach(function(f) {
       lines.push([
-        f.category || '', f.severity || '', f.title || '', f.description || '',
-        f.src_ip || f.source_ip || '', f.dst_ip || f.dest_ip || '',
-        f.protocol || '', f.port || f.dst_port || '',
-        f.detection_id || ''
+        f.severity || '', f.category || '', f.description || '',
+        toArray(f.affected_nodes).join('; '),
+        toArray(f.affected_edges).join('; '),
+        f.cvss_impact || 0,
+        f.remediation || ''
       ].map(_csvEsc).join(','));
     });
     _csvDownload(lines, 'findings');
@@ -5833,8 +5838,8 @@ var MS = (function() {
     sumHtml += '<div class="ms-summary-card"><div class="val">' + edges.length + '</div><div class="lbl">' + esc(tjs('viewer.report.lbl.connections')) + '</div></div>';
     var protos = Object.keys(REPORT.protocol_summary || {});
     sumHtml += '<div class="ms-summary-card"><div class="val">' + protos.length + '</div><div class="lbl">' + esc(tjs('viewer.report.lbl.protocols')) + '</div></div>';
-    if (ci.total_packets) sumHtml += '<div class="ms-summary-card"><div class="val">' + ci.total_packets.toLocaleString() + '</div><div class="lbl">' + esc(tjs('viewer.report.lbl.packets')) + '</div></div>';
-    if (ci.duration_seconds) sumHtml += '<div class="ms-summary-card"><div class="val">' + ci.duration_seconds.toFixed(1) + 's</div><div class="lbl">' + esc(tjs('viewer.report.lbl.duration')) + '</div></div>';
+    if (ci.packet_count) sumHtml += '<div class="ms-summary-card"><div class="val">' + ci.packet_count.toLocaleString() + '</div><div class="lbl">' + esc(tjs('viewer.report.lbl.packets')) + '</div></div>';
+    if (ci.duration_s) sumHtml += '<div class="ms-summary-card"><div class="val">' + ci.duration_s.toFixed(1) + 's</div><div class="lbl">' + esc(tjs('viewer.report.lbl.duration')) + '</div></div>';
     var sevCounts = {};
     risks.forEach(function(r) { sevCounts[r.severity] = (sevCounts[r.severity] || 0) + 1; });
     var critHigh = (sevCounts.CRITICAL || 0) + (sevCounts.HIGH || 0);
@@ -6627,7 +6632,7 @@ var MS = (function() {
     }
     // Pick the most-connected assets (best novelty signal).
     var ranked = allNodes.slice().sort(function(a, b) {
-      return (b.connection_count || 0) - (a.connection_count || 0);
+      return (b._connCount || 0) - (a._connCount || 0);
     }).slice(0, 12);
     var html = '<div style="margin-bottom:10px;color:var(--text-dim);font-size:0.82em;">'
       + 'Top ' + ranked.length + ' assets by connection count. Each card fetches its longitudinal baseline; '
@@ -6636,7 +6641,7 @@ var MS = (function() {
     el.innerHTML = html;
     var cardsEl = document.getElementById('ms-baseline-cards');
     ranked.forEach(function(node) {
-      var key = node.mac_address || node.ip;
+      var key = assetKeyForNode(node);
       if (!key) return;
       var cardId = 'ms-baseline-card-' + esc(key.replace(/[^a-zA-Z0-9]/g, '_'));
       cardsEl.insertAdjacentHTML('beforeend',
@@ -7033,7 +7038,7 @@ var MS = (function() {
       var affectedHtml = affected.length ? affected.slice(0, 2).map(function(ip) {
         return '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(ip) + '\',true)">' + esc(ip) + '</span>';
       }).join(' ') + (affected.length > 2 ? ' +' + (affected.length - 2) : '') : '—';
-      var note = f._note || {};
+      var note = f.note || {};
       var status = note.status || '';
       var sigHtml = '<span style="font-family:var(--font-mono)">' + esc(f.signature || f.category_label || f.category || '') + '</span>';
       var sevHtml = '<span style="color:var(' + sevVar + ')">' + esc(sev) + '</span>';
@@ -7048,8 +7053,8 @@ var MS = (function() {
     if (!convs.length) return '<div style="color:var(--text-dim);padding:16px;">' + esc(tjs('viewer.traffic.conversations_empty') || 'No conversations.') + '</div>';
     var html = tableHeader([tjs('viewer.drawer.conversations.col.src'), tjs('viewer.drawer.conversations.col.dst'), tjs('viewer.drawer.conversations.col.proto'), tjs('viewer.drawer.conversations.col.bytes'), tjs('viewer.drawer.conversations.col.pkts')]);
     convs.slice(0, 200).forEach(function(c) {
-      var srcHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(c.src_ip || c.src) + '\',true)">' + esc(c.src_ip || c.src) + '</span>';
-      var dstHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(c.dst_ip || c.dst) + '\',true)">' + esc(c.dst_ip || c.dst) + '</span>';
+      var srcHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(c.src_ip || c.src_mac) + '\',true)">' + esc(c.src_ip || c.src_mac) + '</span>';
+      var dstHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(c.dst_ip || c.dst_mac) + '\',true)">' + esc(c.dst_ip || c.dst_mac) + '</span>';
       html += tableRow([srcHtml, dstHtml, esc(c.protocol || ''), esc(formatBytes(c.bytes_total || c.bytes || 0)), esc(String(c.packet_count || c.packets || ''))]);
     });
     html += '</tbody></table>';
@@ -7060,12 +7065,12 @@ var MS = (function() {
     if (!nodes.length) return '<div style="color:var(--text-dim);padding:16px;">No assets.</div>';
     var html = '<div class="ms-drawer-actions"><button class="ms-btn" onclick="MS.exportCsvAssets()">CSV</button></div>';
     html += tableHeader([tjs('viewer.drawer.assets.col.ip'), tjs('viewer.drawer.assets.col.role'), tjs('viewer.drawer.assets.col.vendor'), tjs('viewer.drawer.assets.col.level'), tjs('viewer.drawer.assets.col.risk')]);
-    var sorted = nodes.slice().sort(function(a, b) { return (b._riskFindings || b._risk_count || 0) - (a._riskFindings || a._risk_count || 0); });
+    var sorted = nodes.slice().sort(function(a, b) { return nodeRiskFindings(b).length - nodeRiskFindings(a).length; });
     sorted.forEach(function(n) {
       var ipHtml = '<span style="cursor:pointer;color:var(--accent-cyan);font-family:var(--font-mono)" onclick="MS.selectNodeByIp(\'' + escjs(n._ip) + '\',true)">' + esc(n._ip) + '</span>';
       var roleColor = n._style ? n._style.color : '#64748b';
       var roleHtml = '<span style="color:' + roleColor + '">' + esc(n._role || '—') + '</span>';
-      var risk = n._riskCount || n._risk_count || 0;
+      var risk = nodeRiskFindings(n).length;
       var riskHtml = risk ? '<span style="color:var(--sev-high)">' + risk + '</span>' : '<span style="color:var(--text-muted)">0</span>';
       html += tableRow([ipHtml, roleHtml, esc(n.vendor || ''), esc(PURDUE_LABELS[n._level] || ''), riskHtml]);
     });

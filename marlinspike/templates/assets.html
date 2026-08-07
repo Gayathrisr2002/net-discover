@@ -379,7 +379,7 @@ function renderTable() {
   // Sort
   filtered.sort(function(a,b) {
     var va = a[sortCol], vb = b[sortCol];
-    if (sortCol === '_protos' || sortCol === '_detail') { va = (va||[]).length; vb = (vb||[]).length; }
+    if (sortCol === '_protos' || sortCol === '_detail' || sortCol === '_svcPorts') { va = (va||[]).length; vb = (vb||[]).length; }
     if (typeof va === 'string') return va.localeCompare(vb) * sortDir;
     return ((va||0) - (vb||0)) * sortDir;
   });
