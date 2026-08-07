@@ -3981,6 +3981,7 @@ def create_app():
             "ok": result["ok"],
             "status_code": result.get("status_code"),
             "error": result.get("error"),
+            "detail": result.get("detail"),
         })
 
     @app.route("/api/projects/<int:pid>/findings")

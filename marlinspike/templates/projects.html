@@ -974,16 +974,34 @@
               <label><input type="checkbox" id="webhook-enabled"> {{ t('projects.webhook_enabled') }}</label>
             </div>
             <div class="proj-settings-row">
-              <label for="webhook-url">{{ t('projects.webhook_url') }}</label>
-              <input type="text" id="webhook-url" placeholder="https://example.com/hooks/marlinspike" style="width:100%;max-width:480px;">
+              <label for="webhook-platform">{{ t('projects.webhook_platform') }}</label>
+              <select id="webhook-platform" onchange="PROJ.onWebhookPlatformChange()">
+                <option value="generic">{{ t('projects.webhook_platform_generic') }}</option>
+                <option value="zammad">Zammad</option>
+              </select>
             </div>
             <div class="proj-settings-row">
-              <label for="webhook-secret">{{ t('projects.webhook_secret') }}</label>
+              <label for="webhook-url" id="webhook-url-label">{{ t('projects.webhook_url') }}</label>
+              <input type="text" id="webhook-url" placeholder="https://example.com/hooks/marlinspike" style="width:100%;max-width:480px;">
+              <div class="ms-hint" id="webhook-url-hint"></div>
+            </div>
+            <div class="proj-settings-row">
+              <label for="webhook-secret" id="webhook-secret-label">{{ t('projects.webhook_secret') }}</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="text" id="webhook-secret" placeholder="{{ t('projects.webhook_secret_placeholder') }}" style="width:100%;max-width:320px;">
-                <button class="btn btn-sm" type="button" onclick="PROJ.generateWebhookSecret()">{{ t('projects.webhook_generate') }}</button>
+                <button class="btn btn-sm" type="button" id="webhook-generate-btn" onclick="PROJ.generateWebhookSecret()">{{ t('projects.webhook_generate') }}</button>
               </div>
-              <div class="ms-hint">{{ t('projects.webhook_secret_hint') }}</div>
+              <div class="ms-hint" id="webhook-secret-hint">{{ t('projects.webhook_secret_hint') }}</div>
+            </div>
+            <div class="proj-settings-row" id="webhook-zammad-group-row" style="display:none;">
+              <label for="webhook-zammad-group">{{ t('projects.webhook_zammad_group') }}</label>
+              <input type="text" id="webhook-zammad-group" placeholder="Users" style="width:100%;max-width:320px;">
+              <div class="ms-hint">{{ t('projects.webhook_zammad_group_hint') }}</div>
+            </div>
+            <div class="proj-settings-row" id="webhook-zammad-customer-row" style="display:none;">
+              <label for="webhook-zammad-customer">{{ t('projects.webhook_zammad_customer') }}</label>
+              <input type="text" id="webhook-zammad-customer" placeholder="security@yourcompany.com" style="width:100%;max-width:320px;">
+              <div class="ms-hint">{{ t('projects.webhook_zammad_customer_hint') }}</div>
             </div>
             <div class="proj-settings-row">
               <label for="webhook-min-severity">{{ t('projects.webhook_min_severity') }}</label>
@@ -1193,29 +1211,64 @@ var PROJ = (function() {
     }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
   }
 
+  function onWebhookPlatformChange() {
+    var isZammad = document.getElementById('webhook-platform').value === 'zammad';
+    document.getElementById('webhook-zammad-group-row').style.display = isZammad ? '' : 'none';
+    document.getElementById('webhook-zammad-customer-row').style.display = isZammad ? '' : 'none';
+    document.getElementById('webhook-generate-btn').style.display = isZammad ? 'none' : '';
+    var urlInput = document.getElementById('webhook-url');
+    var urlLabel = document.getElementById('webhook-url-label');
+    var urlHint = document.getElementById('webhook-url-hint');
+    var secretLabel = document.getElementById('webhook-secret-label');
+    var secretHint = document.getElementById('webhook-secret-hint');
+    if (isZammad) {
+      urlLabel.textContent = msT('projects.webhook_zammad_url', 'Zammad base URL');
+      urlInput.placeholder = 'https://yourcompany.zammad.com';
+      urlHint.textContent = msT('projects.webhook_zammad_url_hint', 'The root URL of your Zammad instance, no trailing path.');
+      secretLabel.textContent = msT('projects.webhook_zammad_token', 'Zammad API token');
+      secretHint.textContent = msT('projects.webhook_zammad_token_hint', 'Create one under Zammad → Profile → Token Access, with ticket read/write permission.');
+    } else {
+      urlLabel.textContent = msT('projects.webhook_url', 'Webhook URL');
+      urlInput.placeholder = 'https://example.com/hooks/marlinspike';
+      urlHint.textContent = '';
+      secretLabel.textContent = msT('projects.webhook_secret', 'Signing secret (optional)');
+      secretHint.textContent = msT('projects.webhook_secret_hint', 'If set, each delivery is signed so your receiver can verify it came from MarlinSpike.');
+    }
+  }
+
   function loadWebhookConfig() {
     if (!currentProject || !isOwnerProject()) return;
     fetch('/api/projects/' + currentProject.id + '/webhook').then(function(r) { return r.json(); }).then(function(d) {
       if (!d.ok) { msToast(d.error || msT('common.error', 'Error'), true); return; }
       var cfg = d.config || {};
       document.getElementById('webhook-enabled').checked = !!cfg.enabled;
+      document.getElementById('webhook-platform').value = cfg.platform || 'generic';
       document.getElementById('webhook-url').value = cfg.url || '';
+      document.getElementById('webhook-zammad-group').value = cfg.zammad_group || '';
+      document.getElementById('webhook-zammad-customer').value = cfg.zammad_customer || '';
       document.getElementById('webhook-secret').value = '';
       document.getElementById('webhook-secret').placeholder = cfg.secret
         ? msT('projects.webhook_secret_configured', 'Configured (ends in {last4}) — leave blank to keep').replace('{last4}', cfg.secret.slice(-4))
         : msT('projects.webhook_secret_placeholder', 'Leave blank for an unsigned webhook');
       document.getElementById('webhook-min-severity').value = cfg.min_severity || '';
       document.getElementById('webhook-status').textContent = '';
+      onWebhookPlatformChange();
     }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
   }
 
   function saveWebhookConfig() {
     if (!currentProject) return;
+    var platform = document.getElementById('webhook-platform').value;
     var body = {
       enabled: document.getElementById('webhook-enabled').checked,
+      platform: platform,
       url: document.getElementById('webhook-url').value.trim(),
       min_severity: document.getElementById('webhook-min-severity').value || null,
     };
+    if (platform === 'zammad') {
+      body.zammad_group = document.getElementById('webhook-zammad-group').value.trim();
+      body.zammad_customer = document.getElementById('webhook-zammad-customer').value.trim() || null;
+    }
     var secret = document.getElementById('webhook-secret').value;
     if (secret) body.secret = secret;
     fetch('/api/projects/' + currentProject.id + '/webhook', {
@@ -1240,7 +1293,9 @@ var PROJ = (function() {
       .then(function(r) { return r.json(); }).then(function(d) {
         if (d.ok) {
           status.style.color = 'var(--color-success)';
-          status.textContent = msT('projects.webhook_test_ok', 'Delivered — receiver responded {status}').replace('{status}', d.status_code);
+          status.textContent = d.detail
+            ? msT('projects.webhook_test_ok_detail', 'Success — {detail}').replace('{detail}', d.detail)
+            : msT('projects.webhook_test_ok', 'Delivered — receiver responded {status}').replace('{status}', d.status_code);
         } else {
           status.style.color = 'var(--sev-critical)';
           status.textContent = msT('projects.webhook_test_failed', 'Delivery failed: {error}').replace('{error}', d.error || ('HTTP ' + d.status_code));
@@ -2071,6 +2126,7 @@ var PROJ = (function() {
     saveWebhookConfig: saveWebhookConfig,
     testWebhook: testWebhook,
     generateWebhookSecret: generateWebhookSecret,
+    onWebhookPlatformChange: onWebhookPlatformChange,
     cancelRename: cancelRename,
     deleteProject: deleteProject,
     setTab: setTab,

@@ -109,6 +109,35 @@ class ProjectMember(db.Model):
     )
 
 
+class WebhookTicket(db.Model):
+    """Dedup ledger for platform-integrated webhook deliveries (e.g. Zammad).
+
+    A finding that persists across many scans must not spawn a new external
+    ticket on every single completion — this table remembers "finding X in
+    project Y already has ticket Z" so redelivery is a no-op until the
+    dedup_key changes (the underlying finding actually changed) or the row
+    is removed. Not used by the generic/unsigned webhook mode, which has no
+    concept of a durable remote object to avoid re-creating.
+    """
+
+    __tablename__ = "webhook_tickets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    dedup_key = db.Column(db.String(64), nullable=False)
+    platform = db.Column(db.String(20), nullable=False)
+    external_id = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "project_id", "dedup_key", "platform", name="uq_webhook_ticket_project_dedup_platform"
+        ),
+    )
+
+
 class ScanHistory(db.Model):
     __tablename__ = "scan_history"
 
