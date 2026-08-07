@@ -142,12 +142,64 @@ def create_user(username, password, role="user", upload_limit_mb=None):
 _DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
 
 
+_MAX_FAILED_LOGIN_ATTEMPTS = 5
+_LOCKOUT_DURATION_MINUTES = 15
+
+
 def verify_user(username, password):
+    """Returns the User on success, None on any failure — wrong password,
+    nonexistent username, OR a currently-locked account all return None
+    identically, so the caller's generic "invalid credentials" message
+    can never be used to distinguish "no such user" from "this real
+    account is locked out" (the same anti-enumeration principle
+    _DUMMY_PASSWORD_HASH already applies to the password-hash timing).
+
+    Per-username lockout: the login rate limiter is keyed by source IP
+    only (app.py's limiter), so a distributed attacker could otherwise
+    throw unlimited guesses at one specific username, each individual IP
+    staying under the per-IP limit. After _MAX_FAILED_LOGIN_ATTEMPTS
+    consecutive failures, the account is locked for
+    _LOCKOUT_DURATION_MINUTES; a successful login (once the lockout
+    window elapses) resets the counter.
+    """
     user = User.query.filter_by(username=username).first()
+    now = datetime.now(timezone.utc)
+
+    if user is not None and user.locked_until is not None:
+        locked_until = user.locked_until
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+        if now < locked_until:
+            # Still locked — pay the same hash-verification cost as the
+            # normal path anyway (timing consistency with the "wrong
+            # password" and "no such user" cases below) but never let a
+            # correct password succeed while locked.
+            check_password_hash(_DUMMY_PASSWORD_HASH, password)
+            return None
+
     password_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
     password_ok = check_password_hash(password_hash, password)
-    if user and password_ok:
+
+    if user is None:
+        return None
+
+    if password_ok:
+        if user.failed_login_attempts or user.locked_until:
+            user.failed_login_attempts = 0
+            user.locked_until = None
+            db.session.commit()
         return user
+
+    user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+    newly_locked = user.failed_login_attempts >= _MAX_FAILED_LOGIN_ATTEMPTS
+    if newly_locked:
+        user.locked_until = now + timedelta(minutes=_LOCKOUT_DURATION_MINUTES)
+    db.session.commit()
+    if newly_locked:
+        _get_audit()("auth.account_locked", status="failure",
+                      target_type="user", target_id=user.username,
+                      detail={"failed_attempts": user.failed_login_attempts,
+                              "locked_until": user.locked_until.isoformat()})
     return None
 
 
@@ -155,6 +207,14 @@ def change_password(user, new_password):
     user.password_hash = generate_password_hash(new_password)
     user.session_version = (user.session_version or 1) + 1
     db.session.commit()
+    # Session-fixation hygiene (csrf.py's own documented contract: "call
+    # this on any session-fixation event — login, password change,
+    # privilege escalation"). Previously only called at login. Harmless
+    # for the admin-changes-another-user's-password call site (rotates
+    # the acting admin's own token; their next page load mints a fresh
+    # one same as always) and closes the gap for the self-service path.
+    from marlinspike.csrf import rotate_csrf
+    rotate_csrf()
 
 
 def generate_random_password(length=16):
@@ -170,6 +230,33 @@ RESET_TOKEN_TTL_MINUTES = 30
 def _hash_token(token: str) -> str:
     """SHA-256 hash a reset token for storage. Never store raw tokens."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def dummy_reset_request_work(delivery: str) -> None:
+    """Equalizes /api/auth/reset-request's response cost between an
+    existing and a nonexistent username, so response timing can't be
+    used to enumerate accounts — the same bug class _DUMMY_PASSWORD_HASH
+    already closes for /login, reintroduced here since that fix wasn't
+    extended to this sibling endpoint. Mirrors the real path's DB read +
+    delivery I/O cost without persisting anything for a user that
+    doesn't exist.
+    """
+    # Touches the same table/index create_reset_token's delete() would
+    # scan, without matching against any real user_id.
+    PasswordResetToken.query.filter_by(user_id=-1, used_at=None).first()
+    if delivery == "file":
+        token_dir = os.path.join(config.DATA_DIR, "instance", "reset-tokens")
+        os.makedirs(token_dir, mode=0o700, exist_ok=True)
+        dummy_path = os.path.join(token_dir, f".dummy-{secrets.token_hex(8)}")
+        try:
+            fd = os.open(dummy_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                fh.write(secrets.token_urlsafe(32) + "\n")
+        finally:
+            try:
+                os.unlink(dummy_path)
+            except OSError:
+                pass
 
 
 def create_reset_token(user, ip_address=None):
@@ -273,12 +360,27 @@ def validate_reset_token(raw_token):
 
 
 def use_reset_token(token, new_password):
-    """Consume a reset token and change the user's password. Returns the user."""
-    user = User.query.get(token.user_id)
+    """Consume a reset token and change the user's password.
+
+    Returns the user, or None if the token was already redeemed by a
+    concurrent request in the window between validate_reset_token's
+    check and this call — a real, if narrow, race: two simultaneous
+    reset-confirm requests with the same still-valid token could
+    otherwise both pass validation before either committed its own
+    used_at write, redeeming the token twice. Re-fetches the row with a
+    row lock and re-checks used_at atomically here rather than trusting
+    the caller's earlier (by now possibly stale) check.
+    """
+    locked = PasswordResetToken.query.filter_by(id=token.id).with_for_update().first()
+    if locked is None or locked.used_at is not None:
+        return None
+    user = User.query.get(locked.user_id)
     user.password_hash = generate_password_hash(new_password)
     user.session_version = (user.session_version or 1) + 1
-    token.used_at = datetime.now(timezone.utc)
+    locked.used_at = datetime.now(timezone.utc)
     db.session.commit()
+    from marlinspike.csrf import rotate_csrf
+    rotate_csrf()
 
     log.info("Reset token used for user=%s", user.username)
     _get_audit()("auth.reset_token_used",

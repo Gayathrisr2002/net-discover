@@ -22,6 +22,14 @@ class User(db.Model):
         db.DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
+    # Per-username lockout (see auth.py:verify_user) — the global login
+    # rate limit is keyed by source IP only, so a botnet/proxy pool could
+    # otherwise throw unlimited password guesses at one specific username,
+    # each IP individually staying under the per-IP limit. Reset to
+    # 0/None on a successful login.
+    failed_login_attempts = db.Column(db.Integer, nullable=False, default=0)
+    locked_until = db.Column(db.DateTime, nullable=True)
+
     # Profile fields
     full_name = db.Column(db.String(120), nullable=True)
     company = db.Column(db.String(120), nullable=True)
