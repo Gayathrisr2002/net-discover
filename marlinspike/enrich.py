@@ -134,6 +134,26 @@ def run_all(report_path: str) -> dict[str, str]:
     return produced
 
 
+def attach_mitre_fields(report: dict) -> dict:
+    """Return a shallow copy of report with mitre_classifications/
+    mitre_platform_coverage flattened onto the top level from the
+    marlinspike-mitre extension.
+
+    load_report_with_extensions only ever nests MITRE sidecar output under
+    extensions['marlinspike-mitre']['data'] — it never flattens it. But
+    emit/navigator.py, emit/stix.py, and emit/ocsf.py all read
+    report.get("mitre_classifications")/("mitre_platform_coverage") as
+    plain top-level fields. A caller that skips this derivation can never
+    see ATT&CK data in its output, regardless of whether the mitre plugin
+    actually produced any for this report.
+    """
+    mitre_data = dict((((report.get("extensions") or {}).get("marlinspike-mitre") or {}).get("data")) or {})
+    out = dict(report)
+    out["mitre_classifications"] = list(mitre_data.get("classifications") or [])
+    out["mitre_platform_coverage"] = list(mitre_data.get("platform_coverage") or [])
+    return out
+
+
 # ── merge ────────────────────────────────────────────────────────────────────
 
 def load_report_with_extensions(path: str, ensure_mitre: bool = False) -> dict:

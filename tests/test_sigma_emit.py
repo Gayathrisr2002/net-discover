@@ -23,7 +23,7 @@ SAMPLE_REPORT = {
             "category": "CROSS_PURDUE",
             "description": "Cross-zone violation",
             "affected_nodes": ["10.0.0.1", "192.168.1.5"],
-            "attack_techniques": ["T0815"],
+            "attack_ids": ["T0815"],
         },
         {
             "severity": "MEDIUM",
@@ -78,7 +78,7 @@ def test_severity_mapping():
 
 
 def test_attack_tags():
-    finding = {"attack_techniques": ["T0815", "T1071.004"]}
+    finding = {"attack_ids": ["T0815", "T1071.004"]}
     tags = sigma._attack_tags(finding)
     assert "attack.t0815" in tags
     # SigmaHQ keeps the dot for sub-techniques (Finding #45) — was t1071_004.
@@ -192,7 +192,7 @@ def test_render_rules_modbus_write_targets_modbus_log():
 def test_render_rules_carries_attack_tags():
     rules = sigma.render_rules({"risk_findings": [
         {"category": "CROSS_PURDUE", "severity": "HIGH",
-         "affected_nodes": ["a"], "attack_techniques": ["T0815"]}
+         "affected_nodes": ["a"], "attack_ids": ["T0815"]}
     ]})
     _, rule = rules[0]
     assert "attack.t0815" in rule["tags"]

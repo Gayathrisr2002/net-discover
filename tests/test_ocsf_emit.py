@@ -31,7 +31,7 @@ SAMPLE_REPORT = {
             "affected_edges": [],
             "cvss_impact": 7.5,
             "remediation": "Implement network segmentation per IEC 62443",
-            "attack_techniques": ["T0815"],
+            "attack_ids": ["T0815"],
         },
         {
             "severity": "INFO",

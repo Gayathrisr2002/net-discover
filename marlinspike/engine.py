@@ -3353,9 +3353,25 @@ class TopologyBuilder:
         """Infer Purdue Model levels based on communication patterns."""
         print(f"  Inferring Purdue levels...")
 
-        # If subnet_map provided, use it first
+        # If subnet_map provided, use it first. Sorted most-specific-first
+        # (longest prefix) — self.subnet_map is a plain dict loaded via
+        # json.load, so it iterates in file order, not by specificity. A
+        # user listing a broad supernet before a more specific override
+        # (e.g. "10.0.0.0/8" before "10.0.1.0/24") previously matched the
+        # supernet first and `break`'d, so the intended /24 override for
+        # that range never fired — silently. An unparseable subnet string
+        # sorts last (prefixlen -1) since _ip_in_subnet would never match
+        # it anyway.
+        def _subnet_prefixlen(subnet: str) -> int:
+            try:
+                return ipaddress.ip_network(subnet, strict=False).prefixlen
+            except ValueError:
+                return -1
+        ordered_subnet_map = sorted(
+            self.subnet_map.items(), key=lambda kv: _subnet_prefixlen(kv[0]), reverse=True
+        )
         for ip, node in self.nodes.items():
-            for subnet, level in self.subnet_map.items():
+            for subnet, level in ordered_subnet_map:
                 if self._ip_in_subnet(ip, subnet):
                     node.purdue_level = level
                     break
@@ -4118,7 +4134,16 @@ class RiskSurface:
     def __init__(self, topology: dict, conversations: list[Conversation], skip_c2: bool = False):
         self.topology = topology
         self.conversations = conversations
-        self.nodes = {n["ip"]: n for n in topology["nodes"]}
+        # Keyed by ip-or-mac, matching TopologyBuilder._build_graph's own
+        # node key (conv.src_ip or conv.src_mac) — TopologyEdge.src/.dst
+        # are stamped with that same ip-or-mac value, never a bare ip.
+        # Keying this dict by "ip" alone meant every L2-only node (no
+        # resolved IP — ip == "") collapsed onto the single dict key "",
+        # silently dropping all but the last one, and every edge touching
+        # such a node became unlookupable via self.nodes.get(edge["src"/
+        # "dst"]) — Cross-Purdue and C2 checks silently skipped them with
+        # no warning anywhere in the report.
+        self.nodes = {(n.get("ip") or n.get("mac")): n for n in topology["nodes"]}
         self.edges = topology["edges"]
         self.skip_c2 = skip_c2
         self.findings: list[RiskFinding] = []
@@ -4227,16 +4252,24 @@ class RiskSurface:
             if node.get("purdue_level") == 5:
                 all_public.add(key)
 
-        if all_public and not external_convs:
+        # Only report public IPs not already covered by the CRITICAL
+        # ICS_EXTERNAL_COMMS finding above — was previously suppressed
+        # entirely whenever *any* OT-to-public conversation existed, even
+        # for unrelated public IPs (e.g. five enterprise workstations
+        # browsing five unrelated sites) that have nothing to do with the
+        # OT alert and would otherwise never be mentioned anywhere in the
+        # report at all.
+        remaining_public = all_public - external_ips
+        if remaining_public:
             finding = RiskFinding(
                 severity="INFO",
                 category="EXTERNAL_IPS_OBSERVED",
-                description=f"Public internet addresses observed in capture: {', '.join(sorted(all_public))}",
-                affected_nodes=list(all_public),
+                description=f"Public internet addresses observed in capture: {', '.join(sorted(remaining_public))}",
+                affected_nodes=list(remaining_public),
                 remediation="Verify expected external communications. ICS networks should minimize internet exposure.",
             )
             self.findings.append(finding)
-            print(f"  [INFO] External IPs in capture: {len(all_public)}")
+            print(f"  [INFO] External IPs in capture: {len(remaining_public)}")
 
     def _check_cross_purdue(self):
         """Flag cross-Purdue-level communications."""
@@ -5437,6 +5470,23 @@ def run_chain(args):
 
     _maybe_enrich(args)
 
+    # _maybe_enrich (write_enriched) may have just rewritten args.output in
+    # place with merged extensions + plugin-sourced risk findings — the
+    # in-memory `report` object above was never updated to match. Every
+    # emit block below must use this post-enrichment dict, not
+    # report.to_dict(), or Navigator/STIX/OCSF/Sigma silently lose all
+    # MITRE + plugin-sourced (arp/apt/cisa) data on every single default
+    # chain run (confirmed: render_layers legitimately returns {} for a
+    # dict with no mitre_classifications, so the Navigator sibling file
+    # was never even written — no error, no log line, just missing).
+    try:
+        from marlinspike import enrich as _enrich_module
+        with open(args.output) as _enriched_f:
+            enriched_report = _enrich_module.attach_mitre_fields(json.load(_enriched_f))
+    except Exception as _reload_exc:
+        print(f"[!] post-enrich report reload failed, emit will use pre-enrichment data: {_reload_exc}")
+        enriched_report = report.to_dict()
+
     # YAML relationship map
     yaml_path = args.yaml_map
     if yaml_path == "":
@@ -5467,7 +5517,7 @@ def run_chain(args):
                 args.pcap,
                 capture_id,
             )
-            app_ocsf = _ocsf_emit.render_ndjson(report.to_dict(), capture_id=capture_id)
+            app_ocsf = _ocsf_emit.render_ndjson(enriched_report, capture_id=capture_id)
             with open(ocsf_path, "w") as ocsf_f:
                 if dpi_ocsf:
                     ocsf_f.write(dpi_ocsf)
@@ -5488,7 +5538,7 @@ def run_chain(args):
         if getattr(_ms_config, "MARLINSPIKE_EMIT_NAVIGATOR", False):
             from marlinspike.emit import navigator as _nav_emit
             capture_id = os.path.splitext(os.path.basename(args.pcap or ""))[0] or "capture"
-            layers = _nav_emit.render_layers(report.to_dict(), capture_id=capture_id)
+            layers = _nav_emit.render_layers(enriched_report, capture_id=capture_id)
             for domain, layer in layers.items():
                 short = "ics" if domain == _nav_emit.DOMAIN_ICS else "enterprise"
                 nav_path = args.output.replace(".json", f".navigator.{short}.json")
@@ -5508,7 +5558,7 @@ def run_chain(args):
             from marlinspike.emit import stix as _stix_emit
             capture_id = os.path.splitext(os.path.basename(args.pcap or ""))[0] or "capture"
             stix_path = args.output.replace(".json", ".stix.json")
-            stix_json = _stix_emit.render_json(report.to_dict(), capture_id=capture_id)
+            stix_json = _stix_emit.render_json(enriched_report, capture_id=capture_id)
             with open(stix_path, "w") as stix_f:
                 stix_f.write(stix_json + "\n")
             print(f"[*] STIX emit: {os.path.basename(stix_path)}")
@@ -5525,7 +5575,7 @@ def run_chain(args):
             capture_id = os.path.splitext(os.path.basename(args.pcap or ""))[0] or "capture"
             sigma_path = args.output.replace(".json", ".sigma.yml")
             sigma_yaml = _sigma_emit.render_yaml_concat(
-                report.to_dict(), capture_id=capture_id
+                enriched_report, capture_id=capture_id
             )
             if sigma_yaml:
                 with open(sigma_path, "w") as sigma_f:

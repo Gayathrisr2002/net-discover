@@ -232,14 +232,14 @@ def _risk_finding_indicator(finding: dict, identity_id: str, valid_from: str) ->
         "confidence": _confidence_for(finding),
         "labels": [category.lower()],
     }
-    if finding.get("attack_techniques"):
+    if finding.get("attack_ids"):
         obj["external_references"] = [
             {
                 "source_name": "mitre-attack",
                 "external_id": tid,
                 "url": f"https://attack.mitre.org/techniques/{tid.replace('.', '/')}",
             }
-            for tid in finding["attack_techniques"]
+            for tid in finding["attack_ids"]
         ]
     return obj
 

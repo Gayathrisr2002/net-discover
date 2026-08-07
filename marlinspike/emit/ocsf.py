@@ -184,7 +184,7 @@ def render_risk_finding(finding: dict, report: dict, capture_id: str | None = No
         },
         "affected_resources": _affected_resources(finding.get("affected_nodes") or []),
         "remediation": {"desc": finding.get("remediation")} if finding.get("remediation") else None,
-        "attacks": _attacks_block(finding.get("attack_techniques")),
+        "attacks": _attacks_block(finding.get("attack_ids")),
         "unmapped": {
             "marlinspike": {
                 "category": finding.get("category"),
@@ -381,7 +381,7 @@ def render_mitre_classification(
 def _attacks_block(technique_ids: list | None) -> list[dict] | None:
     """Build a minimal OCSF attacks[] from a list of ATT&CK technique IDs.
 
-    Used for risk_findings that carry attack_techniques but no full
+    Used for risk_findings that carry attack_ids but no full
     classification context. The mitre_classifications path uses
     render_mitre_classification() with full tactic detail.
     """

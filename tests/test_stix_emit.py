@@ -25,7 +25,7 @@ SAMPLE_REPORT = {
             "category": "CROSS_PURDUE",
             "description": "Cross-Purdue boundary violation",
             "affected_nodes": ["10.0.0.1", "192.168.1.5"],
-            "attack_techniques": ["T0815"],
+            "attack_ids": ["T0815"],
         }
     ],
     "c2_indicators": [

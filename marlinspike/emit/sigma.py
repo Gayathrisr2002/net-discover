@@ -109,14 +109,14 @@ def _severity_for(finding: dict) -> str:
 
 
 def _attack_tags(finding: dict) -> list[str]:
-    """Build Sigma ``tags`` from any attack_techniques attached to the finding.
+    """Build Sigma ``tags`` from any attack_ids attached to the finding.
 
     SigmaHQ's ATT&CK taxonomy keeps the dot for sub-techniques
     (``attack.t1071.001``); the previous underscore form (``attack.t1071_001``)
     is not a recognised tag (Finding #45).
     """
     tags = []
-    for tid in finding.get("attack_techniques") or []:
+    for tid in finding.get("attack_ids") or []:
         tags.append(f"attack.{str(tid).lower()}")
     return tags
 
@@ -379,7 +379,7 @@ def render_rules(report: dict, capture_id: str | None = None) -> list[tuple[str,
                 indicator.get("dst") or indicator.get("dst_ip"),
                 indicator.get("src") or indicator.get("src_ip"),
             ],
-            "attack_techniques": ["T1071"],
+            "attack_ids": ["T1071"],
         }
         rule = _rule_c2_beaconing(synthetic, capture_id)
         if rule["id"] in seen_ids:
@@ -395,7 +395,7 @@ def render_rules(report: dict, capture_id: str | None = None) -> list[tuple[str,
             "severity": (finding.get("severity") or "medium").upper(),
             "description": finding.get("summary") or "",
             "affected_nodes": [finding.get("src_ip"), finding.get("dst_ip")],
-            "attack_techniques": [],
+            "attack_ids": [],
         }
         rule = _rule_malware_ioc_match(synthetic, capture_id)
         if rule["id"] in seen_ids:

@@ -130,12 +130,16 @@ def _build_layer(
     coverage: list[dict],
     capture_id: str,
     attack_version: str,
+    allow_empty: bool = False,
 ) -> dict | None:
     """Build a complete Navigator layer for one ATT&CK domain.
 
     Merges classifications (observed / inferred) and coverage (platform)
     by technique_id. If both apply to the same technique, the
     classification wins (higher score, richer metadata).
+
+    ``allow_empty`` — build and return a valid layer with zero techniques
+    instead of None when nothing matched. See render_empty_layer.
     """
     classifications = [c for c in classifications if (c.get("domain") or "").lower() == domain]
     coverage = [c for c in coverage if (c.get("domain") or "").lower() == domain]
@@ -153,7 +157,7 @@ def _build_layer(
             continue
         by_id[tid] = _technique_block(entry, layer_kind="classification")
 
-    if not by_id:
+    if not by_id and not allow_empty:
         return None
 
     domain_label = "ICS" if domain == DOMAIN_ICS else "Enterprise"
@@ -238,6 +242,20 @@ def render_layer_for_domain(
     """Render a Navigator layer for one specific domain. None if no techniques."""
     layers = render_layers(report, capture_id)
     return layers.get(domain.lower())
+
+
+def render_empty_layer(domain: str, capture_id: str | None = None) -> dict:
+    """A valid, empty Navigator layer for one domain.
+
+    For a caller that wants a successful (if empty) response instead of
+    treating "no MITRE classifications for this report" as an error —
+    matching emit/stix.py's render_bundle, which always returns a valid
+    bundle (even with zero objects) rather than signaling failure for a
+    legitimately-empty result.
+    """
+    return _build_layer(
+        domain.lower(), [], [], capture_id or "capture", DEFAULT_ATTACK_VERSION, allow_empty=True
+    )
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
