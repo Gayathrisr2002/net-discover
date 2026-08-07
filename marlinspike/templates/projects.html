@@ -978,6 +978,7 @@
               <select id="webhook-platform" onchange="PROJ.onWebhookPlatformChange()">
                 <option value="generic">{{ t('projects.webhook_platform_generic') }}</option>
                 <option value="zammad">Zammad</option>
+                <option value="jira">Jira</option>
               </select>
             </div>
             <div class="proj-settings-row">
@@ -1002,6 +1003,21 @@
               <label for="webhook-zammad-customer">{{ t('projects.webhook_zammad_customer') }}</label>
               <input type="text" id="webhook-zammad-customer" placeholder="security@yourcompany.com" style="width:100%;max-width:320px;">
               <div class="ms-hint">{{ t('projects.webhook_zammad_customer_hint') }}</div>
+            </div>
+            <div class="proj-settings-row" id="webhook-jira-project-row" style="display:none;">
+              <label for="webhook-jira-project-key">{{ t('projects.webhook_jira_project_key') }}</label>
+              <input type="text" id="webhook-jira-project-key" placeholder="SEC" style="width:100%;max-width:200px;">
+              <div class="ms-hint">{{ t('projects.webhook_jira_project_key_hint') }}</div>
+            </div>
+            <div class="proj-settings-row" id="webhook-jira-issue-type-row" style="display:none;">
+              <label for="webhook-jira-issue-type">{{ t('projects.webhook_jira_issue_type') }}</label>
+              <input type="text" id="webhook-jira-issue-type" placeholder="Task" style="width:100%;max-width:200px;">
+              <div class="ms-hint">{{ t('projects.webhook_jira_issue_type_hint') }}</div>
+            </div>
+            <div class="proj-settings-row" id="webhook-jira-email-row" style="display:none;">
+              <label for="webhook-jira-email">{{ t('projects.webhook_jira_email') }}</label>
+              <input type="text" id="webhook-jira-email" placeholder="you@yourcompany.com" style="width:100%;max-width:320px;">
+              <div class="ms-hint">{{ t('projects.webhook_jira_email_hint') }}</div>
             </div>
             <div class="proj-settings-row">
               <label for="webhook-min-severity">{{ t('projects.webhook_min_severity') }}</label>
@@ -1212,10 +1228,15 @@ var PROJ = (function() {
   }
 
   function onWebhookPlatformChange() {
-    var isZammad = document.getElementById('webhook-platform').value === 'zammad';
+    var platform = document.getElementById('webhook-platform').value;
+    var isZammad = platform === 'zammad';
+    var isJira = platform === 'jira';
     document.getElementById('webhook-zammad-group-row').style.display = isZammad ? '' : 'none';
     document.getElementById('webhook-zammad-customer-row').style.display = isZammad ? '' : 'none';
-    document.getElementById('webhook-generate-btn').style.display = isZammad ? 'none' : '';
+    document.getElementById('webhook-jira-project-row').style.display = isJira ? '' : 'none';
+    document.getElementById('webhook-jira-issue-type-row').style.display = isJira ? '' : 'none';
+    document.getElementById('webhook-jira-email-row').style.display = isJira ? '' : 'none';
+    document.getElementById('webhook-generate-btn').style.display = (isZammad || isJira) ? 'none' : '';
     var urlInput = document.getElementById('webhook-url');
     var urlLabel = document.getElementById('webhook-url-label');
     var urlHint = document.getElementById('webhook-url-hint');
@@ -1227,6 +1248,12 @@ var PROJ = (function() {
       urlHint.textContent = msT('projects.webhook_zammad_url_hint', 'The root URL of your Zammad instance, no trailing path.');
       secretLabel.textContent = msT('projects.webhook_zammad_token', 'Zammad API token');
       secretHint.textContent = msT('projects.webhook_zammad_token_hint', 'Create one under Zammad → Profile → Token Access, with ticket read/write permission.');
+    } else if (isJira) {
+      urlLabel.textContent = msT('projects.webhook_jira_url', 'Jira base URL');
+      urlInput.placeholder = 'https://yourcompany.atlassian.net';
+      urlHint.textContent = msT('projects.webhook_jira_url_hint', 'The root URL of your Jira instance (Cloud: https://yourcompany.atlassian.net; Server/Data Center: your own base URL).');
+      secretLabel.textContent = msT('projects.webhook_jira_token', 'Jira API token / personal access token');
+      secretHint.textContent = msT('projects.webhook_jira_token_hint', 'Jira Cloud: create an API token at id.atlassian.com/manage-profile/security/api-tokens and set the email below. Jira Server/Data Center: create a personal access token and leave the email blank.');
     } else {
       urlLabel.textContent = msT('projects.webhook_url', 'Webhook URL');
       urlInput.placeholder = 'https://example.com/hooks/marlinspike';
@@ -1246,6 +1273,9 @@ var PROJ = (function() {
       document.getElementById('webhook-url').value = cfg.url || '';
       document.getElementById('webhook-zammad-group').value = cfg.zammad_group || '';
       document.getElementById('webhook-zammad-customer').value = cfg.zammad_customer || '';
+      document.getElementById('webhook-jira-project-key').value = cfg.jira_project_key || '';
+      document.getElementById('webhook-jira-issue-type').value = cfg.jira_issue_type || '';
+      document.getElementById('webhook-jira-email').value = cfg.jira_email || '';
       document.getElementById('webhook-secret').value = '';
       document.getElementById('webhook-secret').placeholder = cfg.secret
         ? msT('projects.webhook_secret_configured', 'Configured (ends in {last4}) — leave blank to keep').replace('{last4}', cfg.secret.slice(-4))
@@ -1268,6 +1298,10 @@ var PROJ = (function() {
     if (platform === 'zammad') {
       body.zammad_group = document.getElementById('webhook-zammad-group').value.trim();
       body.zammad_customer = document.getElementById('webhook-zammad-customer').value.trim() || null;
+    } else if (platform === 'jira') {
+      body.jira_project_key = document.getElementById('webhook-jira-project-key').value.trim();
+      body.jira_issue_type = document.getElementById('webhook-jira-issue-type').value.trim() || null;
+      body.jira_email = document.getElementById('webhook-jira-email').value.trim() || null;
     }
     var secret = document.getElementById('webhook-secret').value.trim();
     if (secret) body.secret = secret;

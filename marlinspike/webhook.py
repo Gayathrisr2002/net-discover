@@ -41,8 +41,9 @@ log = logging.getLogger("marlinspike.webhook")
 ALLOWED_KEYS = frozenset({
     "enabled", "platform", "url", "secret", "min_severity",
     "zammad_group", "zammad_customer",
+    "jira_email", "jira_project_key", "jira_issue_type",
 })
-PLATFORMS = frozenset({"generic", "zammad"})
+PLATFORMS = frozenset({"generic", "zammad", "jira"})
 SEVERITY_ORDER = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 _TIMEOUT_S = 8
 _MAX_FINDINGS_PER_DELIVERY = 200
@@ -108,7 +109,10 @@ def _strip_header_bound_fields(body: dict) -> None:
     header value without tripping the latin-1 check — the receiver just
     rejects the (subtly wrong) credential with its own generic auth error.
     """
-    for key in ("url", "secret", "zammad_group", "zammad_customer"):
+    for key in (
+        "url", "secret", "zammad_group", "zammad_customer",
+        "jira_email", "jira_project_key", "jira_issue_type",
+    ):
         if isinstance(body.get(key), str):
             body[key] = body[key].strip()
 
@@ -161,6 +165,12 @@ def validate_config(body: dict) -> str | None:
             return "zammad_customer must be a string"
         if not _header_safe(body["zammad_customer"]):
             return "zammad_customer contains a character that isn't valid in an HTTP header — retype it"
+    for key in ("jira_email", "jira_project_key", "jira_issue_type"):
+        if key in body and body[key] is not None:
+            if not isinstance(body[key], str):
+                return f"{key} must be a string"
+            if not _header_safe(body[key]):
+                return f"{key} contains a character that isn't valid in an HTTP header — retype it"
     return None
 
 
@@ -176,12 +186,19 @@ def validate_effective_config(cfg: dict) -> str | None:
     """
     if not cfg.get("enabled"):
         return None
-    if (cfg.get("platform") or "generic") == "zammad":
+    platform = cfg.get("platform") or "generic"
+    if platform == "zammad":
         required = {"url": "Zammad base URL", "secret": "Zammad API token",
                     "zammad_group": "Zammad group", "zammad_customer": "Zammad customer email"}
         missing = [label for key, label in required.items() if not cfg.get(key)]
         if missing:
             return f"zammad delivery is enabled but missing: {', '.join(missing)}"
+    elif platform == "jira":
+        required = {"url": "Jira base URL", "secret": "Jira API token / personal access token",
+                    "jira_project_key": "Jira project key"}
+        missing = [label for key, label in required.items() if not cfg.get(key)]
+        if missing:
+            return f"jira delivery is enabled but missing: {', '.join(missing)}"
     else:
         if not cfg.get("url"):
             return "webhook is enabled but no URL is configured"
@@ -420,6 +437,165 @@ def deliver_to_zammad(project: Project, cfg: dict, findings: list[dict]) -> dict
     return {"created": created, "skipped": skipped, "failed": failed}
 
 
+# ── Jira ──────────────────────────────────────────────────────
+
+def _jira_auth_header(secret: str, email: str | None) -> str:
+    """Jira Cloud uses Basic Auth (email + API token); Jira Server/Data
+    Center typically uses a Bearer personal access token with no email.
+    Presence of jira_email picks the auth style — no separate mode toggle
+    needed. Base64-encoding is done over UTF-8 bytes (not the header's own
+    latin-1), so a non-ASCII email/token still produces a valid, entirely
+    ASCII header value here — unlike a raw Bearer token or Zammad's
+    Authorization header, an ellipsis or smart-quote in the *source* value
+    can't corrupt this one.
+    """
+    if email:
+        import base64
+        raw = f"{email}:{secret}".encode("utf-8")
+        return "Basic " + base64.b64encode(raw).decode("ascii")
+    return f"Bearer {secret}"
+
+
+def _jira_request(base_url: str, secret: str, email: str | None, path: str, method: str, body: dict | None = None) -> dict:
+    url = base_url.rstrip("/") + path
+    headers = {"Authorization": _jira_auth_header(secret, email), "Content-Type": "application/json"}
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            raw = resp.read()
+            parsed = json.loads(raw) if raw else {}
+            return {"ok": True, "status_code": resp.status, "body": parsed, "error": None}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+        return {"ok": False, "status_code": exc.code, "body": None, "error": detail}
+    except UnicodeEncodeError:
+        return {"ok": False, "status_code": None, "body": None, "error": _HEADER_ENCODE_ERROR_HINT}
+    except Exception as exc:
+        return {"ok": False, "status_code": None, "body": None, "error": str(exc)}
+
+
+def _jira_priority_names(base_url: str, secret: str, email: str | None) -> dict[str, str]:
+    """Look up this Jira instance's actual priority names.
+
+    Priority *schemes* are fully admin-customizable per instance/project,
+    so guessing "High"/"Medium"/"Low" outright risks Jira rejecting the
+    create call if that exact name doesn't exist. Resolving from
+    /rest/api/2/priority and falling back to omitting the field entirely
+    (Jira then uses the project's own default) is safer than a hardcoded
+    guess.
+    """
+    result = _jira_request(base_url, secret, email, "/rest/api/2/priority", "GET")
+    if not result["ok"] or not isinstance(result["body"], list):
+        return {}
+    out: dict[str, str] = {}
+    for p in result["body"]:
+        name = str(p.get("name") or "")
+        bucket = None
+        low = name.lower()
+        if any(w in low for w in ("high", "critical", "highest", "blocker", "urgent")):
+            bucket = "high"
+        elif any(w in low for w in ("medium", "major", "normal")):
+            bucket = "medium"
+        elif any(w in low for w in ("low", "lowest", "minor", "trivial")):
+            bucket = "low"
+        if bucket and bucket not in out:
+            out[bucket] = name
+    return out
+
+
+def _jira_priority_bucket(severity: str) -> str:
+    sev = str(severity or "INFO").upper()
+    if sev in ("HIGH", "CRITICAL"):
+        return "high"
+    if sev == "MEDIUM":
+        return "medium"
+    return "low"
+
+
+def _jira_issue_body(finding: dict) -> str:
+    lines = [finding.get("description") or "(no description)", ""]
+    if finding.get("affected_nodes"):
+        lines.append("Affected assets: " + ", ".join(str(n) for n in finding["affected_nodes"]))
+    if finding.get("affected_edges"):
+        lines.append("Affected connections: " + ", ".join(str(e) for e in finding["affected_edges"]))
+    if finding.get("cvss_impact") is not None:
+        lines.append(f"CVSS impact: {finding['cvss_impact']}")
+    if finding.get("remediation"):
+        lines.append("")
+        lines.append("Remediation: " + finding["remediation"])
+    lines.append("")
+    lines.append(f"MarlinSpike dedup key: {finding.get('dedup_key', '')}")
+    return "\n".join(lines)
+
+
+def _jira_create_issue(
+    base_url: str, secret: str, email: str | None, project_key: str, issue_type: str,
+    finding: dict, priority_name: str | None,
+) -> dict:
+    project_name = finding.get("_project_name", "MarlinSpike")
+    fields: dict[str, Any] = {
+        "project": {"key": project_key},
+        "summary": f"[MarlinSpike] {finding.get('category', 'Finding')} — {finding.get('severity', 'INFO')} ({project_name})",
+        "description": _jira_issue_body(finding),
+        "issuetype": {"name": issue_type or "Task"},
+    }
+    if priority_name:
+        fields["priority"] = {"name": priority_name}
+
+    result = _jira_request(base_url, secret, email, "/rest/api/2/issue", "POST", {"fields": fields})
+    if not result["ok"]:
+        return {"ok": False, "external_id": None, "error": result["error"]}
+    issue = result["body"] or {}
+    external_id = str(issue.get("key") or issue.get("id") or "")
+    return {"ok": True, "external_id": external_id, "error": None}
+
+
+def deliver_to_jira(project: Project, cfg: dict, findings: list[dict]) -> dict:
+    """Create one Jira issue per finding not already ticketed. Returns a summary dict."""
+    base_url, token = cfg.get("url"), cfg.get("secret")
+    project_key = cfg.get("jira_project_key")
+    if not base_url or not token or not project_key:
+        log.warning(
+            "jira delivery skipped project_id=%s: missing url/secret/jira_project_key", project.id
+        )
+        return {"created": 0, "skipped": 0, "failed": 0}
+    email = cfg.get("jira_email")
+    issue_type = cfg.get("jira_issue_type") or "Task"
+
+    already = _existing_ticket_dedup_keys(project.id, "jira")
+    new_findings = [f for f in findings if finding_dedup_key(project.id, f) not in already]
+    skipped = len(findings) - len(new_findings)
+    if not new_findings:
+        return {"created": 0, "skipped": skipped, "failed": 0}
+
+    if len(new_findings) > _MAX_TICKETS_PER_DELIVERY:
+        log.warning(
+            "jira delivery project_id=%s: %d new findings exceed the %d-ticket cap; "
+            "creating the first %d, the rest will be retried next scan",
+            project.id, len(new_findings), _MAX_TICKETS_PER_DELIVERY, _MAX_TICKETS_PER_DELIVERY,
+        )
+        new_findings = new_findings[:_MAX_TICKETS_PER_DELIVERY]
+
+    priority_names = _jira_priority_names(base_url, token, email)
+    created = failed = 0
+    for f in new_findings:
+        dedup_key = finding_dedup_key(project.id, f)
+        payload = {**_finding_payload(project.id, f), "_project_name": project.name}
+        priority_name = priority_names.get(_jira_priority_bucket(f.get("severity")))
+        result = _jira_create_issue(base_url, token, email, project_key, issue_type, payload, priority_name)
+        if result["ok"]:
+            _record_ticket(project.id, dedup_key, "jira", result["external_id"])
+            created += 1
+        else:
+            failed += 1
+            log.warning(
+                "jira issue creation failed project_id=%s dedup_key=%s error=%s",
+                project.id, dedup_key, result["error"],
+            )
+    return {"created": created, "skipped": skipped, "failed": failed}
+
+
 def deliver_for_scan(project_id: int | None, report_path: str | None, run_id: str | None) -> None:
     """Best-effort webhook/ticket delivery for one completed scan. Never raises.
 
@@ -446,6 +622,12 @@ def deliver_for_scan(project_id: int | None, report_path: str | None, run_id: st
             summary = deliver_to_zammad(project, cfg, findings)
             log.info(
                 "zammad delivery project_id=%s run_id=%s created=%d skipped=%d failed=%d",
+                project_id, run_id, summary["created"], summary["skipped"], summary["failed"],
+            )
+        elif platform == "jira":
+            summary = deliver_to_jira(project, cfg, findings)
+            log.info(
+                "jira delivery project_id=%s run_id=%s created=%d skipped=%d failed=%d",
                 project_id, run_id, summary["created"], summary["skipped"], summary["failed"],
             )
         else:
@@ -498,6 +680,22 @@ def send_test(project: Project) -> dict:
         )
         if result["ok"]:
             return {"ok": True, "status_code": 201, "error": None, "detail": f"created ticket {result['external_id']}"}
+        return {"ok": False, "status_code": None, "error": result["error"]}
+
+    if (cfg.get("platform") or "generic") == "jira":
+        token, project_key = cfg.get("secret"), cfg.get("jira_project_key")
+        if not token or not project_key:
+            missing = [n for n, v in (("API/personal access token", token), ("jira_project_key", project_key)) if not v]
+            return {"ok": False, "status_code": None, "error": f"missing required field(s): {', '.join(missing)}"}
+        email = cfg.get("jira_email")
+        issue_type = cfg.get("jira_issue_type") or "Task"
+        priority_names = _jira_priority_names(url, token, email)
+        payload = {**test_finding, "_project_name": project.name}
+        result = _jira_create_issue(
+            url, token, email, project_key, issue_type, payload, priority_names.get("low")
+        )
+        if result["ok"]:
+            return {"ok": True, "status_code": 201, "error": None, "detail": f"created issue {result['external_id']}"}
         return {"ok": False, "status_code": None, "error": result["error"]}
 
     payload = {
