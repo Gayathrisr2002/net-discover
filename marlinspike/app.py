@@ -75,6 +75,7 @@ from marlinspike.iocs import (
     VALID_SEVERITIES,
     parse_ioc_paste,
     scan_ioc_list_against_reports,
+    scan_single_report,
 )
 from marlinspike.models import (
     AssetTag,
@@ -1535,6 +1536,13 @@ def _load_report_with_extensions(path: str, ensure_mitre: bool = False) -> dict:
     return _enrich.load_report_with_extensions(path, ensure_mitre=ensure_mitre)
 
 
+def _report_with_mitre_fields(report: dict) -> dict:
+    """See enrich.attach_mitre_fields — shared with engine.py's chain
+    pipeline so both the on-demand emit routes and the standard chain run
+    derive mitre_classifications/mitre_platform_coverage the same way."""
+    return _enrich.attach_mitre_fields(report)
+
+
 def _collect_plugin_risk_findings(extensions: dict) -> list[dict]:
     return _enrich.collect_plugin_risk_findings(extensions)
 
@@ -2166,6 +2174,89 @@ def _apply_contextual_severity(
     return result
 
 
+def _ioc_matches_for_report(report: dict, project_id: int | None) -> list[dict]:
+    """Best-effort IOC-match list for the viewer's IOC lens, "highlight
+    matched assets," and drawer IOCs tab.
+
+    VIEWER_CONTEXT.ioc_matches was referenced by those three features but
+    never actually produced anywhere — they always rendered empty
+    regardless of whether real IOC matches existed. Scans this one
+    report against every IOC entry across all of the project's IOC
+    lists, reusing the same matching engine api_ioc_list_scan already
+    uses for the project-wide scan (iocs.py).
+    """
+    if project_id is None:
+        return []
+    entries = [
+        {"id": e.id, "ioc_type": e.ioc_type, "value": e.value, "label": e.label, "severity": e.severity}
+        for e in IocEntry.query.join(IocList).filter(IocList.project_id == project_id).all()
+    ]
+    if not entries:
+        return []
+    # MAC-typed/OUI-typed matches only carry a MAC in their match context
+    # (see iocs.py:_scan_report) — resolve those back to the owning
+    # asset's IP so the drawer/lens can still highlight/link to a node,
+    # same as the IP-typed matches already can directly.
+    mac_to_ip: dict[str, str] = {}
+    for node in report.get("nodes") or []:
+        mac = str(node.get("mac") or "").strip().lower()
+        ip = node.get("ip")
+        if mac and ip:
+            mac_to_ip[mac] = ip
+
+    out: list[dict] = []
+    for hit in scan_single_report(report, entries):
+        ioc = hit["ioc"]
+        for m in hit["matches"]:
+            location = m["location"]
+            context = m["context"]
+            matched_asset = mac_to_ip.get(str(context).strip().lower()) if "mac" in location else context
+            out.append({
+                "indicator": ioc.get("label") or ioc.get("value"),
+                "value": ioc.get("value"),
+                "type": ioc.get("ioc_type"),
+                "severity": ioc.get("severity"),
+                "location": location,
+                "matched_asset": matched_asset,
+            })
+    return out
+
+
+def _dns_observations_for_report(report: dict) -> list[dict]:
+    """DNS query observations for the viewer's drawer DNS tab.
+
+    VIEWER_CONTEXT.dns_observations was referenced but never produced —
+    the tab always showed "No DNS observations in this report" regardless
+    of whether the capture had real DNS traffic. Derived from
+    Conversation.dns_queries/dns_query_types (parallel lists — see
+    engine.py's Conversation dataclass), which is where this data
+    actually lives; there's no captured DNS-answer/rdata field anywhere
+    in the schema, so that column is left for the UI's own "—" fallback.
+    """
+    out: list[dict] = []
+    for conv in report.get("conversations") or []:
+        queries = conv.get("dns_queries") or []
+        qtypes = conv.get("dns_query_types") or []
+        asset_ip = conv.get("src_ip")
+        server_ip = conv.get("dst_ip")
+        for i, q in enumerate(queries):
+            if isinstance(q, dict):
+                query = q.get("query") or q.get("name")
+                record_type = q.get("type") or (qtypes[i] if i < len(qtypes) else None)
+            else:
+                query = q
+                record_type = qtypes[i] if i < len(qtypes) else None
+            if not query:
+                continue
+            out.append({
+                "query": query,
+                "record_type": record_type,
+                "asset_ip": asset_ip,
+                "server_ip": server_ip,
+            })
+    return out
+
+
 def _build_viewer_context(report: dict, project_id: int = None, report_filename: str = None) -> dict:
     """Prepare server-rendered triage context for the viewer."""
     nodes = list(report.get("nodes") or [])
@@ -2479,6 +2570,8 @@ def _build_viewer_context(report: dict, project_id: int = None, report_filename:
         "project_id": project_id,
         "asset_tags_by_key": _ctx_asset_tags_by_key,
         "finding_notes_by_sig": _ctx_notes_by_sig,
+        "ioc_matches": _ioc_matches_for_report(report, project_id),
+        "dns_observations": _dns_observations_for_report(report),
     }
 
 
@@ -3109,7 +3202,10 @@ def create_app():
         user = User.query.filter_by(username=username).first()
         # Always return the same response shape regardless of whether the user
         # exists (no enumeration). Generate the token only when the user does
-        # exist; deliver it via the configured side channel.
+        # exist; deliver it via the configured side channel. The nonexistent-
+        # user branch still does equivalent DB/IO work (dummy_reset_request_work)
+        # so response *timing* can't be used as the same enumeration oracle
+        # either — a real, measurable gap this endpoint had until now.
         if user:
             token = create_reset_token(user, ip_address=request.remote_addr)
             try:
@@ -3120,6 +3216,9 @@ def create_app():
                 # Still return the same generic message — don't leak
                 # delivery-channel state to the caller either.
             audit("auth.reset_requested", target_type="user", target_id=username)
+        else:
+            from marlinspike.auth import dummy_reset_request_work
+            dummy_reset_request_work(delivery)
         return jsonify({
             "ok": True,
             "message": "If the account exists, a reset token has been delivered "
@@ -3140,6 +3239,11 @@ def create_app():
         if not token:
             return jsonify({"ok": False, "error": "Invalid or expired token"}), 400
         user = use_reset_token(token, new_password)
+        if user is None:
+            # Redeemed by a concurrent request in the window since the
+            # validate_reset_token check above — see use_reset_token's
+            # docstring.
+            return jsonify({"ok": False, "error": "Invalid or expired token"}), 400
         return jsonify({"ok": True, "message": f"Password reset for {user.username}"})
 
     # ── Root redirects ────────────────────────────────────────
@@ -4071,6 +4175,14 @@ def create_app():
             }), 413
 
         safe_name = os.path.basename(f.filename)
+        # os.path.basename does NOT strip "." or ".." when there's no "/"
+        # in the string — a crafted filename="..") would make final_path
+        # resolve to dest_dir's own parent, an existing directory, so the
+        # later os.rename() raises "Is a directory" as an unhandled 500
+        # (outside the try/except around the streaming-write loop below)
+        # and leaks the mkstemp() temp file on every attempt.
+        if not safe_name or safe_name in (".", ".."):
+            return jsonify({"ok": False, "error": "Invalid filename"}), 400
 
         # Resolve project. Honour the shared-member role model (editors/owners
         # may upload; viewers may not) — was owner-only, which rejected a shared
@@ -5003,10 +5115,13 @@ def create_app():
                 mimetype="application/x-ndjson",
             )
         # Fallback: generate the application-layer slice from the report.
+        # Same reason as /navigator and /stix's fallbacks: mitre_classifications
+        # is derived from the sidecar-merged extensions, never present on
+        # the raw on-disk report, and emit/ocsf.py reads it as a plain
+        # top-level field for Detection Finding records.
         try:
             from marlinspike.emit import ocsf as _ocsf_emit
-            with open(json_path) as f:
-                report = json.load(f)
+            report = _report_with_mitre_fields(_load_report_with_extensions(json_path, ensure_mitre=True))
             ndjson = _ocsf_emit.render_ndjson(report)
         except Exception as exc:
             log.warning("OCSF on-demand render failed for %s: %s", safe_name, exc)
@@ -5042,17 +5157,28 @@ def create_app():
                 download_name=safe_name.replace(".json", f".navigator.{short}.json"),
                 mimetype="application/json",
             )
-        # Fallback: generate from report.
+        # Fallback: generate from report. Must go through
+        # _load_report_with_extensions(ensure_mitre=True) + the mitre-field
+        # derivation, not a plain json.load — mitre_classifications is
+        # never present on the raw on-disk report; it's derived from the
+        # sidecar-merged extensions. A plain load meant this route could
+        # never show ATT&CK data regardless of whether the mitre plugin
+        # produced any for this report at all.
         try:
             from marlinspike.emit import navigator as _nav_emit
-            with open(json_path) as f:
-                report = json.load(f)
+            report = _report_with_mitre_fields(_load_report_with_extensions(json_path, ensure_mitre=True))
             layer = _nav_emit.render_layer_for_domain(report, domain)
         except Exception as exc:
             log.warning("Navigator on-demand render failed for %s: %s", safe_name, exc)
             return jsonify({"error": "Navigator emit failed"}), 500
         if layer is None:
-            return jsonify({"error": f"No {domain} techniques in report"}), 404
+            # A report can legitimately have no MITRE classifications for
+            # this domain (plugin didn't run, or found nothing ICS/
+            # Enterprise-specific) — that's a successful export of a layer
+            # with zero techniques, not a failure. Matches /stix, which
+            # never 404s for the same empty-result case.
+            capture_id = (report.get("capture_info") or {}).get("capture_source")
+            layer = _nav_emit.render_empty_layer(domain, capture_id)
         from flask import Response
         return Response(
             json.dumps(layer, indent=2),
@@ -5082,8 +5208,11 @@ def create_app():
             )
         try:
             from marlinspike.emit import stix as _stix_emit
-            with open(json_path) as f:
-                report = json.load(f)
+            # Same reason as /navigator's fallback: mitre_classifications
+            # is derived from the sidecar-merged extensions, never present
+            # on the raw on-disk report, and emit/stix.py reads it as a
+            # plain top-level field for attack-pattern/sighting objects.
+            report = _report_with_mitre_fields(_load_report_with_extensions(json_path, ensure_mitre=True))
             bundle_json = _stix_emit.render_json(report)
         except Exception as exc:
             log.warning("STIX on-demand render failed for %s: %s", safe_name, exc)
@@ -5123,8 +5252,17 @@ def create_app():
         except Exception as exc:
             log.warning("Sigma on-demand render failed for %s: %s", safe_name, exc)
             return jsonify({"error": "Sigma emit failed"}), 500
+        # A report can legitimately have nothing that maps to a Sigma rule
+        # (no CROSS_PURDUE/ICS_EXTERNAL_COMMS/CLEARTEXT_*/MODBUS_WRITE_ANON
+        # finding, no C2/malware indicators) — that's a successful export
+        # of zero rules, not a failure. /stix never 404s for the same
+        # empty-result case (it always returns a valid, if minimal,
+        # bundle); this now matches that instead of erroring on a report
+        # whose sub-export links a user would otherwise expect to just work.
         if not yaml_text:
-            return jsonify({"error": "No Sigma-emittable findings in report"}), 404
+            yaml_text = ("# No Sigma-emittable findings in this report "
+                         "(no CROSS_PURDUE/ICS_EXTERNAL_COMMS/CLEARTEXT_*/"
+                         "MODBUS_WRITE_ANON findings, no C2/malware indicators).")
         from flask import Response
         return Response(
             yaml_text + "\n",
@@ -5404,15 +5542,25 @@ def create_app():
         path = os.path.join(user_reports_dir(project_id), safe_name)
         if os.path.isfile(path):
             os.unlink(path)
-        mitre_path = _mitre_sidecar_path(path)
-        if os.path.isfile(mitre_path):
-            os.unlink(mitre_path)
-        arp_path = _arp_sidecar_path(path)
-        if os.path.isfile(arp_path):
-            os.unlink(arp_path)
-        apt_path = _apt_sidecar_path(path)
-        if os.path.isfile(apt_path):
-            os.unlink(apt_path)
+        # Every sibling type a report can have — enrichment sidecars
+        # (mitre/arp/apt/cisa) and the emit-format siblings (ocsf/
+        # navigator/stix/sigma, written by engine.py's chain when their
+        # respective MARLINSPIKE_EMIT_* flag is on). cisa was missing
+        # entirely and the four emit siblings weren't handled at all,
+        # leaving them permanently orphaned on every single-report delete
+        # (project deletion's own shutil.rmtree of the whole directory
+        # was never affected by this — only this per-file path).
+        for sidecar_path in (
+            _mitre_sidecar_path(path), _arp_sidecar_path(path),
+            _apt_sidecar_path(path), _cisa_sidecar_path(path),
+            path.replace(".json", ".ocsf.ndjson"),
+            path.replace(".json", ".navigator.ics.json"),
+            path.replace(".json", ".navigator.enterprise.json"),
+            path.replace(".json", ".stix.json"),
+            path.replace(".json", ".sigma.yml"),
+        ):
+            if os.path.isfile(sidecar_path):
+                os.unlink(sidecar_path)
         return jsonify({"ok": True})
 
     # ── PCAP file browser ─────────────────────────────────────

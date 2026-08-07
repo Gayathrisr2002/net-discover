@@ -127,6 +127,15 @@ def _iter_strings(obj: Any):
             yield from _iter_strings(v)
 
 
+def scan_single_report(report: dict, entries: list[dict]) -> list[dict]:
+    """Public wrapper around _scan_report for a caller that already has a
+    report dict in memory (e.g. the viewer's already-loaded/enriched/
+    localized report) and doesn't want to round-trip through
+    scan_ioc_list_against_reports' path+loader interface just to scan the
+    one report it's already holding."""
+    return _scan_report(report, entries)
+
+
 def _scan_report(report: dict, entries: list[dict]) -> list[dict]:
     """Scan *report* for each IOC entry.
 
