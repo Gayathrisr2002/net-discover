@@ -230,14 +230,31 @@ def _client_for(agent: Agent | None):
     )
 
 
-def _require_project(project_id) -> Project | None:
+def _require_project(project_id, min_role: str = "owner") -> Project | None:
+    """Return the project if it exists and the caller has at least
+    min_role on it — owner, or a ProjectMember row ranked >= min_role.
+    Same ACL shape as _require_agent. Defaults to "owner" (the original,
+    strict-ownership-only behavior every pre-existing call site expects)
+    — pass a lower min_role explicitly for a call site that should honor
+    shared (non-owner) project access instead.
+    """
     if project_id is None:
         return None
     try:
         pid = int(project_id)
     except (ValueError, TypeError):
         return None
-    return Project.query.filter_by(id=pid, user_id=session["user_id"]).first()
+    project = Project.query.get(pid)
+    if project is None:
+        return None
+    if project.user_id == session["user_id"]:
+        return project
+    if min_role == "owner":
+        return None
+    member = ProjectMember.query.filter_by(project_id=pid, user_id=session["user_id"]).first()
+    if member and _MEMBER_ROLE_RANK.get(member.role, 0) >= _MEMBER_ROLE_RANK.get(min_role, 1):
+        return project
+    return None
 
 
 def _require_project_admin_or_owner(pid: int) -> Project | None:
@@ -355,6 +372,15 @@ def list_interfaces():
         if project is not None:
             policy = _parse_policy(project.capture_policy)
             effective_allowlist = _resolve_interface_allowlist(policy)
+        elif config.MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST:
+            # project_id was given but didn't resolve (nonexistent, or not
+            # owned by the caller) — fall back to the system-wide
+            # allowlist rather than silently applying NO restriction at
+            # all. Without this, any authenticated user could see every
+            # interface (names/MACs/IPs/MTU/speed) the system allowlist
+            # exists specifically to hide, just by passing a project_id
+            # they don't own.
+            effective_allowlist = list(config.MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST)
     elif config.MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST:
         effective_allowlist = list(config.MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST)
 
@@ -630,7 +656,14 @@ def start_session():
         max_duration_s = int(body.get("max_duration_s") or 0)
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "ring_filesize_kb, ring_files, and max_duration_s must be integers"}), 400
-    project = _require_project(body.get("project_id"))
+    # editor+, not the default owner-only — starting a capture is mutating
+    # but is documented (see _require_agent's docstring) as something an
+    # editor-role project member should be able to do, same as the agent
+    # check just below already enforces. Was previously owner-only here
+    # regardless, silently rejecting any non-owner editor with "valid
+    # project_id required" even though the agent-side check would have
+    # allowed them.
+    project = _require_project(body.get("project_id"), min_role="editor")
 
     # Optional: run this capture on a remote fleet agent instead of the
     # local capd (Phase 3). agent_id is None is the untouched default path.

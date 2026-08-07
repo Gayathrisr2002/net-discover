@@ -164,7 +164,7 @@ class CapdServer:
             return await self._stop_session(str(params.get("session_id", "")))
 
         if method == "session_status":
-            return self._session_status(str(params.get("session_id", "")))
+            return await self._session_status(str(params.get("session_id", "")))
 
         if method == "stats":
             await self._stream_stats(client_sock, str(params.get("session_id", "")),
@@ -307,14 +307,22 @@ class CapdServer:
         if not stats.running:
             self._sessions.pop(session_id, None)
 
-    def _session_status(self, session_id: str) -> dict:
+    async def _session_status(self, session_id: str) -> dict:
         """One-shot, non-streaming snapshot — for a caller that just wants
         a periodic poll (e.g. a fleet agent relaying summarized progress to
         the central gateway) without holding open a `stats` stream."""
         sup = self._sessions.get(session_id)
         if sup is None:
             return {"ok": False, "error": f"unknown session: {session_id}"}
-        stats = sup.poll()
+        # Offloaded to the executor, same as _stop_session below — poll()
+        # can now block for up to 1s (joining the stderr-reader thread to
+        # capture dumpcap's exit summary on self-expiration) on the tick a
+        # session finishes. This process handles every connected client on
+        # one asyncio event loop; calling that inline here would stall
+        # every other session's stats stream and every other RPC on the
+        # daemon for that second, once per self-expiring session.
+        loop = asyncio.get_running_loop()
+        stats = await loop.run_in_executor(None, sup.poll)
         self._reap_if_finished(session_id, stats)
         return {
             "ok": True,
@@ -339,8 +347,12 @@ class CapdServer:
             return
 
         interval_s = max(0.25, min(10.0, interval_s))
+        loop = asyncio.get_running_loop()
         while True:
-            stats = sup.poll()
+            # Offloaded — see _session_status's comment on why poll() can
+            # no longer be called inline on this single-threaded daemon's
+            # event loop (up to a 1s block on the tick a session finishes).
+            stats = await loop.run_in_executor(None, sup.poll)
             frame = {
                 "type": "stats",
                 "session_id": session_id,

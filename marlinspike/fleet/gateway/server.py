@@ -237,6 +237,11 @@ class _AgentConnection:
         # write (Phase 6.4) — see _MIN_HEARTBEAT_DB_WRITE_INTERVAL_S. None
         # until the first heartbeat.
         self.last_heartbeat_write: float | None = None
+        # Last time the revocation check below actually ran (throttled
+        # separately from the heartbeat DB write above — this now runs
+        # for every frame type, not just heartbeat requests, so it needs
+        # its own timer rather than reusing last_heartbeat_write).
+        self.last_revocation_check: float | None = None
 
     def next_id(self) -> int:
         self._next_id += 1
@@ -373,7 +378,26 @@ class GatewayServer:
 
             conn = _AgentConnection(writer)
             async with self._connections_lock:
+                old_conn = self._connections.get(agent_uuid)
                 self._connections[agent_uuid] = conn
+            if old_conn is not None:
+                # A second live connection authenticating for an agent_uuid
+                # that already has one — e.g. a reconnect racing a not-yet-
+                # detected-dead old socket. Without forcibly closing the old
+                # one here, both connections' _handle_event tasks run
+                # concurrently, each with its own pcap_create_lock/
+                # pcap_transfers (per-_AgentConnection, not shared), so both
+                # could independently begin+finish the same pcap upload and
+                # both call scan.launch_scan for the same rotation — a
+                # double scan run, not just a double-processed event. This
+                # closes the old socket right away instead of waiting for
+                # its own heartbeat-timeout read to notice the agent moved
+                # on; the old connection's own `finally` block sees it's no
+                # longer the current entry (is_current check) and skips the
+                # DB/registry cleanup that belongs to the new one.
+                log.warning("agent %s opened a new connection while an older one was "
+                            "still live — closing the older one", agent_uuid)
+                old_conn.writer.close()
             if self.admin_host and self.admin_port:
                 # Only publish into the shared registry if this instance is
                 # actually cross-host reachable (Phase 6.5) — a single-
@@ -498,6 +522,30 @@ class GatewayServer:
 
             msg_type = msg.get("type")
 
+            # Revocation check (throttled), applied to *every* frame type —
+            # not just heartbeat requests. Previously this only ran inside
+            # the heartbeat branch below, so an agent that only ever sends
+            # 'event' frames (session_stats/pcap_chunk/pcap_complete) and
+            # never its own heartbeat request evaded even this backup check
+            # entirely, relying solely on best-effort _force_disconnect
+            # (Phase 6.2) — which can silently fail to reach the agent — to
+            # actually cut it off. A revoked agent could otherwise keep
+            # uploading pcaps and triggering scans indefinitely after being
+            # revoked from the operator's perspective. Same cost rationale
+            # as before: a legitimate agent's frame cadence never engages
+            # this throttle in normal operation.
+            now = time.monotonic()
+            if conn.last_revocation_check is None or now - conn.last_revocation_check >= _MIN_HEARTBEAT_DB_WRITE_INTERVAL_S:
+                conn.last_revocation_check = now
+                revoked = await loop.run_in_executor(None, functools.partial(
+                    db.is_agent_revoked, agent_uuid=agent_uuid
+                ))
+                if revoked:
+                    log.warning("agent %s is revoked — dropping connection", agent_uuid)
+                    if msg_type == "req":
+                        await _send_frame(conn.writer, _res(msg.get("id"), ok=False, error="revoked"))
+                    return
+
             if msg_type == "res":
                 fut = conn.pending.get(msg.get("id"))
                 if fut is not None and not fut.done():
@@ -516,26 +564,13 @@ class GatewayServer:
 
             if method == "heartbeat":
                 params = msg.get("params") or {}
-                # Throttle the DB round-trips (revocation check + write),
-                # not the reply: a legitimate agent heartbeats every
-                # DEFAULT_HEARTBEAT_INTERVAL_S (30s) so this never engages
-                # in normal operation, but nothing on the wire stops a
-                # modified/compromised agent from heartbeating far faster
-                # — see _MIN_HEARTBEAT_DB_WRITE_INTERVAL_S. Revocation is
-                # still enforced promptly via _force_disconnect (Phase
-                # 6.2); this periodic check is only the backup path for
-                # when that push didn't reach this agent (e.g. gateway was
-                # down at revoke time), so skipping it for a few seconds
-                # under flood conditions costs nothing real.
-                now = time.monotonic()
+                # Throttle the DB write specifically (revocation is already
+                # checked, above, for every frame) — a legitimate agent
+                # heartbeats every DEFAULT_HEARTBEAT_INTERVAL_S (30s) so this
+                # never engages in normal operation, but nothing on the wire
+                # stops a modified agent from heartbeating far faster.
                 if conn.last_heartbeat_write is None or now - conn.last_heartbeat_write >= _MIN_HEARTBEAT_DB_WRITE_INTERVAL_S:
                     conn.last_heartbeat_write = now
-                    revoked = await loop.run_in_executor(None, functools.partial(
-                        db.is_agent_revoked, agent_uuid=agent_uuid
-                    ))
-                    if revoked:
-                        await _send_frame(conn.writer, _res(req_id, ok=False, error="revoked"))
-                        return
                     await loop.run_in_executor(None, functools.partial(
                         db.record_heartbeat, agent_uuid=agent_uuid,
                         cpu_percent=params.get("cpu_percent"),

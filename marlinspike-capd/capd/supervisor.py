@@ -217,7 +217,13 @@ class CaptureSupervisor:
         call again on an already-finalized session (re-parses the same
         buffer, same result).
         """
-        joined = "\n".join(self._stderr_buf)
+        # _consume_stderr appends to (and, past 500 entries, truncates)
+        # this same list under self._lock — reading it here without the
+        # lock would race a concurrent truncation mid-join on a pathological
+        # dumpcap that logs enough to hit that truncation, matching the
+        # locking discipline start()'s own failure-path read already uses.
+        with self._lock:
+            joined = "\n".join(self._stderr_buf)
         m = _PKTS_RE.search(joined)
         if m:
             self.final_packets = int(m.group(1))
