@@ -164,6 +164,30 @@ def validate_config(body: dict) -> str | None:
     return None
 
 
+def validate_effective_config(cfg: dict) -> str | None:
+    """Validate the merged, saved config for completeness.
+
+    validate_config only sees one PUT's fields, which may be a partial
+    update — this checks the config as it will actually be *used*, so an
+    enabled Zammad delivery that's missing a required field (most
+    concretely: zammad_customer, which Zammad's own ticket API rejects
+    with "Missing required value for field 'customer_id'") is caught here
+    at save time instead of via a Zammad error page days later.
+    """
+    if not cfg.get("enabled"):
+        return None
+    if (cfg.get("platform") or "generic") == "zammad":
+        required = {"url": "Zammad base URL", "secret": "Zammad API token",
+                    "zammad_group": "Zammad group", "zammad_customer": "Zammad customer email"}
+        missing = [label for key, label in required.items() if not cfg.get(key)]
+        if missing:
+            return f"zammad delivery is enabled but missing: {', '.join(missing)}"
+    else:
+        if not cfg.get("url"):
+            return "webhook is enabled but no URL is configured"
+    return None
+
+
 def finding_dedup_key(project_id: int, finding: dict) -> str:
     basis = json.dumps(
         {
@@ -355,9 +379,11 @@ def _record_ticket(project_id: int, dedup_key: str, platform: str, external_id: 
 def deliver_to_zammad(project: Project, cfg: dict, findings: list[dict]) -> dict:
     """Create one Zammad ticket per finding not already ticketed. Returns a summary dict."""
     base_url, token, group = cfg.get("url"), cfg.get("secret"), cfg.get("zammad_group")
-    if not base_url or not token or not group:
+    customer = cfg.get("zammad_customer")
+    if not base_url or not token or not group or not customer:
         log.warning(
-            "zammad delivery skipped project_id=%s: missing url/secret/zammad_group", project.id
+            "zammad delivery skipped project_id=%s: missing url/secret/zammad_group/zammad_customer",
+            project.id,
         )
         return {"created": 0, "skipped": 0, "failed": 0}
 
@@ -461,9 +487,10 @@ def send_test(project: Project) -> dict:
     }
 
     if (cfg.get("platform") or "generic") == "zammad":
-        token, group = cfg.get("secret"), cfg.get("zammad_group")
-        if not token or not group:
-            return {"ok": False, "status_code": None, "error": "zammad_group and an API token (secret) are required"}
+        token, group, customer = cfg.get("secret"), cfg.get("zammad_group"), cfg.get("zammad_customer")
+        if not token or not group or not customer:
+            missing = [n for n, v in (("API token", token), ("zammad_group", group), ("zammad_customer", customer)) if not v]
+            return {"ok": False, "status_code": None, "error": f"missing required field(s): {', '.join(missing)}"}
         priority_map = _zammad_priority_map(url, token)
         payload = {**test_finding, "_project_name": project.name}
         result = _zammad_create_ticket(

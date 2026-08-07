@@ -3949,6 +3949,11 @@ def create_app():
         # the owner actually typed a new one); pass "secret": null to clear it.
         existing = _webhook.parse_config(proj.webhook_config)
         merged = {**existing, **body}
+
+        err = _webhook.validate_effective_config(merged)
+        if err:
+            return jsonify({"ok": False, "error": err}), 400
+
         proj.webhook_config = json.dumps(merged) if merged else None
         db.session.commit()
 
