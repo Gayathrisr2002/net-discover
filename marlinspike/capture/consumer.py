@@ -37,13 +37,18 @@ def _safe_stem(path: str) -> str:
 
 
 def enqueue_scan(*, pcap_path: str, user_id: int, project_id: int | None,
-                 session_uuid: str, scan_profile: str = "fast") -> threading.Thread:
+                 session_uuid: str, scan_profile: str = "fast", app=None) -> threading.Thread:
     """Spawn an engine subprocess for one closed PCAP.
 
     Returns the worker thread (already started). The thread waits for
     the engine to exit and logs status. Errors are recorded in the
     log only — we don't surface them through the SSE stream because
     capd's stats stream is the wrong channel for engine outcomes.
+
+    ``app`` (a captured ``current_app._get_current_object()``, since this
+    runs outside any request context) is optional — when given, a
+    successful scan fires the project's configured webhook. Without it
+    (e.g. a caller with no Flask app handy) webhook delivery is skipped.
     """
     out_dir = _project_reports_dir(user_id, project_id)
     os.makedirs(out_dir, exist_ok=True)
@@ -94,6 +99,13 @@ def enqueue_scan(*, pcap_path: str, user_id: int, project_id: int | None,
         rc = proc.wait()
         if rc == 0:
             log.info("session=%s scan complete: %s", session_uuid, report_path)
+            if app is not None:
+                try:
+                    with app.app_context():
+                        from marlinspike import webhook
+                        webhook.deliver_for_scan(project_id, report_path, run_id)
+                except Exception:
+                    log.warning("session=%s webhook delivery failed", session_uuid, exc_info=True)
         else:
             log.warning("session=%s scan failed rc=%d for %s; tail=%s",
                         session_uuid, rc, pcap_path, " | ".join(tail[-5:]))
@@ -104,7 +116,7 @@ def enqueue_scan(*, pcap_path: str, user_id: int, project_id: int | None,
 
 
 def make_listener(user_id: int, project_id: int | None, session_uuid: str,
-                  scan_profile: str = "fast"):
+                  scan_profile: str = "fast", app=None):
     """Build a closure suitable for `StatsHub.add_file_listener`."""
     def _on_file_closed(pcap_path: str) -> None:
         if not pcap_path or not Path(pcap_path).exists():
@@ -113,6 +125,6 @@ def make_listener(user_id: int, project_id: int | None, session_uuid: str,
             return
         enqueue_scan(
             pcap_path=pcap_path, user_id=user_id, project_id=project_id,
-            session_uuid=session_uuid, scan_profile=scan_profile,
+            session_uuid=session_uuid, scan_profile=scan_profile, app=app,
         )
     return _on_file_closed

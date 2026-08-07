@@ -597,11 +597,16 @@ def _start_capture_session(*, user_id, project, agent, interface, bpf_filter,
 
     if agent is None:
         # Wire up the StatsHub: it streams capd → SSE subscribers AND
-        # triggers the rotation consumer for each closed pcap.
+        # triggers the rotation consumer for each closed pcap. current_app
+        # must be captured now — both callbacks below run from the hub's
+        # background thread, outside any request context.
+        from flask import current_app
+        app_obj = current_app._get_current_object()
         hub = StatsHub(session_uuid=session_uuid, client=client)
         hub.add_file_listener(consumer.make_listener(
             user_id=cs.user_id, project_id=cs.project_id,
             session_uuid=session_uuid, scan_profile="fast",
+            app=app_obj,
         ))
         # Finalizes the DB row (and releases the interface lock/hub) when
         # this session ends on its own — e.g. max_duration_s elapses, or
@@ -611,11 +616,9 @@ def _start_capture_session(*, user_id, project, agent, interface, bpf_filter,
         # forever, even though capd had already stopped it (a real,
         # confirmed bug: found by starting a bounded live capture and
         # watching its DB status never leave "running" after it visibly
-        # finished). current_app must be captured now — the callback runs
-        # from the hub's background thread, outside any request context.
-        from flask import current_app
+        # finished).
         hub.add_finished_listener(_make_session_finalizer(
-            current_app._get_current_object(), cs.id, cs.interface, session_uuid,
+            app_obj, cs.id, cs.interface, session_uuid,
         ))
         manager.register_hub(hub)
         hub.start()

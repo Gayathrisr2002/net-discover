@@ -234,6 +234,17 @@
 }
 .proj-tab-panel { display: none; padding: 16px 0; }
 .proj-tab-panel.active { display: block; }
+.proj-settings-row { margin-bottom: 14px; }
+.proj-settings-row label { display: block; margin-bottom: 4px; font-size: 0.85em; color: var(--text-dim); }
+.proj-settings-row input[type="text"], .proj-settings-row select {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-surface); color: var(--text); font-size: 0.85em;
+}
+#tab-settings .ms-hint { color: var(--text-dim); font-size: 0.82em; margin: 4px 0 0; }
+#tab-settings pre.fleet-cmd {
+  background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px;
+  padding: 10px 12px; font-size: 0.8em; overflow-x: auto; white-space: pre-wrap;
+}
 
 /* Upload area */
 .proj-upload-zone {
@@ -728,6 +739,7 @@
             <div class="proj-tab" data-tab="pcaps" onclick="PROJ.setTab('pcaps')">{{ t('projects.tab_pcaps') }}</div>
             <div class="proj-tab" data-tab="reports" onclick="PROJ.setTab('reports')">{{ t('projects.tab_reports') }}</div>
             <div class="proj-tab" data-tab="history" onclick="PROJ.setTab('history')">{{ t('projects.tab_history') }}</div>
+            <div class="proj-tab" data-tab="settings" id="proj-tab-settings-btn" style="display:none;" onclick="PROJ.setTab('settings')">{{ t('projects.tab_settings') }}</div>
           </div>
 
           <!-- Overview tab -->
@@ -954,6 +966,47 @@
             </table>
           </div>
 
+          <div class="proj-tab-panel" id="tab-settings">
+            <h3 style="margin-top:0;">{{ t('projects.webhook_title') }}</h3>
+            <p class="ms-hint">{{ t('projects.webhook_hint') }}</p>
+
+            <div class="proj-settings-row">
+              <label><input type="checkbox" id="webhook-enabled"> {{ t('projects.webhook_enabled') }}</label>
+            </div>
+            <div class="proj-settings-row">
+              <label for="webhook-url">{{ t('projects.webhook_url') }}</label>
+              <input type="text" id="webhook-url" placeholder="https://example.com/hooks/marlinspike" style="width:100%;max-width:480px;">
+            </div>
+            <div class="proj-settings-row">
+              <label for="webhook-secret">{{ t('projects.webhook_secret') }}</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="text" id="webhook-secret" placeholder="{{ t('projects.webhook_secret_placeholder') }}" style="width:100%;max-width:320px;">
+                <button class="btn btn-sm" type="button" onclick="PROJ.generateWebhookSecret()">{{ t('projects.webhook_generate') }}</button>
+              </div>
+              <div class="ms-hint">{{ t('projects.webhook_secret_hint') }}</div>
+            </div>
+            <div class="proj-settings-row">
+              <label for="webhook-min-severity">{{ t('projects.webhook_min_severity') }}</label>
+              <select id="webhook-min-severity">
+                <option value="">{{ t('projects.webhook_severity_all') }}</option>
+                <option value="LOW">LOW+</option>
+                <option value="MEDIUM">MEDIUM+</option>
+                <option value="HIGH">HIGH+</option>
+                <option value="CRITICAL">CRITICAL</option>
+              </select>
+            </div>
+            <div class="proj-settings-row" style="display:flex;gap:8px;">
+              <button class="btn btn-primary" type="button" onclick="PROJ.saveWebhookConfig()">{{ t('common.save') }}</button>
+              <button class="btn" type="button" onclick="PROJ.testWebhook()">{{ t('projects.webhook_send_test') }}</button>
+            </div>
+            <div id="webhook-status" style="margin-top:10px;font-size:0.9em;"></div>
+
+            <h3 style="margin-top:28px;">{{ t('projects.findings_api_title') }}</h3>
+            <p class="ms-hint">{{ t('projects.findings_api_hint') }}</p>
+            <pre class="fleet-cmd">GET /api/projects/{{ '{project_id}' }}/findings?severity=HIGH,CRITICAL&amp;since=2026-01-01T00:00:00Z</pre>
+            <p class="ms-hint">{{ t('projects.webhook_signature_hint') }}</p>
+          </div>
+
           <!-- No project selected state -->
           <div id="proj-no-selection" style="padding:40px 20px;">
             <div class="ms-empty">
@@ -1099,6 +1152,12 @@ var PROJ = (function() {
     document.getElementById('proj-upload-zone').style.display = canEditProject() ? '' : 'none';
     if (!canEditProject()) document.getElementById('proj-scan-row').style.display = 'none';
 
+    // Webhook config is a project-security-sensitive setting (external URL +
+    // shared secret) — owner-only, same gate as rename/delete (backend:
+    // GET/PUT /api/projects/<pid>/webhook both call _get_project_for_user(pid, "owner")).
+    document.getElementById('proj-tab-settings-btn').style.display = isOwnerProject() ? '' : 'none';
+    if (!isOwnerProject() && currentTab === 'settings') setTab('overview');
+
     // Hydrate workspace summary and all tab data so project KPIs stay accurate
     loadFiles();
     loadReports();
@@ -1132,6 +1191,68 @@ var PROJ = (function() {
         msToast(d.error || msT('projects.create_failed', 'Failed to create project'), true);
       }
     }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
+  }
+
+  function loadWebhookConfig() {
+    if (!currentProject || !isOwnerProject()) return;
+    fetch('/api/projects/' + currentProject.id + '/webhook').then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.ok) { msToast(d.error || msT('common.error', 'Error'), true); return; }
+      var cfg = d.config || {};
+      document.getElementById('webhook-enabled').checked = !!cfg.enabled;
+      document.getElementById('webhook-url').value = cfg.url || '';
+      document.getElementById('webhook-secret').value = '';
+      document.getElementById('webhook-secret').placeholder = cfg.secret
+        ? msT('projects.webhook_secret_configured', 'Configured (ends in {last4}) — leave blank to keep').replace('{last4}', cfg.secret.slice(-4))
+        : msT('projects.webhook_secret_placeholder', 'Leave blank for an unsigned webhook');
+      document.getElementById('webhook-min-severity').value = cfg.min_severity || '';
+      document.getElementById('webhook-status').textContent = '';
+    }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
+  }
+
+  function saveWebhookConfig() {
+    if (!currentProject) return;
+    var body = {
+      enabled: document.getElementById('webhook-enabled').checked,
+      url: document.getElementById('webhook-url').value.trim(),
+      min_severity: document.getElementById('webhook-min-severity').value || null,
+    };
+    var secret = document.getElementById('webhook-secret').value;
+    if (secret) body.secret = secret;
+    fetch('/api/projects/' + currentProject.id + '/webhook', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.ok) {
+        msToast(msT('projects.webhook_saved', 'Webhook settings saved'), 'success');
+        loadWebhookConfig();
+      } else {
+        msToast(d.error || msT('projects.webhook_save_failed', 'Failed to save webhook settings'), true);
+      }
+    }).catch(function(e) { msToast(msT('common.error', 'Error') + ': ' + e.message, true); });
+  }
+
+  function testWebhook() {
+    if (!currentProject) return;
+    var status = document.getElementById('webhook-status');
+    status.textContent = msT('projects.webhook_testing', 'Sending test delivery…');
+    fetch('/api/projects/' + currentProject.id + '/webhook/test', { method: 'POST' })
+      .then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok) {
+          status.style.color = 'var(--color-success)';
+          status.textContent = msT('projects.webhook_test_ok', 'Delivered — receiver responded {status}').replace('{status}', d.status_code);
+        } else {
+          status.style.color = 'var(--sev-critical)';
+          status.textContent = msT('projects.webhook_test_failed', 'Delivery failed: {error}').replace('{error}', d.error || ('HTTP ' + d.status_code));
+        }
+      }).catch(function(e) { status.style.color = 'var(--sev-critical)'; status.textContent = e.message; });
+  }
+
+  function generateWebhookSecret() {
+    var bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    var hex = Array.prototype.map.call(bytes, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    document.getElementById('webhook-secret').value = hex;
   }
 
   function startRename() {
@@ -1216,6 +1337,7 @@ var PROJ = (function() {
     else if (currentTab === 'pcaps') loadFiles();
     else if (currentTab === 'reports') loadReports();
     else if (currentTab === 'history') loadHistory();
+    else if (currentTab === 'settings') loadWebhookConfig();
     updateHistoryPolling();
   }
 
@@ -1946,6 +2068,9 @@ var PROJ = (function() {
     createProject: createProject,
     startRename: startRename,
     doRename: doRename,
+    saveWebhookConfig: saveWebhookConfig,
+    testWebhook: testWebhook,
+    generateWebhookSecret: generateWebhookSecret,
     cancelRename: cancelRename,
     deleteProject: deleteProject,
     setTab: setTab,

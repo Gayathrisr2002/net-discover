@@ -136,7 +136,11 @@ def record_finish(
             rec.recovery_state = recovery_state
         # Clear the live-process pointer once the run is terminal.
         rec.engine_pid = None
+        project_id, report_path = rec.project_id, rec.report_path
         db.session.commit()
+        if status == "completed":
+            from marlinspike import webhook
+            webhook.deliver_for_scan(project_id, report_path, run_id)
     except Exception:
         db.session.rollback()
         log.warning("record_finish failed for run_id=%s", run_id, exc_info=True)

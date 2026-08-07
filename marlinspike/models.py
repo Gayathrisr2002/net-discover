@@ -72,6 +72,12 @@ class Project(db.Model):
     # restart near a scheduled time (a fresh in-memory "already fired
     # today" set would not). See scheduler.py's _due_slot_today.
     capture_schedule_last_triggered_at = db.Column(db.DateTime, nullable=True)
+    # JSON-encoded outbound webhook config, delivered once per completed
+    # scan to push risk findings into an external system (e.g. a ticketing
+    # platform). Shape: {"enabled": bool, "url": str, "secret": str|null,
+    # "min_severity": "INFO"|"LOW"|"MEDIUM"|"HIGH"|"CRITICAL"|null}.
+    # NULL = no webhook configured. See marlinspike/webhook.py.
+    webhook_config = db.Column(db.Text, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "name", name="uq_project_user_name"),

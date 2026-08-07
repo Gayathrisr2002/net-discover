@@ -44,6 +44,7 @@ from limits.storage import storage_from_string
 
 from marlinspike import config
 from marlinspike import enrich as _enrich
+from marlinspike import webhook as _webhook
 from marlinspike.aggregate import aggregate_reports
 from marlinspike.baselines import compute_asset_baseline
 from marlinspike.audit import audit
@@ -1230,7 +1231,12 @@ def _finalize_scan_history(app, run_id, run_state, report_path):
                         rec.edge_count = len(topo.get("edges", []))
                     except Exception:
                         pass
+                project_id = rec.project_id
+                final_status = rec.status
                 db.session.commit()
+                if final_status == "completed":
+                    from marlinspike import webhook
+                    webhook.deliver_for_scan(project_id, report_path, run_id)
     except Exception as exc:
         log.warning("Failed to update scan_history: %s", exc)
 
@@ -3901,6 +3907,130 @@ def create_app():
             if os.path.isfile(path):
                 paths.append(path)
         return sorted(paths)
+
+    def _mask_webhook_secret(cfg: dict) -> dict:
+        masked = dict(cfg)
+        secret = masked.get("secret")
+        if secret:
+            masked["secret"] = ("*" * max(len(secret) - 4, 0)) + secret[-4:] if len(secret) > 4 else "****"
+        return masked
+
+    @app.route("/api/projects/<int:pid>/webhook", methods=["GET"])
+    @login_required
+    def get_project_webhook(pid):
+        proj = _get_project_for_user(pid, "owner")
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+        cfg = _webhook.parse_config(proj.webhook_config)
+        return jsonify({
+            "ok": True,
+            "project_id": pid,
+            "config": _mask_webhook_secret(cfg),
+            "configured": bool(cfg.get("url")),
+        })
+
+    @app.route("/api/projects/<int:pid>/webhook", methods=["PUT"])
+    @login_required
+    def set_project_webhook(pid):
+        proj = _get_project_for_user(pid, "owner")
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        body = request.get_json(silent=True)
+        if body is None or not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+
+        err = _webhook.validate_config(body)
+        if err:
+            return jsonify({"ok": False, "error": f"invalid webhook config: {err}"}), 400
+
+        # A key absent from the body keeps its existing value (e.g. the UI
+        # round-trips the masked GET response and only sends "secret" when
+        # the owner actually typed a new one); pass "secret": null to clear it.
+        existing = _webhook.parse_config(proj.webhook_config)
+        merged = {**existing, **body}
+        proj.webhook_config = json.dumps(merged) if merged else None
+        db.session.commit()
+
+        audit("project.webhook_set", target_type="project", target_id=str(pid),
+              detail=json.dumps({
+                  "project_id": pid,
+                  "enabled": merged.get("enabled", False),
+                  "url_set": bool(merged.get("url")),
+                  "min_severity": merged.get("min_severity"),
+              }))
+
+        return jsonify({
+            "ok": True,
+            "project_id": pid,
+            "config": _mask_webhook_secret(_webhook.parse_config(proj.webhook_config)),
+        })
+
+    @app.route("/api/projects/<int:pid>/webhook/test", methods=["POST"])
+    @login_required
+    @limiter.limit("10 per minute")
+    def test_project_webhook(pid):
+        proj = _get_project_for_user(pid, "owner")
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+        cfg = _webhook.parse_config(proj.webhook_config)
+        if not cfg.get("url"):
+            return jsonify({"ok": False, "error": "no webhook URL configured"}), 400
+        result = _webhook.send_test(proj)
+        return jsonify({
+            "ok": result["ok"],
+            "status_code": result.get("status_code"),
+            "error": result.get("error"),
+        })
+
+    @app.route("/api/projects/<int:pid>/findings")
+    @login_required
+    @limiter.limit("20 per minute")  # expensive: reads every report in the project (#5)
+    def api_project_findings(pid):
+        """Comprehensive, deduplicated findings feed for external integrations
+        (ticketing, SIEM) — the read counterpart to the outbound webhook.
+        Reuses the same cross-report dedup as /aggregate so a finding polled
+        here carries the identical dedup_key a webhook delivery for it would.
+        """
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        wanted_severities = {
+            s.strip().upper() for s in (request.args.get("severity") or "").split(",") if s.strip()
+        } or None
+        since = (request.args.get("since") or "").strip() or None
+
+        report_paths = _project_report_paths(pid, proj.user_id)
+        report_meta: dict[str, dict] = {}
+        for path in report_paths:
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            report_meta[path] = {
+                "filename": os.path.basename(path),
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            }
+
+        aggregate = aggregate_reports(report_paths, loader=_load_report_with_extensions, report_meta=report_meta)
+        findings = aggregate["findings"]
+        if wanted_severities:
+            findings = [f for f in findings if f["severity"] in wanted_severities]
+        if since:
+            findings = [f for f in findings if f["last_seen_modified"] >= since]
+
+        out = [
+            {**f, "dedup_key": _webhook.finding_dedup_key(pid, f), "project_id": pid}
+            for f in findings
+        ]
+        return jsonify({
+            "ok": True,
+            "project_id": pid,
+            "project_name": proj.name,
+            "count": len(out),
+            "findings": out,
+        })
 
     @app.route("/api/projects/<int:pid>/ocsf")
     @login_required

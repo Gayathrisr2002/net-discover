@@ -358,3 +358,13 @@ _raw_iface_allowlist = os.environ.get("MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST",
 MARLINSPIKE_CAPTURE_INTERFACE_ALLOWLIST: list[str] = [
     i.strip() for i in _raw_iface_allowlist.split(",") if i.strip()
 ]
+
+# Outbound scan-finding webhooks (marlinspike/webhook.py) POST to a URL an
+# owner supplies — a classic SSRF vector (the receiver could be an internal
+# admin panel or a cloud metadata endpoint) if the target is server-side
+# resolved without checks. Default posture rejects targets that resolve to
+# a private/loopback/link-local address. Self-hosted deployments whose
+# ticketing receiver genuinely lives on a private network must opt in.
+MARLINSPIKE_WEBHOOK_ALLOW_PRIVATE_TARGETS = _env_bool(
+    "MARLINSPIKE_WEBHOOK_ALLOW_PRIVATE_TARGETS", default=False
+)
