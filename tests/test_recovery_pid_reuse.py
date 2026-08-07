@@ -53,3 +53,18 @@ def test_flags_and_interpreter_alone_do_not_match():
     actual = ["python3", "-m", "somethingelse"]
     expected = [sys.executable, "-m", "marlinspike"]
     assert not _live_argv_matches(actual, expected)
+
+
+def test_unrelated_concurrent_scan_does_not_match_on_module_name_alone():
+    # Regression: the module name "marlinspike" (from `-m marlinspike`, present
+    # in every scan's argv) was the first non-flag token the old loop checked,
+    # so it matched immediately — before ever reaching the actually per-run-
+    # unique pcap/report paths. A PID reused by a completely different,
+    # concurrently-running marlinspike scan (different pcap/report) was
+    # wrongly declared "the same process we started."
+    actual = ["python3", "-m", "marlinspike", "--pcap", "/data/other-engagement.pcap", "chain"]
+    expected = [sys.executable, "-m", "marlinspike", "--pcap", "/data/original-engagement.pcap", "chain"]
+    assert not _live_argv_matches(actual, expected), (
+        "matched on the shared module name/subcommand alone, ignoring that "
+        "the pcap paths are for two different scans"
+    )

@@ -116,13 +116,20 @@ def pid_argv_matches(pid: int, expected_argv: list[str] | None) -> bool:
 def _live_argv_matches(actual: list[str], expected: list[str]) -> bool:
     """True if the live argv is plausibly the same process we started.
 
-    Looks for at least one *distinctive* token from ``expected`` (non-empty,
-    non-flag) appearing as a **whole argv element** of ``actual``. For our engine
-    that's typically ``marlinspike``, a subcommand, or a PCAP path.
+    Looks for at least one *distinctive*, path-shaped token from
+    ``expected`` (non-empty, non-flag, contains "/") appearing as a
+    **whole argv element** of ``actual`` — in practice the per-run-unique
+    pcap or report path (both embed the run's own id). Deliberately NOT
+    just any non-flag token: the module name (``marlinspike``) and every
+    subcommand/shared-flag-value are identical across every scan this
+    engine ever runs, so they can't distinguish "the process we started"
+    from "an unrelated, concurrently-running scan that happens to have
+    reused this PID" — the exact scenario this check exists to guard
+    against.
 
-    Matching whole elements (not substrings of the joined command line) is the
-    PID-reuse defense proper (Finding #23): a substring test would treat any
-    unrelated process whose path merely *contains* ``marlinspike``
+    Matching whole elements (not substrings of the joined command line) is
+    the PID-reuse defense proper (Finding #23): a substring test would treat
+    any unrelated process whose path merely *contains* ``marlinspike``
     (``/opt/marlinspike-tools/daemon``) as our engine.
 
     Why not also require interpreter basename to match? On macOS, Python
@@ -130,13 +137,25 @@ def _live_argv_matches(actual: list[str], expected: list[str]) -> bool:
     match ``sys.executable``'s basename (``python3.14``) — the cmdline ps
     reports differs from the path we'd save in argv. The distinctive-token
     check alone is sufficient: a shell that landed on the recycled PID won't
-    have ``marlinspike`` (or the PCAP path) as one of its argv elements.
+    have the pcap/report path as one of its argv elements.
     """
     if not actual or not expected:
         return False
     actual_elements = set(actual)
     for token in expected[1:]:
         if not token or token.startswith("-"):
+            continue
+        # Require a path-shaped token (contains "/"), not just any
+        # non-flag token. Without this, the literal module name
+        # "marlinspike" (from -m marlinspike, present in every single
+        # scan's argv) is the first non-flag token encountered and always
+        # matches — a completely unrelated, concurrently-running
+        # marlinspike scan that happens to reuse this PID is declared a
+        # match before the loop ever reaches the actually per-run-unique
+        # pcap/report paths, defeating this PID-reuse defense entirely.
+        # Confirmed via adversarial review, not theoretical: this was the
+        # token that always fired first.
+        if "/" not in token:
             continue
         if token in actual_elements:
             return True
