@@ -339,6 +339,7 @@ var IOC = (function() {
   'use strict';
 
   var pid = null;
+  var projectsById = {};
   var lists = [];
   var activeListId = null;
   var activeList = null;
@@ -708,11 +709,31 @@ var IOC = (function() {
     return fetchJson('/api/projects').then(function(j) {
       var sel = document.getElementById('ioc-project-filter');
       var ps = (j && j.projects) ? j.projects : [];
+      projectsById = {};
+      ps.forEach(function(p) { projectsById[p.id] = p; });
       sel.innerHTML = ps.map(function(p) {
         return '<option value="' + p.id + '">' + esc(p.name) + '</option>';
       }).join('');
       if (ps.length) { pid = ps[0].id; sel.value = pid; }
+      updateCreatePanelVisibility();
     });
+  }
+
+  // List create/delete, replace, and import all require editor+ on the
+  // project (backend: app.py's api_ioc_lists_create/api_ioc_list_delete/
+  // api_ioc_list_replace/api_ioc_list_import all check editor+ membership)
+  // — was previously shown to every project member regardless of role, so
+  // a viewer saw fully-enabled controls the backend would reject with a
+  // confusing "Project not found" rather than the control simply being
+  // absent, same bug class already fixed for projects.html this session.
+  function canEditProject() {
+    var p = pid != null ? projectsById[pid] : null;
+    return !!p && (p.member_role === 'owner' || p.member_role === 'editor');
+  }
+
+  function updateCreatePanelVisibility() {
+    var el = document.querySelector('.iocs-create');
+    if (el) el.style.display = canEditProject() ? '' : 'none';
   }
 
   function onProjectChange() {
@@ -720,6 +741,7 @@ var IOC = (function() {
     pid = parseInt(sel.value, 10) || null;
     activeListId = null; activeList = null;
     resetScanState();
+    updateCreatePanelVisibility();
     renderDetail();
     loadLists();
   }
@@ -777,12 +799,14 @@ var IOC = (function() {
       + '<div class="iocs-stat"><div class="label">' + tjs('iocs.stat_types') + '</div><div class="value">' + Object.keys(byType(entries)).length + '</div></div>'
       + '</div>';
 
-    html += '<div class="iocs-import">'
-      + '<div style="font-size:0.82em;color:var(--text-dim);margin-bottom:4px">' + tjs('iocs.bulk_import_hint') + '</div>'
-      + '<textarea id="ioc-paste" placeholder="' + esc(tjs('iocs.bulk_paste_ph')) + '"></textarea>'
-      + '<button class="btn btn-sm" onclick="IOC.bulkImport()">' + tjs('iocs.bulk_import') + '</button>'
-      + '<span id="ioc-import-status" style="margin-left:10px;font-size:0.82em"></span>'
-      + '</div>';
+    if (canEditProject()) {
+      html += '<div class="iocs-import">'
+        + '<div style="font-size:0.82em;color:var(--text-dim);margin-bottom:4px">' + tjs('iocs.bulk_import_hint') + '</div>'
+        + '<textarea id="ioc-paste" placeholder="' + esc(tjs('iocs.bulk_paste_ph')) + '"></textarea>'
+        + '<button class="btn btn-sm" onclick="IOC.bulkImport()">' + tjs('iocs.bulk_import') + '</button>'
+        + '<span id="ioc-import-status" style="margin-left:10px;font-size:0.82em"></span>'
+        + '</div>';
+    }
 
     if (entries.length) {
       html += '<table class="iocs-entries-table"><thead><tr>'
@@ -806,7 +830,7 @@ var IOC = (function() {
 
     html += '<div class="iocs-actions">'
       + '<button class="btn btn-sm" onclick="IOC.runScan()">' + tjs('iocs.run_scan') + '</button>'
-      + '<button class="btn btn-sm btn-danger" onclick="IOC.deleteList()">' + tjs('iocs.delete_list') + '</button>'
+      + (canEditProject() ? '<button class="btn btn-sm btn-danger" onclick="IOC.deleteList()">' + tjs('iocs.delete_list') + '</button>' : '')
       + '</div>';
 
     html += '<div id="ioc-scan-results"></div>';
@@ -898,13 +922,19 @@ var IOC = (function() {
   function deleteList() {
     if (!activeListId) return;
     if (!confirm(tjs('iocs.delete_confirm'))) return;
-    fetch('/api/projects/' + pid + '/iocs/' + activeListId, {
+    // Was a raw fetch() — resolves on any HTTP status, not just 2xx (unlike
+    // this file's own fetchJson() helper), so a 404 (e.g. a viewer-role
+    // member lacking the editor+ role the DELETE route requires) still hit
+    // the .then() and cleared the list from view as if it succeeded, with
+    // no error shown — it reappeared only on the next reload.
+    fetchJson('/api/projects/' + pid + '/iocs/' + activeListId, {
       method: 'DELETE',
-      credentials: 'same-origin',
     }).then(function() {
       activeListId = null; activeList = null;
       resetScanState();
       loadLists(); renderDetail();
+    }).catch(function(e) {
+      msToast(tjs('iocs.delete_failed') + ' ' + e.message, true);
     });
   }
 

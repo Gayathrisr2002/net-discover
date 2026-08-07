@@ -1025,7 +1025,7 @@ var PROJ = (function() {
           .replace('{reports}', p.report_count);
         li.innerHTML = '<span class="proj-name">' + esc(p.name) + '</span>'
           + '<span class="proj-meta">' + metaText + '</span>';
-        li.onclick = function() { selectProject(p.id, p.name); };
+        li.onclick = function() { selectProject(p.id, p.name, p.member_role); };
         if (currentProject && currentProject.id === p.id) li.classList.add('active');
         ul.appendChild(li);
       });
@@ -1035,15 +1035,29 @@ var PROJ = (function() {
       if (targetId) {
         delete window._pendingProjectId;
         var found = (d.projects || []).find(function(p) { return p.id === targetId; });
-        if (found) selectProject(found.id, found.name);
+        if (found) selectProject(found.id, found.name, found.member_role);
       } else if (!currentProject && d.projects && d.projects.length > 0) {
-        selectProject(d.projects[0].id, d.projects[0].name);
+        selectProject(d.projects[0].id, d.projects[0].name, d.projects[0].member_role);
       }
     });
   }
 
-  function selectProject(id, name) {
-    currentProject = { id: id, name: name };
+  // canEditProject/isOwnerProject centralize the same owner/editor+ checks
+  // the backend enforces (see _get_project_for_user/_require_agent's
+  // min_role pattern) so every render function that adds a mutating
+  // button (upload, scan, per-file delete, per-report delete, rename,
+  // delete project) can gate on the same source of truth instead of
+  // each re-deriving it — a viewer/editor previously saw every one of
+  // these fully enabled regardless of role.
+  function canEditProject() {
+    return !!currentProject && (currentProject.role === 'owner' || currentProject.role === 'editor');
+  }
+  function isOwnerProject() {
+    return !!currentProject && currentProject.role === 'owner';
+  }
+
+  function selectProject(id, name, role) {
+    currentProject = { id: id, name: name, role: role || 'viewer' };
     window.location.hash = 'project-' + id;
     if (pendingTab) currentTab = pendingTab;
 
@@ -1070,10 +1084,20 @@ var PROJ = (function() {
       latestReportFilename: ''
     });
 
-    // Default project can't be renamed/deleted
+    // Default project can't be renamed/deleted; rename/delete also both
+    // require owner (backend: PUT/DELETE /api/projects/<pid> both call
+    // _get_project_for_user(pid, "owner")) — was previously shown to
+    // every member regardless of role, so a shared editor/viewer saw
+    // fully-enabled buttons the backend would always 404 on.
     var isDefault = (name === 'Default');
-    document.getElementById('proj-rename-btn').style.display = isDefault ? 'none' : '';
-    document.getElementById('proj-delete-btn').style.display = isDefault ? 'none' : '';
+    document.getElementById('proj-rename-btn').style.display = (isDefault || !isOwnerProject()) ? 'none' : '';
+    document.getElementById('proj-delete-btn').style.display = (isDefault || !isOwnerProject()) ? 'none' : '';
+
+    // Upload/scan both require editor+ (backend: upload and scan routes
+    // both check editor+ membership) — a viewer previously saw a fully
+    // enabled upload zone and scan controls that would always 404/403.
+    document.getElementById('proj-upload-zone').style.display = canEditProject() ? '' : 'none';
+    if (!canEditProject()) document.getElementById('proj-scan-row').style.display = 'none';
 
     // Hydrate workspace summary and all tab data so project KPIs stay accurate
     loadFiles();
@@ -1278,7 +1302,7 @@ var PROJ = (function() {
         scanRow.style.display = 'none';
         return;
       }
-      scanRow.style.display = '';
+      scanRow.style.display = canEditProject() ? '' : 'none';
       sel.innerHTML = '<option value="">' + esc(msT('projects.option_select_dash', '-- Select --')) + '</option>';
       tbody.innerHTML = '';
       d.files.forEach(function(f) {
@@ -1289,16 +1313,25 @@ var PROJ = (function() {
         if (selectedPcap === f.name) opt.selected = true;
         sel.appendChild(opt);
 
-        // Table row
+        // Table row. Radio (feeds scanSelected) and Delete are both
+        // editor+-only actions (see canEditProject) — a viewer sees a
+        // plain "—" in their place instead of controls the backend
+        // would reject.
         var tr = document.createElement('tr');
+        var radioCell = canEditProject()
+          ? '<input type="radio" name="proj-pcap-radio" value="' + esc(f.name) + '"'
+              + (selectedPcap === f.name ? ' checked' : '')
+              + ' onchange="PROJ.selectPcap(this.value)">'
+          : '';
+        var deleteCell = canEditProject()
+          ? '<button class="btn btn-danger btn-sm" onclick="PROJ.deleteFile(\'' + escjs(f.name) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
+          : '';
         tr.innerHTML =
-          '<td><input type="radio" name="proj-pcap-radio" value="' + esc(f.name) + '"'
-            + (selectedPcap === f.name ? ' checked' : '')
-            + ' onchange="PROJ.selectPcap(this.value)"></td>'
+          '<td>' + radioCell + '</td>'
           + '<td class="mono">' + esc(f.name) + '</td>'
           + '<td class="dim">' + formatSize(f.size) + '</td>'
           + '<td class="dim">' + formatDate(f.modified) + '</td>'
-          + '<td><button class="btn btn-danger btn-sm" onclick="PROJ.deleteFile(\'' + escjs(f.name) + '\')">' + msT('projects.delete', 'Delete') + '</button></td>';
+          + '<td>' + deleteCell + '</td>';
         tbody.appendChild(tr);
       });
     });
@@ -1425,6 +1458,12 @@ var PROJ = (function() {
       tbody.innerHTML = '';
       d.reports.forEach(function(r) {
         var tr = document.createElement('tr');
+        // Delete requires editor+ (backend: DELETE /api/reports/<f> checks
+        // editor+ membership) — View/Download stay available to viewers,
+        // matching the backend's own viewer-level read access.
+        var deleteBtn = canEditProject()
+          ? '<button class="del-btn" onclick="PROJ.deleteReport(\'' + escjs(r.filename) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
+          : '';
         tr.innerHTML =
           '<td><input type="checkbox" class="proj-compare-cb" data-fn="' + esc(r.filename) + '" onchange="PROJ.toggleCompare(this)"></td>'
           + '<td class="mono">' + esc(r.filename) + '</td>'
@@ -1433,7 +1472,7 @@ var PROJ = (function() {
           + '<td class="proj-report-actions">'
           + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?project_id=' + currentProject.id + '" target="_blank">' + msT('projects.btn_view', 'View') + '</a>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '">' + msT('projects.btn_download', 'Download') + '</a>'
-          + '<button class="del-btn" onclick="PROJ.deleteReport(\'' + escjs(r.filename) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
+          + deleteBtn
           + '</td>';
         tbody.appendChild(tr);
       });

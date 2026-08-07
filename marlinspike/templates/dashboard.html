@@ -803,6 +803,27 @@ var MS = (function() {
   var uploadedFile = null;
   var compareA = null, compareB = null;
   var currentProjectId = null;
+  var dashProjectsById = {};
+
+  // Start Scan and PCAP upload both require editor+ on the project
+  // (backend: /api/scans/start and the upload handler both check
+  // editor+ membership) — a viewer selecting a shared project here
+  // previously saw a fully interactive Start Scan button and upload
+  // dropzone that would always fail server-side with "Project not
+  // found." The standalone /upload page already filters its own
+  // project dropdown to editor+ only server-side; this workspace's own
+  // AJAX uploader was the one place that didn't.
+  function dashCanEditProject() {
+    var p = currentProjectId != null ? dashProjectsById[currentProjectId] : null;
+    return !!p && (p.member_role === 'owner' || p.member_role === 'editor');
+  }
+  function dashUpdateEditGating() {
+    var startBtn = document.getElementById('btn-start');
+    var zone = document.getElementById('upload-zone');
+    var canEdit = dashCanEditProject();
+    if (startBtn) startBtn.style.display = canEdit ? '' : 'none';
+    if (zone) zone.style.display = canEdit ? '' : 'none';
+  }
   var workspaceState = {
     projectName: msT('common.loading', 'Loading…'),
     projectCount: 0,
@@ -901,7 +922,9 @@ var MS = (function() {
     fetch('/api/projects').then(function(r) { return r.json(); }).then(function(d) {
       var sel = document.getElementById('scan-project');
       sel.innerHTML = '';
+      dashProjectsById = {};
       (d.projects || []).forEach(function(p) {
+        dashProjectsById[p.id] = p;
         var opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.name + ' (' + p.pcap_count + ' PCAPs)';
@@ -917,6 +940,7 @@ var MS = (function() {
         sel.value = d.projects[0].id;
         currentProjectId = d.projects[0].id;
       }
+      dashUpdateEditGating();
       setWorkspaceState({
         projectCount: (d.projects || []).length,
         projectName: getSelectedProjectName()
@@ -936,6 +960,7 @@ var MS = (function() {
     }
     document.getElementById('new-project-field').style.display = 'none';
     currentProjectId = parseInt(sel.value) || null;
+    dashUpdateEditGating();
     setWorkspaceState({ projectName: getSelectedProjectName() });
     loadFiles();
     loadReports();
