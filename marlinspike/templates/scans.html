@@ -211,6 +211,8 @@ var SH = (function() {
           tbody.appendChild(errTr);
         }
       });
+    }).catch(function(e) {
+      document.getElementById('history-body').innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 8);
     });
   }
 

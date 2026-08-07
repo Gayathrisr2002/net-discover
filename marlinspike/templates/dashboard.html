@@ -946,7 +946,10 @@ var MS = (function() {
         projectName: getSelectedProjectName()
       });
       if (callback) callback();
-    }).catch(function() {
+    }).catch(function(e) {
+      var sel = document.getElementById('scan-project');
+      sel.innerHTML = '<option value="">' + esc(msT('dashboard.projects_load_failed', 'Failed to load projects')) + '</option>';
+      msToast(msT('common.error', 'Error') + ': ' + e.message, true);
       if (callback) callback();
     });
   }
@@ -1233,7 +1236,14 @@ var MS = (function() {
     if (!runId) return;
     fetch('/api/runs/' + runId + '/stop', { method: 'POST' })
       .then(function(r) { return r.json(); })
-      .then(function() { msToast(msT('dashboard.scan_stopped', 'Scan stopped'), 'warning'); loadHistory(); });
+      .then(function(d) {
+        if (d.ok) {
+          msToast(msT('dashboard.scan_stopped', 'Scan stopped'), 'warning');
+          loadHistory();
+        } else {
+          msToast(d.error || msT('dashboard.scan_stop_failed', 'Failed to stop scan'), true);
+        }
+      });
   }
 
   function detachRun(runId) {
@@ -1462,6 +1472,8 @@ var MS = (function() {
         tr.innerHTML = '<td colspan="5" style="text-align:center;padding:12px;"><a href="/reports" style="color:var(--accent);font-size:0.88em;font-weight:500;">' + msT('dashboard.view_all_reports', 'View all reports').replace('{n}', d.total) + ' &rarr;</a></td>';
         tbody.appendChild(tr);
       }
+    }).catch(function(e) {
+      document.getElementById('reports-body').innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 5);
     });
   }
 
@@ -1472,7 +1484,14 @@ var MS = (function() {
     if (currentProjectId) url += '?project_id=' + currentProjectId;
     fetch(url, { method: 'DELETE' })
       .then(function(r) { return r.json(); })
-      .then(function() { loadReports(); msToast(msT('reports.deleted', 'Report deleted'), 'success'); });
+      .then(function(d) {
+        if (d.ok) {
+          loadReports();
+          msToast(msT('reports.deleted', 'Report deleted'), 'success');
+        } else {
+          msToast(d.error || msT('reports.delete_failed', 'Delete failed'), true);
+        }
+      });
   }
 
   // ── Compare ──
@@ -1583,6 +1602,8 @@ var MS = (function() {
         tr.innerHTML = '<td colspan="8" style="text-align:center;padding:12px;"><a href="/scans" style="color:var(--accent);font-size:0.88em;font-weight:500;">' + msT('dashboard.view_all_scans', 'View all scans') + ' &rarr;</a></td>';
         tbody.appendChild(tr);
       }
+    }).catch(function(e) {
+      document.getElementById('history-body').innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 8);
     });
   }
 

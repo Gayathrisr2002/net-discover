@@ -3153,7 +3153,7 @@ def create_app():
             audit("auth.login_failed", status="failure",
                   target_type="user", target_id=username,
                   ip_address=request.remote_addr)
-            return render_template("login.html", error=_t("login.invalid_credentials"))
+            return render_template("login.html", error=_t("login.invalid_credentials"), username=username)
         log.info("Login: %s from %s", username, request.remote_addr)
         session["user"] = user.username
         session["user_id"] = user.id
@@ -3255,13 +3255,8 @@ def create_app():
         return redirect(url_for("login_page"))
 
     @app.route("/about")
-    @login_required
     def about_page():
-        # Was a dead stub since the original baseline import ("return
-        # redirect(url_for('login_page'))" unconditionally, regardless of
-        # auth state) even though base.html carries a permanent nav link
-        # to it for every logged-in user — clicking it just bounced back
-        # to login. Confirmed real via a live navigational sweep.
+        # Anonymous-accessible: renders only static app_version + i18n copy.
         return render_template("about.html", app_version=APP_VERSION)
 
     # ── Dashboard ────────────────────────────────────────────

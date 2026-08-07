@@ -119,7 +119,10 @@ var RP = (function() {
         sel.appendChild(opt);
       });
       if (callback) callback();
-    }).catch(function() { if (callback) callback(); });
+    }).catch(function(e) {
+      msToast(msT('common.error', 'Error') + ': ' + e.message, true);
+      if (callback) callback();
+    });
   }
 
   function onProjectChange() {
@@ -158,6 +161,8 @@ var RP = (function() {
           + '</td>';
         tbody.appendChild(tr);
       });
+    }).catch(function(e) {
+      document.getElementById('reports-body').innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 6);
     });
   }
 

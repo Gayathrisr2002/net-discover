@@ -227,6 +227,15 @@ var USR = (function() {
 
         tbody.appendChild(tr);
       });
+    }).catch(function(e) {
+      var tbody = document.getElementById('users-body');
+      tbody.innerHTML = '';
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.colSpan = 5;
+      td.textContent = 'Error: ' + e.message;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
     });
   }
 

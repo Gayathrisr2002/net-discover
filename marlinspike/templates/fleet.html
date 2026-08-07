@@ -294,9 +294,15 @@ sudo systemctl enable --now marlinspike-capd</pre>
           </div>
 
           <div class="modal-field">
+            <label for="fleet-schedule-tz">{{ t('fleet.schedule_timezone') }}</label>
+            <select id="fleet-schedule-tz" class="ms-select" onchange="FLEET.onScheduleTzChange()"></select>
+            <span style="color: var(--text-dim); font-size: 0.85em;">{{ t('fleet.schedule_timezone_hint') }}</span>
+          </div>
+
+          <div class="modal-field">
             <label>{{ t('fleet.schedule_times_utc') }}</label>
             <table class="ms-table" id="fleet-schedule-times-table">
-              <thead><tr><th>{{ t('fleet.schedule_times_utc') }}</th><th>{{ t('fleet.schedule_time_local') }}</th><th></th></tr></thead>
+              <thead><tr><th>{{ t('fleet.schedule_times_utc') }}</th><th id="fleet-schedule-time-local-header">{{ t('fleet.schedule_time_local') }}</th><th></th></tr></thead>
               <tbody id="fleet-schedule-times-body"></tbody>
             </table>
             <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
@@ -408,6 +414,16 @@ var FLEET = (function() {
         tr.addEventListener('click', function() { selectProject(p.id); });
         tbody.appendChild(tr);
       });
+    }).catch(function(e) {
+      var tbody = document.getElementById('fleet-projects-body');
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.colSpan = 2;
+      td.className = 'fleet-empty';
+      td.textContent = {{ t("common.error") | tojson }} + ': ' + e.message;
+      tr.appendChild(td);
+      tbody.innerHTML = '';
+      tbody.appendChild(tr);
     });
   }
 
@@ -523,6 +539,16 @@ var FLEET = (function() {
 
         tbody.appendChild(tr);
       });
+    }).catch(function(e) {
+      var tbody = document.getElementById('fleet-agents-body');
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.colSpan = 8;
+      td.className = 'fleet-empty';
+      td.textContent = {{ t("common.error") | tojson }} + ': ' + e.message;
+      tr.appendChild(td);
+      tbody.innerHTML = '';
+      tbody.appendChild(tr);
     });
   }
 
@@ -582,6 +608,8 @@ var FLEET = (function() {
 
   function doIssueToken() {
     if (!selectedProjectId) return;
+    var btn = document.getElementById('fleet-issue-token-confirm');
+    btn.disabled = true;
     fetch('/api/fleet/projects/' + selectedProjectId + '/enrollment-tokens', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
@@ -590,7 +618,8 @@ var FLEET = (function() {
         } else {
           msToast(d.error || {{ t("common.failed") | tojson }}, true);
         }
-      });
+      })
+      .finally(function() { btn.disabled = false; });
   }
 
   // Populates the token modal's result panel: the raw token, CA-cert
@@ -748,8 +777,11 @@ var FLEET = (function() {
       document.getElementById('fleet-schedule-enabled').checked = !!s.enabled;
       document.getElementById('fleet-schedule-duration').value = s.duration_s || 300;
       document.getElementById('fleet-schedule-bpf').value = s.bpf_filter || '';
+      populateScheduleTzSelect();
+      _updateScheduleTzHeader();
       scheduleTimes = (s.times_utc || []).slice();
       renderScheduleTimes();
+      updateScheduleTimeHint();
       var lastEl = document.getElementById('fleet-schedule-last-triggered');
       lastEl.textContent = d.last_triggered_at
         ? {{ t("fleet.schedule_last_triggered") | tojson }} + ' ' + formatDate(d.last_triggered_at)
@@ -828,29 +860,113 @@ var FLEET = (function() {
   // Schedule times are stored/fired in UTC (scheduler.py polls
   // times_utc directly, deliberately never converting — avoids DST/
   // timezone bugs across capture agents in different zones), but a "HH:MM"
-  // label with a small "(UTC)" field caption alone is easy to read as
-  // the browser's own local time — confirmed real: a schedule entered as
-  // "10:02" expecting it to fire at 10:02 local instead silently waits
-  // for 10:02 UTC, hours later. Shown next to both the input (as you
-  // type) and every already-added row so the mismatch is visible before
-  // saving, not discovered by a capture never running.
-  function _utcTimeTodayToLocalLabel(hhmm) {
+  // label with a small "(UTC)" field caption alone is easy to misread as
+  // whatever zone the reader has in mind — confirmed real: a schedule
+  // entered as "10:02" expecting it to fire at 10:02 local instead
+  // silently waits for 10:02 UTC, hours later. A converted preview is
+  // shown next to both the input (as you type) and every already-added
+  // row so the mismatch is visible before saving, not discovered by a
+  // capture never running.
+  //
+  // The zone used for that preview defaults to the browser's own zone
+  // ("local"), but is user-selectable (UTC, IST, EST, JST, ...) via the
+  // #fleet-schedule-tz picker below — useful when the person scheduling
+  // isn't in the same zone as their own browser profile (shared/kiosk
+  // machines, or planning a schedule on someone else's behalf). Purely a
+  // display convenience: the picker never touches times_utc / the
+  // request body in saveSchedule(), only the human-readable labels.
+  // Selection persists per-browser in localStorage so it doesn't reset
+  // every time the modal is reopened.
+  var _SCHEDULE_TZ_STORAGE_KEY = 'ms_fleet_schedule_tz';
+  var _SCHEDULE_TZ_OPTIONS = [
+    { value: 'local',               abbr: null,          label: 'Local (this browser)' },
+    { value: 'UTC',                 abbr: 'UTC',         label: 'UTC' },
+    { value: 'Asia/Kolkata',        abbr: 'IST',         label: 'IST — India (Kolkata)' },
+    { value: 'Europe/London',       abbr: 'GMT/BST',     label: 'GMT/BST — London' },
+    { value: 'Europe/Berlin',       abbr: 'CET/CEST',    label: 'CET/CEST — Berlin' },
+    { value: 'America/New_York',    abbr: 'EST/EDT',     label: 'EST/EDT — New York' },
+    { value: 'America/Chicago',     abbr: 'CST/CDT',     label: 'CST/CDT — Chicago' },
+    { value: 'America/Denver',      abbr: 'MST/MDT',     label: 'MST/MDT — Denver' },
+    { value: 'America/Los_Angeles', abbr: 'PST/PDT',     label: 'PST/PDT — Los Angeles' },
+    { value: 'Asia/Dubai',          abbr: 'GST',         label: 'GST — Dubai' },
+    { value: 'Asia/Singapore',      abbr: 'SGT',         label: 'SGT — Singapore' },
+    { value: 'Asia/Shanghai',       abbr: 'CST',         label: 'CST — China (Shanghai)' },
+    { value: 'Asia/Tokyo',          abbr: 'JST',         label: 'JST — Tokyo' },
+    { value: 'Australia/Sydney',    abbr: 'AEST/AEDT',   label: 'AEST/AEDT — Sydney' }
+  ];
+
+  // Populates the <select> once (its options survive modal close/reopen —
+  // msModal only toggles a CSS class) and restores the last-picked zone
+  // from localStorage, falling back to "local" for first-time users or if
+  // the stored value doesn't match a known option (e.g. after this list
+  // changes).
+  function populateScheduleTzSelect() {
+    var sel = document.getElementById('fleet-schedule-tz');
+    if (!sel || sel.options.length) return;
+    _SCHEDULE_TZ_OPTIONS.forEach(function(opt) {
+      var o = document.createElement('option');
+      o.value = opt.value;
+      o.textContent = opt.label;
+      sel.appendChild(o);
+    });
+    var stored = null;
+    try { stored = localStorage.getItem(_SCHEDULE_TZ_STORAGE_KEY); } catch (e) {}
+    var known = stored && _SCHEDULE_TZ_OPTIONS.some(function(o) { return o.value === stored; });
+    sel.value = known ? stored : 'local';
+  }
+
+  function _getScheduleTz() {
+    var sel = document.getElementById('fleet-schedule-tz');
+    return (sel && sel.value) || 'local';
+  }
+
+  // Short label used in the inline "= HH:MM <label>" hints. For "local"
+  // this resolves the browser's actual IANA zone (e.g. "Asia/Kolkata")
+  // rather than the generic word "local", so the hint stays meaningful.
+  function _scheduleTzLabel(tzValue) {
+    if (tzValue === 'local') {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+    }
+    var found = _SCHEDULE_TZ_OPTIONS.filter(function(o) { return o.value === tzValue; })[0];
+    return found ? (found.abbr || found.label) : tzValue;
+  }
+
+  function _updateScheduleTzHeader() {
+    var header = document.getElementById('fleet-schedule-time-local-header');
+    if (!header) return;
+    var label = _scheduleTzLabel(_getScheduleTz());
+    header.textContent = {{ t('fleet.schedule_time_local') | tojson }} + (label ? ' (' + label + ')' : '');
+  }
+
+  function onScheduleTzChange() {
+    try { localStorage.setItem(_SCHEDULE_TZ_STORAGE_KEY, _getScheduleTz()); } catch (e) {}
+    _updateScheduleTzHeader();
+    renderScheduleTimes();
+    updateScheduleTimeHint();
+  }
+
+  function _utcTimeTodayToLocalLabel(hhmm, tzValue) {
     if (!_TIME_UTC_RE.test(hhmm)) return '';
     var parts = hhmm.split(':');
     var d = new Date();
     d.setUTCHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    var opts = { hour: 'numeric', minute: '2-digit' };
+    if (tzValue && tzValue !== 'local') opts.timeZone = tzValue;
+    return d.toLocaleTimeString([], opts);
   }
 
   function updateScheduleTimeHint() {
     var input = document.getElementById('fleet-schedule-new-time');
     var hint = document.getElementById('fleet-schedule-time-hint');
-    var local = _utcTimeTodayToLocalLabel(input.value.trim());
-    hint.textContent = local ? ('= ' + local + ' your local time') : '';
+    var tz = _getScheduleTz();
+    var converted = _utcTimeTodayToLocalLabel(input.value.trim(), tz);
+    var label = _scheduleTzLabel(tz);
+    hint.textContent = converted ? ('= ' + converted + (label ? ' ' + label : '')) : '';
   }
 
   function renderScheduleTimes() {
     var tbody = document.getElementById('fleet-schedule-times-body');
+    var tz = _getScheduleTz();
     tbody.innerHTML = '';
     scheduleTimes.forEach(function(time, i) {
       var tr = document.createElement('tr');
@@ -858,7 +974,7 @@ var FLEET = (function() {
       var localTd = document.createElement('td');
       localTd.style.color = 'var(--text-dim)';
       localTd.style.fontSize = '0.85em';
-      localTd.textContent = _utcTimeTodayToLocalLabel(time);
+      localTd.textContent = _utcTimeTodayToLocalLabel(time, tz);
       tr.appendChild(localTd);
       var actionsTd = document.createElement('td');
       actionsTd.appendChild(actionBtn({{ t("common.delete") | tojson }}, 'btn btn-sm btn-danger', function() {
@@ -933,6 +1049,7 @@ var FLEET = (function() {
     showSchedule: showSchedule,
     addScheduleTime: addScheduleTime,
     updateScheduleTimeHint: updateScheduleTimeHint,
+    onScheduleTzChange: onScheduleTzChange,
     saveSchedule: saveSchedule,
   };
 })();

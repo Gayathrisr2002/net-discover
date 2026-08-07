@@ -1350,11 +1350,15 @@ var PROJ = (function() {
     if (!confirm(msT('projects.confirm_file_delete', 'Delete {filename}?').replace('{filename}', filename))) return;
     fetch('/api/projects/' + currentProject.id + '/files/' + encodeURIComponent(filename), { method: 'DELETE' })
       .then(function(r) { return r.json(); })
-      .then(function() {
-        if (selectedPcap === filename) selectedPcap = null;
-        loadFiles();
-        loadProjects(currentProject.id);
-        msToast(msT('projects.file_deleted', 'File deleted'), 'success');
+      .then(function(d) {
+        if (d.ok) {
+          if (selectedPcap === filename) selectedPcap = null;
+          loadFiles();
+          loadProjects(currentProject.id);
+          msToast(msT('projects.file_deleted', 'File deleted'), 'success');
+        } else {
+          msToast(d.error || msT('projects.file_delete_failed', 'Delete failed'), true);
+        }
       });
   }
 
@@ -1490,10 +1494,14 @@ var PROJ = (function() {
     if (!confirm(msT('projects.confirm_report_delete', 'Delete {filename}?').replace('{filename}', filename))) return;
     fetch('/api/reports/' + encodeURIComponent(filename) + '?project_id=' + currentProject.id, { method: 'DELETE' })
       .then(function(r) { return r.json(); })
-      .then(function() {
-        loadReports();
-        loadProjects(currentProject.id);
-        msToast(msT('projects.report_deleted', 'Report deleted'), 'success');
+      .then(function(d) {
+        if (d.ok) {
+          loadReports();
+          loadProjects(currentProject.id);
+          msToast(msT('projects.report_deleted', 'Report deleted'), 'success');
+        } else {
+          msToast(d.error || msT('projects.report_delete_failed', 'Delete failed'), true);
+        }
       });
   }
 

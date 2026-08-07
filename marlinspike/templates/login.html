@@ -312,7 +312,7 @@ body {
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <div class="login-field">
       <label for="login-username">{{ t('login.username') }}</label>
-      <input type="text" id="login-username" name="username" autocomplete="username" autofocus required>
+      <input type="text" id="login-username" name="username" value="{{ username or '' }}" autocomplete="username" autofocus required>
     </div>
     <div class="login-field">
       <label for="login-password">{{ t('login.password') }}</label>

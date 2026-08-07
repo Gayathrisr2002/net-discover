@@ -716,6 +716,8 @@ var IOC = (function() {
       }).join('');
       if (ps.length) { pid = ps[0].id; sel.value = pid; }
       updateCreatePanelVisibility();
+    }).catch(function(e) {
+      document.getElementById('ioc-project-filter').innerHTML = '<option value="">' + esc(tjs('common.error') + ': ' + e.message) + '</option>';
     });
   }
 
@@ -751,6 +753,8 @@ var IOC = (function() {
     fetchJson('/api/projects/' + pid + '/iocs').then(function(j) {
       lists = (j && j.lists) ? j.lists : [];
       renderLists();
+    }).catch(function(e) {
+      document.getElementById('ioc-lists').innerHTML = '<div class="iocs-empty">' + esc(tjs('common.error') + ': ' + e.message) + '</div>';
     });
   }
 
@@ -782,6 +786,8 @@ var IOC = (function() {
       activeList = (j && j.list) ? j.list : j;
       renderLists();
       renderDetail();
+    }).catch(function(e) {
+      document.getElementById('ioc-detail').innerHTML = '<div class="iocs-empty">' + esc(tjs('common.error') + ': ' + e.message) + '</div>';
     });
   }
 
