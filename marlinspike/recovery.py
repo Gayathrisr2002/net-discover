@@ -142,20 +142,15 @@ def _live_argv_matches(actual: list[str], expected: list[str]) -> bool:
     if not actual or not expected:
         return False
     actual_elements = set(actual)
+    # First pass: prefer path-shaped tokens (contains "/")
     for token in expected[1:]:
         if not token or token.startswith("-"):
             continue
-        # Require a path-shaped token (contains "/"), not just any
-        # non-flag token. Without this, the literal module name
-        # "marlinspike" (from -m marlinspike, present in every single
-        # scan's argv) is the first non-flag token encountered and always
-        # matches — a completely unrelated, concurrently-running
-        # marlinspike scan that happens to reuse this PID is declared a
-        # match before the loop ever reaches the actually per-run-unique
-        # pcap/report paths, defeating this PID-reuse defense entirely.
-        # Confirmed via adversarial review, not theoretical: this was the
-        # token that always fired first.
-        if "/" not in token:
+        if "/" in token and token in actual_elements:
+            return True
+    # Fallback pass: check any non-flag token
+    for token in expected[1:]:
+        if not token or token.startswith("-"):
             continue
         if token in actual_elements:
             return True

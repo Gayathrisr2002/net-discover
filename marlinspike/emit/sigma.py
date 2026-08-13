@@ -116,7 +116,8 @@ def _attack_tags(finding: dict) -> list[str]:
     is not a recognised tag (Finding #45).
     """
     tags = []
-    for tid in finding.get("attack_ids") or []:
+    tids = finding.get("attack_ids") or finding.get("attack_techniques") or []
+    for tid in tids:
         tags.append(f"attack.{str(tid).lower()}")
     return tags
 
