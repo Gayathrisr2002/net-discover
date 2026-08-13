@@ -1164,7 +1164,7 @@ def _merge_chunk_conversations(chunk_reports, capture_info_seed=None):
             ):
                 existing["last_seen"] = conv["last_seen"]
 
-            for field in ("src_ip", "dst_ip", "transport"):
+            for field in ("src_ip", "dst_ip", "transport", "dhcp_hostname", "dhcp_vendor_class", "nbns_name", "user_agent"):
                 if not existing.get(field) and conv.get(field):
                     existing[field] = conv[field]
             if not existing.get("src_port") and conv.get("src_port"):
@@ -4626,6 +4626,8 @@ def create_app():
         proc = None
         if not use_chunked_chain:
             try:
+                sub_env = os.environ.copy()
+                sub_env["PYTHONPATH"] = f"{config.PROJECT_ROOT}:{sub_env.get('PYTHONPATH', '')}"
                 proc = subprocess.Popen(
                     args,
                     stdout=subprocess.PIPE,
@@ -4633,6 +4635,7 @@ def create_app():
                     text=True,
                     bufsize=1,
                     cwd=config.REPORTS_DIR,
+                    env=sub_env,
                 )
             except Exception as e:
                 log.error("Failed to start scan: %s", e)
@@ -4725,6 +4728,8 @@ def create_app():
             chunk_reports = []
 
             def _run_child(child_args, cwd=None, prefix="", stage_map=None):
+                sub_env = os.environ.copy()
+                sub_env["PYTHONPATH"] = f"{config.PROJECT_ROOT}:{sub_env.get('PYTHONPATH', '')}"
                 child = subprocess.Popen(
                     child_args,
                     stdout=subprocess.PIPE,
@@ -4732,6 +4737,7 @@ def create_app():
                     text=True,
                     bufsize=1,
                     cwd=cwd or config.REPORTS_DIR,
+                    env=sub_env,
                 )
                 run_state["process"] = child
                 # Surface the currently-running child's PID + argv to

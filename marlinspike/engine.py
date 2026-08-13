@@ -1456,6 +1456,104 @@ ICS_OUI_DB = {
     "00:a0:45": {"vendor": "Phoenix Contact", "product_lines": ["ILC", "RFC"]},
 }
 
+# Vendor display name normalization map (raw IEEE / DPI vendor string -> clean display name)
+VENDOR_NAME_NORMALIZATION = {
+    "asustek computer inc.": "ASUS",
+    "asustek computer inc": "ASUS",
+    "asus": "ASUS",
+    "hewlett packard": "HP",
+    "hp inc.": "HP",
+    "hp inc": "HP",
+    "hewlett-packard": "HP",
+    "dell inc.": "Dell",
+    "dell inc": "Dell",
+    "dell computer corp.": "Dell",
+    "lenovo(beijing)co., ltd.": "Lenovo",
+    "lenovo": "Lenovo",
+    "apple, inc.": "Apple",
+    "apple": "Apple",
+    "apple inc.": "Apple",
+    "cisco systems, inc": "Cisco",
+    "cisco systems inc": "Cisco",
+    "cisco meraki": "Cisco",
+    "huawei technologies co.,ltd": "Huawei",
+    "huawei device co., ltd.": "Huawei",
+    "huawei": "Huawei",
+    "tp-link technologies co.,ltd.": "TP-Link",
+    "tp-link systems inc": "TP-Link",
+    "tp-link systems inc.": "TP-Link",
+    "tp-link": "TP-Link",
+    "samsung electronics co.,ltd": "Samsung",
+    "samsung electronics co., ltd": "Samsung",
+    "intel corporate": "Intel",
+    "intel corporation": "Intel",
+    "hewlett packard enterprise": "HP",
+    "hewlett packard": "HP",
+    "hewlett-packard company": "HP",
+    "hp inc.": "HP",
+    "hp company": "HP",
+}
+
+def normalize_vendor_name(vendor: str) -> str:
+    """Normalize raw IEEE OUI or protocol vendor strings to clean display names."""
+    if not vendor or vendor == "Unknown":
+        return "Unknown"
+    norm = VENDOR_NAME_NORMALIZATION.get(vendor.strip().lower())
+    return norm if norm else vendor.strip()
+
+# IT System Manufacturer Hostname & NetBIOS Patterns
+# Maps lowercase hostname/description substrings to system builder vendors
+IT_VENDOR_HOSTNAME_PATTERNS = [
+    # HP / HPE
+    ("hp-", "HP"),
+    ("hp_", "HP"),
+    ("hpe", "HP"),
+    ("hpe-", "HP"),
+    ("hpe_", "HP"),
+    ("aruba", "HP"),
+    ("procurve", "HP"),
+    ("desktop-hp", "HP"),
+    ("laptop-hp", "HP"),
+    ("hpdesk", "HP"),
+    ("hp-envy", "HP"),
+    ("hp-pavilion", "HP"),
+    ("hp-elitebook", "HP"),
+    ("hp-probook", "HP"),
+    ("hp-zbook", "HP"),
+    ("hp-laserjet", "HP"),
+    ("hewlett", "HP"),
+    # ASUS
+    ("asus", "ASUS"),
+    ("zenbook", "ASUS"),
+    ("rog-", "ASUS"),
+    ("tuf-", "ASUS"),
+    # Dell
+    ("dell-", "Dell"),
+    ("dell_", "Dell"),
+    ("desktop-dell", "Dell"),
+    ("laptop-dell", "Dell"),
+    ("latitude", "Dell"),
+    ("optiplex", "Dell"),
+    ("precision-", "Dell"),
+    ("inspiron", "Dell"),
+    ("vostro", "Dell"),
+    ("alienware", "Dell"),
+    # Lenovo
+    ("lenovo", "Lenovo"),
+    ("thinkpad", "Lenovo"),
+    ("ideapad", "Lenovo"),
+    ("thinkcentre", "Lenovo"),
+    ("thinkstation", "Lenovo"),
+    ("yoga-", "Lenovo"),
+    # Apple
+    ("macbook", "Apple"),
+    ("imac", "Apple"),
+    ("macmini", "Apple"),
+    ("macpro", "Apple"),
+    ("ipad", "Apple"),
+    ("iphone", "Apple"),
+]
+
 # Publicly documented CIP Identity Object device-profile values that are
 # useful for OT role inference. These are intentionally conservative and can
 # be extended as we validate more captures.
@@ -1594,6 +1692,11 @@ class Conversation:
     dst_asset: dict = field(default_factory=dict)
     # L2 topology discovery fields (LLDP/CDP/STP)
     l2_discovery: dict = field(default_factory=dict)
+    # IT host & vendor discovery fields (DHCP/NetBIOS/HTTP)
+    dhcp_hostname: str = ""
+    dhcp_vendor_class: str = ""
+    nbns_name: str = ""
+    user_agent: str = ""
 
 
 @dataclass
@@ -2011,6 +2114,9 @@ class OTProtocolDissector:
         "dns.a", "dns.txt",
         # ARP per-packet fields (opcode: 1=request, 2=reply; isgratuitous: bool)
         "arp.opcode", "arp.isgratuitous",
+        # DHCP & Host Discovery
+        "dhcp.option.hostname", "dhcp.option.vendor_class_id",
+        "nbns.name", "http.user_agent",
     ]
 
     SKIP_LAYERS = {"eth", "ethertype", "ip", "ipv6", "tcp", "udp", "frame", "data"}
@@ -2070,6 +2176,123 @@ class OTProtocolDissector:
             return f"{transport.upper()}/{port}"
         return None
 
+    def _run_pure_python_pass(self, pcap_path: str, conv_map: dict, pkt_count: int = 0, skipped: int = 0) -> tuple[int, int, int]:
+        """Pure Python PCAP / PCAPNG packet reader fallback when tshark is not installed."""
+        print(f"  [*] Parsing PCAP/PCAPNG via pure-Python packet engine...")
+        import struct, socket
+        try:
+            with open(pcap_path, "rb") as f:
+                head = f.read(4)
+                if len(head) < 4:
+                    return pkt_count, skipped, 0
+                magic = struct.unpack(">I", head)[0]
+                f.seek(0)
+
+                def _process_packet(pkt: bytes, ts: float):
+                    nonlocal pkt_count, skipped
+                    pkt_count += 1
+                    if len(pkt) < 14:
+                        skipped += 1
+                        return
+                    dst_mac = ":".join(f"{b:02x}" for b in pkt[0:6])
+                    src_mac = ":".join(f"{b:02x}" for b in pkt[6:12])
+                    ethertype = struct.unpack(">H", pkt[12:14])[0]
+
+                    if ethertype == 0x0806 and len(pkt) >= 42:  # ARP
+                        src_ip = socket.inet_ntoa(pkt[28:32])
+                        dst_ip = socket.inet_ntoa(pkt[38:42])
+                        key = (src_mac, dst_mac, "ARP", 0)
+                        conv = conv_map[key]
+                        conv["packet_count"] += 1
+                        conv["bytes"] += len(pkt)
+                        conv["src_ips"].add(src_ip)
+                        conv["dst_ips"].add(dst_ip)
+                        conv["timestamps"].append(ts)
+
+                    elif ethertype == 0x0800 and len(pkt) >= 34:  # IPv4
+                        ihl = (pkt[14] & 0x0F) * 4
+                        proto_num = pkt[23]
+                        src_ip = socket.inet_ntoa(pkt[26:30])
+                        dst_ip = socket.inet_ntoa(pkt[30:34])
+                        sport, dport = 0, 0
+                        transport = ""
+                        if proto_num == 6 and len(pkt) >= 14 + ihl + 4:  # TCP
+                            sport, dport = struct.unpack(">HH", pkt[14+ihl:18+ihl])
+                            transport = "tcp"
+                        elif proto_num == 17 and len(pkt) >= 14 + ihl + 4:  # UDP
+                            sport, dport = struct.unpack(">HH", pkt[14+ihl:18+ihl])
+                            transport = "udp"
+
+                        proto_name = self._classify_protocol("", dport, transport) or ("TCP" if proto_num == 6 else ("UDP" if proto_num == 17 else "IP"))
+                        key = (src_mac, dst_mac, proto_name, dport)
+                        conv = conv_map[key]
+                        conv["packet_count"] += 1
+                        conv["bytes"] += len(pkt)
+                        conv["src_ips"].add(src_ip)
+                        conv["dst_ips"].add(dst_ip)
+                        conv["timestamps"].append(ts)
+                        if sport:
+                            conv["src_ports"].add(sport)
+                    else:
+                        skipped += 1
+
+                if magic == 0x0A0D0D0A:
+                    # PCAPNG Format
+                    f.seek(0)
+                    bom_hdr = f.read(12)
+                    if len(bom_hdr) >= 12:
+                        btype, blen, bom = struct.unpack("<III", bom_hdr)
+                        endian = "<" if bom == 0x1A2B3C4D else ">"
+                        f.seek(blen, 0)  # skip SHB
+                        while True:
+                            hdr = f.read(8)
+                            if len(hdr) < 8:
+                                break
+                            btype, blen = struct.unpack(endian + "II", hdr)
+                            if blen < 12 or blen % 4 != 0:
+                                break
+                            body_len = blen - 12
+                            body = f.read(body_len)
+                            f.read(4)  # trailing len
+                            if len(body) < body_len:
+                                break
+                            if btype == 0x00000006:  # EPB
+                                if len(body) >= 20:
+                                    if_id, ts_high, ts_low, cap_len, orig_len = struct.unpack(endian + "IIIII", body[:20])
+                                    pkt = body[20:20+cap_len]
+                                    ts_raw = (ts_high << 32) | ts_low
+                                    _process_packet(pkt, ts_raw / 1_000_000.0)
+
+                elif magic in (0xA1B2C3D4, 0xD4C3B2A1, 0xA1B23C4D, 0x4D3CB2A1):
+                    # Classic PCAP Format
+                    ghdr = f.read(24)
+                    if len(ghdr) >= 24:
+                        raw_magic = struct.unpack("<I", ghdr[:4])[0]
+                        endian = "<" if raw_magic in (0xA1B2C3D4, 0xA1B23C4D) else ">"
+                        ts_div = 1_000_000_000.0 if raw_magic in (0xA1B23C4D, 0x4D3CB2A1) else 1_000_000.0
+                        _, _, _, _, _, snaplen, network = struct.unpack(endian + "IHHIIII", ghdr)
+
+                        while True:
+                            rhdr = f.read(16)
+                            if len(rhdr) < 16:
+                                break
+                            ts_sec, ts_usec, incl_len, _ = struct.unpack(endian + "IIII", rhdr)
+                            if incl_len <= 0 or incl_len > 65535:
+                                try:
+                                    f.seek(max(0, incl_len), os.SEEK_CUR)
+                                except OSError:
+                                    break
+                                continue
+                            pkt = f.read(incl_len)
+                            if len(pkt) < incl_len:
+                                break
+                            ts = ts_sec + (ts_usec / ts_div)
+                            _process_packet(pkt, ts)
+        except Exception as e:
+            print(f"  [!] Pure Python PCAP parser error: {e}")
+
+        return pkt_count, skipped, 0
+
     def _run_tshark_pass(self, pcap_path: str, field_args: list, conv_map, ot_names: set,
                          pkt_count: int, skipped: int, pair_ports=None,
                          collapsed_count: int = 0) -> tuple[int, int, int]:
@@ -2077,24 +2300,18 @@ class OTProtocolDissector:
         Returns updated (pkt_count, skipped, collapsed_count)."""
         if pair_ports is None:
             pair_ports = defaultdict(set)
+        if not shutil.which("tshark"):
+            return self._run_pure_python_pass(pcap_path, conv_map, pkt_count, skipped)
         cmd = ["tshark", "-l", "-r", pcap_path,
                "-T", "fields", "-E", "separator=\t", "-E", "occurrence=f",
                "-o", "tcp.desegment_tcp_streams:FALSE",
                "-o", "ip.defragment:FALSE"] + field_args
 
-        # errors="replace": several free-text fields tshark reflects here
-        # (LLDP system name, CDP device ID, BACnet object name, PROFINET
-        # station name, DNS query name, ...) come straight from packet
-        # payload bytes, which aren't guaranteed valid UTF-8. Without this,
-        # one invalid-UTF-8 byte anywhere raises UnicodeDecodeError mid-
-        # iteration below, caught by the broad except further down, which
-        # just kills the subprocess and silently stops processing every
-        # packet after that point — with no truncation flag anywhere on
-        # the report, a crafted PCAP with one bad byte early on produces a
-        # false-negative "clean" result. Invalid bytes now just become the
-        # U+FFFD replacement character in that one field instead.
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, errors="replace", bufsize=1)
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, errors="replace", bufsize=1)
+        except (FileNotFoundError, OSError):
+            return self._run_pure_python_pass(pcap_path, conv_map, pkt_count, skipped)
         try:
             for line in proc.stdout:
                 line = line.rstrip("\n")
@@ -2217,6 +2434,21 @@ class OTProtocolDissector:
                     dns_qtype = pkt.get("dns.qry.type", [""])[0]
                     if dns_qtype:
                         conv["dns_query_types"].add(dns_qtype)
+
+                # DHCP, NetBIOS, HTTP User-Agent host discovery
+                dhcp_host = pkt.get("dhcp.option.hostname", [""])[0]
+                dhcp_vendor = pkt.get("dhcp.option.vendor_class_id", [""])[0]
+                nbns_name = pkt.get("nbns.name", [""])[0]
+                http_ua = pkt.get("http.user_agent", [""])[0]
+
+                if dhcp_host and not conv.get("dhcp_hostname"):
+                    conv["dhcp_hostname"] = dhcp_host
+                if dhcp_vendor and not conv.get("dhcp_vendor_class"):
+                    conv["dhcp_vendor_class"] = dhcp_vendor
+                if nbns_name and not conv.get("nbns_name"):
+                    conv["nbns_name"] = nbns_name
+                if http_ua and not conv.get("user_agent"):
+                    conv["user_agent"] = http_ua
 
                 # ── Inline protocol parsing — no packet storage ──
                 if "Modbus" in protocol:
@@ -2420,6 +2652,10 @@ class OTProtocolDissector:
             "timestamps": [],
             "dns_queries": set(),
             "dns_query_types": set(),
+            "dhcp_hostname": "",
+            "dhcp_vendor_class": "",
+            "nbns_name": "",
+            "user_agent": "",
         })
         ot_names = set(OT_TSHARK_PROTOCOLS.values())
         pkt_count = 0
@@ -2548,6 +2784,10 @@ class OTProtocolDissector:
                 dns_entropy=d_entropy,
                 dns_entropy_ratio=d_entropy_ratio,
                 l2_discovery=d["l2_discovery"],
+                dhcp_hostname=d.get("dhcp_hostname", ""),
+                dhcp_vendor_class=d.get("dhcp_vendor_class", ""),
+                nbns_name=d.get("nbns_name", ""),
+                user_agent=d.get("user_agent", ""),
             )
             self.conversations.append(conversation)
 
@@ -2918,9 +3158,9 @@ class TopologyBuilder:
             try:
                 with open(oui_path) as f:
                     ieee_db = json.load(f)
-                # Convert flat vendor strings to dict format
+                # Convert flat vendor strings to dict format with vendor normalization
                 for oui, vendor in ieee_db.items():
-                    db[oui] = {"vendor": vendor, "product_lines": []}
+                    db[oui] = {"vendor": normalize_vendor_name(vendor), "product_lines": []}
                 print(f"  [*] Loaded IEEE OUI database: {len(db)} entries")
             except Exception as e:
                 print(f"  [!] Failed to load OUI database: {e}")
@@ -3027,6 +3267,8 @@ class TopologyBuilder:
                 )
             src_node = self.nodes[src_key]
             src_node.initiates = True
+            if conv.src_mac and not src_node.mac:
+                src_node.mac = conv.src_mac
             # Collapse generic port labels (TCP/49161) to just the transport
             _proto_display = conv.protocol
             if "/" in _proto_display and _proto_display.split("/")[-1].isdigit():
@@ -3042,6 +3284,8 @@ class TopologyBuilder:
                 )
             dst_node = self.nodes[dst_key]
             dst_node.responds = True
+            if conv.dst_mac and not dst_node.mac:
+                dst_node.mac = conv.dst_mac
             if _proto_display not in dst_node.protocols:
                 dst_node.protocols.append(_proto_display)
 
@@ -3052,6 +3296,14 @@ class TopologyBuilder:
                 sp["connections"] += 1
                 if src_key:
                     sp["peers"].add(src_key)
+
+            # Enrich nodes from DHCP/NetBIOS host discovery
+            if conv.dhcp_hostname and not src_node.system_name:
+                src_node.system_name = conv.dhcp_hostname
+            if conv.nbns_name and not src_node.system_name:
+                src_node.system_name = conv.nbns_name
+            if conv.dhcp_vendor_class and not src_node.system_desc:
+                src_node.system_desc = conv.dhcp_vendor_class
 
             # Enrich nodes from L2 discovery data (LLDP/CDP/STP/LACP)
             if conv.l2_discovery:
@@ -3291,6 +3543,11 @@ class TopologyBuilder:
             del self.nodes[mac_key]
             merged += 1
 
+        # Backfill MAC addresses on IP nodes from conversations if missing
+        for mac, ip in mac_to_ip.items():
+            if ip in self.nodes and not self.nodes[ip].mac:
+                self.nodes[ip].mac = mac
+
         if merged:
             print(f"  Merged {merged} L2 node(s) into IP-keyed counterparts")
 
@@ -3328,24 +3585,27 @@ class TopologyBuilder:
         # Enrich from node attributes
         for key, node in self.nodes.items():
             if node.mac:
-                mac_lower = node.mac.lower()
-                if mac_lower in seen:
-                    entry = seen[mac_lower]
-                    if node.vendor and node.vendor != "Unknown":
-                        entry["vendor"] = node.vendor
-                    if node.system_name:
-                        entry["system_name"] = node.system_name
-                    if node.capabilities:
-                        entry["capabilities"] = list(node.capabilities)
-                    if node.ip and not entry["ip"]:
-                        entry["ip"] = node.ip
+                clean_node_mac = str(node.mac).replace(":", "").replace("-", "").replace(".", "").lower()
+                for mac_key, entry in seen.items():
+                    clean_entry_mac = str(mac_key).replace(":", "").replace("-", "").replace(".", "").lower()
+                    if clean_node_mac == clean_entry_mac:
+                        if node.vendor and node.vendor != "Unknown":
+                            entry["vendor"] = normalize_vendor_name(node.vendor)
+                        if node.system_name:
+                            entry["system_name"] = node.system_name
+                        if node.capabilities:
+                            entry["capabilities"] = list(node.capabilities)
+                        if node.ip and not entry["ip"]:
+                            entry["ip"] = node.ip
 
         # OUI vendor lookup for entries still Unknown
-        for mac_lower, entry in seen.items():
+        for mac_key, entry in seen.items():
             if entry["vendor"] == "Unknown":
-                oui = ":".join(mac_lower.split(":")[:3])
-                if oui in self.oui_db:
-                    entry["vendor"] = self.oui_db[oui]["vendor"]
+                clean_mac = str(mac_key).replace(":", "").replace("-", "").replace(".", "").lower()
+                if len(clean_mac) >= 6:
+                    oui = f"{clean_mac[:2]}:{clean_mac[2:4]}:{clean_mac[4:6]}"
+                    if oui in self.oui_db:
+                        entry["vendor"] = normalize_vendor_name(self.oui_db[oui]["vendor"])
 
         return sorted(seen.values(), key=lambda e: e["ip"] or e["mac"])
 
@@ -3454,11 +3714,13 @@ class TopologyBuilder:
             # Extract OUI from MAC (first 3 octets)
             # Skip external hosts — their MAC is the gateway's, not their own
             if node.mac and node.purdue_level != 5 and node.asset_type != "external":
-                oui = ":".join(node.mac.split(":")[:3]).lower()
-                if oui in self.oui_db:
-                    vendor_info = self.oui_db[oui]
-                    node.vendor = vendor_info["vendor"]
-                    node.product_line = ", ".join(vendor_info.get("product_lines", []))
+                clean_mac = str(node.mac).replace(":", "").replace("-", "").replace(".", "").lower()
+                if len(clean_mac) >= 6:
+                    oui = f"{clean_mac[:2]}:{clean_mac[2:4]}:{clean_mac[4:6]}"
+                    if oui in self.oui_db:
+                        vendor_info = self.oui_db[oui]
+                        node.vendor = vendor_info["vendor"]
+                        node.product_line = ", ".join(vendor_info.get("product_lines", []))
 
             # Check CIP Identity Object for more specific info
             for conv in self._conv_by_dst.get(ip, []):
@@ -3594,36 +3856,80 @@ class TopologyBuilder:
                 elif serves_iec61850 and any(hint in iec_text for hint in IEC61850_IED_HINTS) and node.device_type == "Unknown":
                     node.device_type = "Protection IED"
 
-            # Enrich from LLDP/CDP system description (often contains vendor/model)
-            if node.system_desc and node.vendor == "Unknown":
-                desc_lower = node.system_desc.lower()
-                # Common CDP/LLDP platform strings
-                if "cisco" in desc_lower:
+            # Enrich from LLDP/CDP system description or name (often contains vendor/model)
+            sys_info = f"{node.system_name or ''} {node.system_desc or ''}".strip().lower()
+            if sys_info and node.vendor == "Unknown":
+                # Common infrastructure & IT platform strings
+                if any(k in sys_info for k in ("hpe", "hewlett packard", "procurve", "aruba")) or sys_info.startswith("hp") or " hp " in sys_info:
+                    node.vendor = "HP"
+                elif "cisco" in sys_info:
                     node.vendor = "Cisco"
-                elif "juniper" in desc_lower:
+                elif "juniper" in sys_info:
                     node.vendor = "Juniper"
-                elif "arista" in desc_lower:
+                elif "arista" in sys_info:
                     node.vendor = "Arista"
-                elif "hirschmann" in desc_lower:
+                elif "hirschmann" in sys_info:
                     node.vendor = "Hirschmann"
-                elif "moxa" in desc_lower:
+                elif "moxa" in sys_info:
                     node.vendor = "Moxa"
-                elif "siemens" in desc_lower or "scalance" in desc_lower:
+                elif "siemens" in sys_info or "scalance" in sys_info:
                     node.vendor = "Siemens"
-                elif "belden" in desc_lower:
+                elif "belden" in sys_info:
                     node.vendor = "Belden"
-                elif "phoenix" in desc_lower:
+                elif "phoenix" in sys_info:
                     node.vendor = "Phoenix Contact"
-                elif "westermo" in desc_lower:
+                elif "westermo" in sys_info:
                     node.vendor = "Westermo"
+                elif "dell" in sys_info or "powerconnect" in sys_info:
+                    node.vendor = "Dell"
+                elif "asus" in sys_info:
+                    node.vendor = "ASUS"
+                elif "lenovo" in sys_info or "thinkpad" in sys_info:
+                    node.vendor = "Lenovo"
                 if node.vendor != "Unknown" and not node.product_line:
-                    node.product_line = node.system_desc
+                    node.product_line = node.system_desc or node.system_name
 
             # Use system_name as device_type hint for switches
             if "Bridge" in node.capabilities and node.device_type == "Unknown":
                 node.device_type = "Network Switch"
             elif "Router" in node.capabilities and node.device_type == "Unknown":
                 node.device_type = "Router"
+
+            # IT System OEM Fingerprinting based on Hostnames, NetBIOS, System Descriptions
+            # If node vendor is Unknown or a generic chip/nic/hypervisor maker,
+            # inspect system names/descriptions for PC builder OEMs (HP, ASUS, Dell, Lenovo, Apple).
+            GENERIC_CHIP_VENDORS = {
+                "Intel", "Intel Corporate", "Intel Corporation",
+                "Realtek", "Realtek Semiconductor",
+                "MediaTek", "MediaTek Inc.",
+                "Qualcomm", "Broadcom", "Broadcom Limited",
+                "VMware, Inc.", "VMware", "QEMU", "Parallels, Inc.", "Parallels",
+                "ASRock Incorporation", "ASRock", "Giga-Byte Technology Co.,Ltd."
+            }
+
+            conv_hints = []
+            for conv in self._conv_by_src.get(ip, []) + self._conv_by_dst.get(ip, []):
+                if getattr(conv, "dhcp_hostname", None):
+                    conv_hints.append(conv.dhcp_hostname)
+                if getattr(conv, "nbns_name", None):
+                    conv_hints.append(conv.nbns_name)
+                if getattr(conv, "dhcp_vendor_class", None):
+                    conv_hints.append(conv.dhcp_vendor_class)
+                if getattr(conv, "user_agent", None):
+                    conv_hints.append(conv.user_agent)
+
+            search_fields = filter(None, [node.system_name, node.system_desc, getattr(node, "hostname", None)] + conv_hints)
+            full_text = " ".join(search_fields).lower()
+            if full_text:
+                for pattern, oem_vendor in IT_VENDOR_HOSTNAME_PATTERNS:
+                    if pattern in full_text:
+                        if node.vendor == "Unknown" or node.vendor in GENERIC_CHIP_VENDORS:
+                            node.vendor = oem_vendor
+                            break
+
+            # Normalize vendor display names (e.g. "ASUSTek COMPUTER INC." -> "ASUS", "Hewlett Packard" -> "HP")
+            if node.vendor and node.vendor != "Unknown":
+                node.vendor = normalize_vendor_name(node.vendor)
 
     @staticmethod
     def _node_service_names(node: TopologyNode) -> set[str]:
@@ -3734,7 +4040,7 @@ class TopologyBuilder:
                     "moxa", "westermo", "ruggedcom", "hirschmann", "belden",
                     "cisco", "juniper", "arista", "allied telesis", "netgear",
                     "ubiquiti", "mikrotik", "d-link", "tp-link", "zyxel",
-                    "extreme networks", "huawei", "hewlett packard enterprise",
+                    "extreme networks", "huawei", "hewlett packard enterprise", "hp",
                     "aruba", "dell networking", "cumulus", "pica8", "edgecore",
                     "phoenix contact", "innominate",
                 )):
