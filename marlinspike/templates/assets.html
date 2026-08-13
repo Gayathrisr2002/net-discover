@@ -216,10 +216,12 @@ tr.detail-row td {
   </table>
 </div>
 
+<script id="report-data" type="application/json">{{ (report_json or {}) | tojson | safe }}</script>
+
 <script nonce="{{ csp_nonce }}">
-var REPORT = {{ (report_json or {}) | tojson | safe }};
-var FILENAME = {{ (filename or "") | tojson | safe }};
-var FINDINGS_LABEL_PLURAL = {{ t('taxonomy.finding.label_plural') | tojson | safe }};
+var REPORT = JSON.parse(document.getElementById('report-data').textContent || '{}');
+var FILENAME = '{{ filename or "" }}';
+var FINDINGS_LABEL_PLURAL = '{{ t("taxonomy.finding.label_plural") }}';
 
 /* Taxonomy severity chip renderer (standalone page — no base.html) */
 var _SEV_CHIP_MAP = { CRITICAL: 'chip-critical', HIGH: 'chip-high', MEDIUM: 'chip-medium', LOW: 'chip-low', INFO: 'chip-info' };
