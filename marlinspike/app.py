@@ -31,6 +31,7 @@ from flask import (
     abort,
     g,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -3821,65 +3822,63 @@ def create_app():
     @app.route("/api/projects/<int:pid>/audit-report/download")
     @login_required
     def download_project_audit_report(pid):
-        proj = _get_project_for_user(pid)
-        if not proj:
-            return jsonify({"ok": False, "error": "Project not found"}), 404
+        try:
+            proj = _get_project_for_user(pid)
+            if not proj:
+                return jsonify({"ok": False, "error": "Project not found"}), 404
 
-        rdir = user_reports_dir(pid)
-        reports_list = []
-        if os.path.isdir(rdir):
-            for fn in sorted(os.listdir(rdir)):
-                if _is_primary_report_filename(fn):
-                    path = os.path.join(rdir, fn)
-                    try:
-                        rep = _load_report_with_extensions(path, ensure_mitre=False)
-                        if rep:
-                            reports_list.append(rep)
-                    except Exception:
-                        pass
+            rdir = user_reports_dir(pid)
+            reports_list = []
+            if os.path.isdir(rdir):
+                for fn in sorted(os.listdir(rdir)):
+                    if _is_primary_report_filename(fn):
+                        path = os.path.join(rdir, fn)
+                        try:
+                            rep = _load_report_with_extensions(path, ensure_mitre=False)
+                            if rep:
+                                reports_list.append(rep)
+                        except Exception:
+                            pass
 
-        from marlinspike.project_audit import generate_project_audit_report
-        audit_data = generate_project_audit_report(reports_list)
+            from marlinspike.project_audit import generate_project_audit_report
+            audit_data = generate_project_audit_report(reports_list)
 
-        fmt = request.args.get("format", "json").lower()
-        safe_proj_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in proj.name)
+            fmt = request.args.get("format", "json").lower()
+            safe_proj_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in proj.name)
 
-        if fmt == "csv":
-            import csv
-            import io
-            output = io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(["Date", "Timestamp", "Event Type", "Vulnerability ID", "Asset IP", "Vendor", "Product", "Severity", "CVSS", "Description"])
-            for ev in audit_data.get("timeline_events", []):
-                writer.writerow([
-                    ev.get("date", ""),
-                    ev.get("timestamp", ""),
-                    ev.get("event_type", ""),
-                    ev.get("vulnerability_id", ""),
-                    ev.get("ip", ""),
-                    ev.get("vendor", ""),
-                    ev.get("product", ""),
-                    ev.get("severity", ""),
-                    ev.get("cvss", ""),
-                    ev.get("description", ""),
-                ])
-            csv_content = output.getvalue()
-            return Response(
-                csv_content,
-                mimetype="text/csv",
-                headers={
-                    "Content-Disposition": f'attachment; filename="marlinspike-audit-{safe_proj_name}.csv"'
-                },
-            )
+            if fmt == "csv":
+                import csv
+                import io
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["Date", "Timestamp", "Event Type", "Vulnerability ID", "Asset IP", "Vendor", "Product", "Severity", "CVSS", "Description"])
+                for ev in audit_data.get("timeline_events", []):
+                    writer.writerow([
+                        ev.get("date", ""),
+                        ev.get("timestamp", ""),
+                        ev.get("event_type", ""),
+                        ev.get("vulnerability_id", ""),
+                        ev.get("ip", ""),
+                        ev.get("vendor", ""),
+                        ev.get("product", ""),
+                        ev.get("severity", ""),
+                        ev.get("cvss", ""),
+                        ev.get("description", ""),
+                    ])
+                csv_content = output.getvalue()
+                resp = make_response(csv_content)
+                resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+                resp.headers["Content-Disposition"] = f'attachment; filename="marlinspike-audit-{safe_proj_name}.csv"'
+                return resp
 
-        json_bytes = json.dumps(audit_data, indent=2).encode("utf-8")
-        return Response(
-            json_bytes,
-            mimetype="application/json",
-            headers={
-                "Content-Disposition": f'attachment; filename="marlinspike-audit-{safe_proj_name}.json"'
-            },
-        )
+            json_str = json.dumps(audit_data, indent=2)
+            resp = make_response(json_str)
+            resp.headers["Content-Type"] = "application/json; charset=utf-8"
+            resp.headers["Content-Disposition"] = f'attachment; filename="marlinspike-audit-{safe_proj_name}.json"'
+            return resp
+        except Exception as err:
+            log.exception("Audit report download error for pid %s: %s", pid, err)
+            return jsonify({"ok": False, "error": str(err)}), 500
 
     @app.route("/projects/<int:pid>/assets/<path:asset_key>")
     @login_required
