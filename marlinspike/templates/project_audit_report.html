@@ -115,7 +115,9 @@ tr:hover { background: rgba(91,138,240,0.04); }
   <h1><span>MarlinSpike</span> — Project Audit Report</h1>
   <div class="actions">
     <a href="/projects" class="btn">Back to Projects</a>
-    <button onclick="window.print()" class="btn btn-accent">Export / Print Audit</button>
+    <a href="/api/projects/{{ project.id }}/audit-report/download?format=csv" class="btn">Download CSV</a>
+    <a href="/api/projects/{{ project.id }}/audit-report/download?format=json" class="btn">Download JSON</a>
+    <button onclick="window.print()" class="btn btn-accent">Print / Export PDF</button>
   </div>
 </div>
 
