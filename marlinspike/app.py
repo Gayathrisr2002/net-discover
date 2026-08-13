@@ -3777,11 +3777,11 @@ def create_app():
         if not proj:
             return "Project not found", 404
 
-        rdir = os.path.join(config.REPORTS_DIR, str(proj.user_id), str(pid))
+        rdir = user_reports_dir(pid)
         reports_list = []
         if os.path.isdir(rdir):
             for fn in sorted(os.listdir(rdir)):
-                if fn.endswith(".json") and not fn.endswith(".stix.json") and not fn.endswith(".navigator.json"):
+                if _is_primary_report_filename(fn):
                     path = os.path.join(rdir, fn)
                     try:
                         rep = _load_report_with_extensions(path, ensure_mitre=False)
@@ -3801,11 +3801,11 @@ def create_app():
         if not proj:
             return jsonify({"ok": False, "error": "Project not found"}), 404
 
-        rdir = os.path.join(config.REPORTS_DIR, str(proj.user_id), str(pid))
+        rdir = user_reports_dir(pid)
         reports_list = []
         if os.path.isdir(rdir):
             for fn in sorted(os.listdir(rdir)):
-                if fn.endswith(".json") and not fn.endswith(".stix.json") and not fn.endswith(".navigator.json"):
+                if _is_primary_report_filename(fn):
                     path = os.path.join(rdir, fn)
                     try:
                         rep = _load_report_with_extensions(path, ensure_mitre=False)
