@@ -142,18 +142,20 @@ def _live_argv_matches(actual: list[str], expected: list[str]) -> bool:
     if not actual or not expected:
         return False
     actual_elements = set(actual)
-    # First pass: prefer path-shaped tokens (contains "/")
-    for token in expected[1:]:
-        if not token or token.startswith("-"):
-            continue
-        if "/" in token and token in actual_elements:
-            return True
-    # Fallback pass: check any non-flag token
+
+    # Collect path-shaped tokens from expected[1:] (tokens containing "/")
+    path_tokens = [t for t in expected[1:] if t and not t.startswith("-") and "/" in t]
+    if path_tokens:
+        # If expected contains path tokens (e.g. per-run pcap/report path), one MUST match
+        return any(t in actual_elements for t in path_tokens)
+
+    # Fallback pass when expected has no path tokens (e.g. unit tests or simple commands)
     for token in expected[1:]:
         if not token or token.startswith("-"):
             continue
         if token in actual_elements:
             return True
+
     return False
 
 
