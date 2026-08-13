@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarlinSpike — Project Historical Vulnerability Audit Report</title>
+<style nonce="{{ csp_nonce }}">
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(/static/fonts/inter-latin.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url(/static/fonts/fira-code-latin.woff2) format('woff2');
+}
+:root {
+  --bg: #0d1720;
+  --bg-deep: #090e18;
+  --panel: #14202f;
+  --panel-alt: #101928;
+  --border: #1f3048;
+  --border-dim: #111d30;
+  --text: #cdd8e3;
+  --text-dim: #6e7f96;
+  --text-muted: #344056;
+  --accent: #5b8af0;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-success: #22c55e;
+  --font-mono: 'Fira Code','Cascadia Code','Consolas', monospace;
+  --font-ui: 'Inter','Segoe UI', system-ui, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 14px; -webkit-font-smoothing: antialiased; }
+
+.topbar {
+  display: flex; align-items: center; gap: 16px; padding: 12px 24px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 1.1em; font-weight: 700; }
+.topbar h1 span { color: var(--color-danger); }
+.topbar .actions { margin-left: auto; display: flex; gap: 8px; }
+
+.btn {
+  padding: 6px 14px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--panel-alt); color: var(--text); font-size: 0.84em;
+  cursor: pointer; text-decoration: none; transition: border-color 0.15s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn-accent { border-color: var(--accent); color: var(--accent); }
+
+.container { max-width: 1280px; margin: 24px auto; padding: 0 24px; }
+
+.summary-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 18px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.card .label { font-size: 0.75em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; letter-spacing: 0.5px; }
+.card .val { font-size: 1.8em; font-weight: 700; margin-top: 6px; font-family: var(--font-mono); }
+.card .sub { font-size: 0.8em; color: var(--text-dim); margin-top: 4px; }
+
+.val-danger { color: var(--color-danger); }
+.val-success { color: var(--color-success); }
+.val-warning { color: var(--color-warning); }
+
+.section-title { font-size: 1em; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+
+.toolbar {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px 6px 0 0;
+}
+.toolbar input, .toolbar select {
+  padding: 6px 10px; background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); font-family: var(--font-ui); font-size: 0.85em;
+}
+
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+th {
+  text-align: left; padding: 10px 14px; font-size: 0.75em; text-transform: uppercase;
+  color: var(--text-dim); background: var(--bg-deep); border-bottom: 1px solid var(--border);
+  font-weight: 600; font-family: var(--font-mono);
+}
+td { padding: 10px 14px; border-bottom: 1px solid var(--border-dim); }
+tr:hover { background: rgba(91,138,240,0.04); }
+
+.badge-event {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px;
+  border-radius: 4px; font-size: 0.76em; font-weight: 700; font-family: var(--font-mono);
+}
+.event-discovered { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.event-remediated { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+.event-reopened { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+
+.chip-sev { padding: 2px 6px; border-radius: 3px; font-size: 0.75em; font-weight: 700; font-family: var(--font-mono); }
+.sev-critical { background: rgba(239,68,68,0.2); color: #ef4444; }
+.sev-high { background: rgba(249,115,22,0.2); color: #f97316; }
+.sev-medium { background: rgba(245,158,11,0.2); color: #f59e0b; }
+.sev-low { background: rgba(59,130,246,0.2); color: #3b82f6; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1><span>MarlinSpike</span> — Project Audit Report</h1>
+  <div class="actions">
+    <a href="/projects" class="btn">Back to Projects</a>
+    <button onclick="window.print()" class="btn btn-accent">Export / Print Audit</button>
+  </div>
+</div>
+
+<div class="container">
+  
+  <div class="summary-cards">
+    <div class="card">
+      <div class="label">Total Vulnerabilities Discovered</div>
+      <div class="val">{{ audit.summary.total_discovered }}</div>
+      <div class="sub">Across {{ audit.summary.total_scans }} historical scans</div>
+    </div>
+    <div class="card">
+      <div class="label">Remediated / Resolved</div>
+      <div class="val val-success">{{ audit.summary.remediated }}</div>
+      <div class="sub">Vulnerabilities fixed</div>
+    </div>
+    <div class="card">
+      <div class="label">Active / Open</div>
+      <div class="val val-danger">{{ audit.summary.active }}</div>
+      <div class="sub">Requires remediation</div>
+    </div>
+    <div class="card">
+      <div class="label">Remediation Rate</div>
+      <div class="val val-warning">{{ audit.summary.remediation_rate }}%</div>
+      <div class="sub">Resolution efficiency</div>
+    </div>
+  </div>
+
+  <div class="section-title">📅 Day-by-Day Historical Vulnerability Audit Ledger</div>
+
+  <div class="toolbar">
+    <input type="text" id="search-input" onkeyup="filterAudit()" placeholder="Search CVE, Asset IP, Vendor...">
+    <select id="event-filter" onchange="filterAudit()">
+      <option value="">All Event Types</option>
+      <option value="DISCOVERED">Discovered (🔴)</option>
+      <option value="REMEDIATED">Remediated (🟢)</option>
+      <option value="REOPENED">Reopened (🟡)</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <table id="audit-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Event Type</th>
+          <th>Vulnerability / CVE</th>
+          <th>Asset IP</th>
+          <th>Vendor & Model</th>
+          <th>Severity</th>
+          <th>Audit Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in audit.timeline_events %}
+        <tr class="audit-row" data-event="{{ ev.event_type }}" data-text="{{ ev.vulnerability_id }} {{ ev.ip }} {{ ev.vendor }} {{ ev.title }}">
+          <td style="font-family:var(--font-mono);font-size:0.88em">{{ ev.date }}</td>
+          <td>
+            {% if ev.event_type == 'DISCOVERED' %}
+              <span class="badge-event event-discovered">🔴 DISCOVERED</span>
+            {% elif ev.event_type == 'REMEDIATED' %}
+              <span class="badge-event event-remediated">🟢 REMEDIATED</span>
+            {% else %}
+              <span class="badge-event event-reopened">🟡 REOPENED</span>
+            {% endif %}
+          </td>
+          <td style="font-family:var(--font-mono);font-weight:600">{{ ev.vulnerability_id }}</td>
+          <td style="font-family:var(--font-mono)">{{ ev.ip }}</td>
+          <td>{{ ev.vendor }} {{ ev.product }}</td>
+          <td>
+            <span class="chip-sev sev-{{ ev.severity.lower() }}">{{ ev.severity }}</span>
+          </td>
+          <td style="color:var(--text-dim);font-size:0.88em">{{ ev.description }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" style="text-align:center;padding:24px;color:var(--text-dim)">No historical vulnerability audit events recorded for this project.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script nonce="{{ csp_nonce }}">
+function filterAudit() {
+  var q = document.getElementById('search-input').value.toLowerCase();
+  var evFilter = document.getElementById('event-filter').value;
+  var rows = document.querySelectorAll('.audit-row');
+
+  rows.forEach(function(r) {
+    var text = r.getAttribute('data-text').toLowerCase();
+    var ev = r.getAttribute('data-event');
+    var matchQ = !q || text.indexOf(q) >= 0;
+    var matchEv = !evFilter || ev === evFilter;
+
+    if (matchQ && matchEv) {
+      r.style.display = '';
+    } else {
+      r.style.display = 'none';
+    }
+  });
+}
+</script>
+
+</body>
+</html>

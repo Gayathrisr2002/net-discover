@@ -3770,6 +3770,54 @@ def create_app():
         reports.sort(key=lambda r: r["modified"], reverse=True)
         return jsonify({"reports": reports})
 
+    @app.route("/projects/<int:pid>/audit-report")
+    @login_required
+    def project_audit_report_page(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return "Project not found", 404
+
+        rdir = os.path.join(config.REPORTS_DIR, str(proj.user_id), str(pid))
+        reports_list = []
+        if os.path.isdir(rdir):
+            for fn in sorted(os.listdir(rdir)):
+                if fn.endswith(".json") and not fn.endswith(".stix.json") and not fn.endswith(".navigator.json"):
+                    path = os.path.join(rdir, fn)
+                    try:
+                        rep = _load_report_with_extensions(path, ensure_mitre=False)
+                        if rep:
+                            reports_list.append(rep)
+                    except Exception:
+                        pass
+
+        from marlinspike.project_audit import generate_project_audit_report
+        audit_data = generate_project_audit_report(reports_list)
+        return render_template("project_audit_report.html", project=proj, audit=audit_data)
+
+    @app.route("/api/projects/<int:pid>/audit-report")
+    @login_required
+    def api_project_audit_report(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        rdir = os.path.join(config.REPORTS_DIR, str(proj.user_id), str(pid))
+        reports_list = []
+        if os.path.isdir(rdir):
+            for fn in sorted(os.listdir(rdir)):
+                if fn.endswith(".json") and not fn.endswith(".stix.json") and not fn.endswith(".navigator.json"):
+                    path = os.path.join(rdir, fn)
+                    try:
+                        rep = _load_report_with_extensions(path, ensure_mitre=False)
+                        if rep:
+                            reports_list.append(rep)
+                    except Exception:
+                        pass
+
+        from marlinspike.project_audit import generate_project_audit_report
+        audit_data = generate_project_audit_report(reports_list)
+        return jsonify({"ok": True, "project_id": pid, "audit": audit_data})
+
     @app.route("/projects/<int:pid>/assets/<path:asset_key>")
     @login_required
     def asset_baseline_page(pid, asset_key):

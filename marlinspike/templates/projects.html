@@ -708,6 +708,7 @@
             <button class="btn btn-primary" onclick="PROJ.setTab('pcaps')">{{ t('projects.action_capture_intake') }}</button>
             <button class="btn" onclick="PROJ.setTab('reports')">{{ t('projects.action_reports') }}</button>
             <button class="btn" onclick="PROJ.setTab('history')">{{ t('projects.action_history') }}</button>
+            <a class="btn btn-accent" id="proj-audit-btn" href="#" target="_blank">Historical Audit Report</a>
           </div>
         </section>
 
@@ -1217,6 +1218,9 @@ var PROJ = (function() {
     // GET/PUT /api/projects/<pid>/webhook both call _get_project_for_user(pid, "owner")).
     document.getElementById('proj-tab-settings-btn').style.display = isOwnerProject() ? '' : 'none';
     if (!isOwnerProject() && currentTab === 'settings') setTab('overview');
+
+    var auditBtn = document.getElementById('proj-audit-btn');
+    if (auditBtn) auditBtn.href = '/projects/' + pid + '/audit-report';
 
     // Hydrate workspace summary and all tab data so project KPIs stay accurate
     loadFiles();
