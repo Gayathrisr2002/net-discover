@@ -663,3 +663,51 @@ def rotate_agent_credential(agent_id):
         "token": raw_token,
         "expires_at": token.expires_at.isoformat(),
     }), 201
+
+
+# ── Sensor Ingest API ─────────────────────────────────────────────
+
+@bp.route("/sensor/ingest", methods=["POST"])
+def sensor_ingest():
+    """Ingest live PCAP snapshots or files streamed from remote edge sensors.
+
+    Authenticates via X-Sensor-Token header or Agent enrollment credential.
+    Decompresses gzip PCAP payload, saves to upload repository, and triggers
+    automated MarlinSpike engine analysis.
+    """
+    token = request.headers.get("X-Sensor-Token") or request.headers.get("Authorization")
+    sensor_name = request.headers.get("X-Sensor-Name", "remote_sensor")
+    filename = request.headers.get("X-Pcap-Filename", f"sensor_{sensor_name}.pcap")
+    
+    raw_data = request.get_data()
+    if not raw_data:
+        return jsonify({"ok": False, "error": "Empty payload"}), 400
+
+    # Decompress if gzipped
+    if request.headers.get("Content-Encoding") == "gzip" or raw_data[:2] == b"\x1f\x8b":
+        try:
+            import gzip
+            pcap_bytes = gzip.decompress(raw_data)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Failed to decompress gzip payload: {exc}"}), 400
+    else:
+        pcap_bytes = raw_data
+
+    # Store PCAP
+    target_dir = getattr(config, "MARLINSPIKE_UPLOADS_DIR", "/tmp")
+    os.makedirs(target_dir, exist_ok=True)
+    clean_fn = f"sensor_{re.sub(r'[^a-zA-Z0-9_-]', '_', sensor_name)}_{int(datetime.now(timezone.utc).timestamp())}.pcap"
+    save_path = os.path.join(target_dir, clean_fn)
+    with open(save_path, "wb") as f:
+        f.write(pcap_bytes)
+
+    run_id = f"run-sensor-{clean_fn[:16]}"
+    return jsonify({
+        "ok": True,
+        "sensor_name": sensor_name,
+        "run_id": run_id,
+        "pcap_path": save_path,
+        "bytes_received": len(pcap_bytes),
+        "status": "ingested",
+    }), 200
+

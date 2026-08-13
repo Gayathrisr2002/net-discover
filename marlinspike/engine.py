@@ -5767,6 +5767,26 @@ def run_chain(args):
         report.c2_indicators.extend(malware_result["c2_indicators"])
         report.risk_findings.extend(malware_result["risk_findings"])
 
+    # ── Stage 4c: CISA ICS-CERT & CVE Vulnerability Correlation ──
+    try:
+        from marlinspike.ics_cve import correlate_ics_vulnerabilities
+        nodes_data = [asdict(n) if hasattr(n, "__dataclass_fields__") else n for n in report.nodes]
+        updated_nodes, cisa_findings = correlate_ics_vulnerabilities(nodes_data, report.conversations)
+        report.nodes = updated_nodes
+        for f in cisa_findings:
+            rf = RiskFinding(
+                severity=f["severity"],
+                category=f["category"],
+                description=f["description"],
+                affected_nodes=f["affected_nodes"],
+                affected_edges=f.get("affected_edges", []),
+                cvss_impact=f.get("cvss_impact", 0.0),
+                remediation=f.get("remediation", ""),
+            )
+            report.risk_findings.append(rf)
+    except Exception as exc:
+        print(f"  [!] CISA ICS vulnerability correlation skipped: {exc}")
+
     # Port summary from dissector
     _save_intermediate(report, args.output, "Risk Surface Report")
 
