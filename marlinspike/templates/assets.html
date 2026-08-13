@@ -217,9 +217,9 @@ tr.detail-row td {
 </div>
 
 <script nonce="{{ csp_nonce }}">
-var REPORT = {{ report_json | tojson }};
-var FILENAME = {{ filename | tojson }};
-var FINDINGS_LABEL_PLURAL = {{ t('taxonomy.finding.label_plural') | tojson }};
+var REPORT = {{ (report_json or {}) | tojson | safe }};
+var FILENAME = {{ (filename or "") | tojson | safe }};
+var FINDINGS_LABEL_PLURAL = {{ t('taxonomy.finding.label_plural') | tojson | safe }};
 
 /* Taxonomy severity chip renderer (standalone page — no base.html) */
 var _SEV_CHIP_MAP = { CRITICAL: 'chip-critical', HIGH: 'chip-high', MEDIUM: 'chip-medium', LOW: 'chip-low', INFO: 'chip-info' };
