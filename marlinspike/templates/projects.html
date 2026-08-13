@@ -708,7 +708,7 @@
             <button class="btn btn-primary" onclick="PROJ.setTab('pcaps')">{{ t('projects.action_capture_intake') }}</button>
             <button class="btn" onclick="PROJ.setTab('reports')">{{ t('projects.action_reports') }}</button>
             <button class="btn" onclick="PROJ.setTab('history')">{{ t('projects.action_history') }}</button>
-            <a class="btn btn-accent" id="proj-audit-btn" href="#" target="_blank">Historical Audit Report</a>
+            <button class="btn btn-accent" id="proj-audit-btn" onclick="PROJ.openAuditReport(event)">Historical Audit Report</button>
           </div>
         </section>
 
@@ -1220,12 +1220,21 @@ var PROJ = (function() {
     if (!isOwnerProject() && currentTab === 'settings') setTab('overview');
 
     var auditBtn = document.getElementById('proj-audit-btn');
-    if (auditBtn) auditBtn.href = '/projects/' + pid + '/audit-report';
+    if (auditBtn) auditBtn.href = '/projects/' + id + '/audit-report';
 
     // Hydrate workspace summary and all tab data so project KPIs stay accurate
     loadFiles();
     loadReports();
     loadHistory();
+  }
+
+  function openAuditReport(e) {
+    if (e) e.preventDefault();
+    if (currentProject && currentProject.id) {
+      window.location.href = '/projects/' + currentProject.id + '/audit-report';
+    } else {
+      msToast('Please select a project first', true);
+    }
   }
 
   function showNewForm() {
@@ -2284,6 +2293,7 @@ var PROJ = (function() {
     generateAllMissingRecommendations: generateAllMissingRecommendations,
     cancelRename: cancelRename,
     deleteProject: deleteProject,
+    openAuditReport: openAuditReport,
     setTab: setTab,
     selectPcap: selectPcap,
     deleteFile: deleteFile,
