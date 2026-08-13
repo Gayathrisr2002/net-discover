@@ -443,12 +443,16 @@ function renderTable() {
 
     // Details summary
     var details = [];
-    if (n.product_line) details.push(esc(n.product_line));
-    if (n.system_name) details.push('<span class="lbl">Sys:</span> '+esc(n.system_name));
+    if (n.product_line) details.push('<span class="lbl">Product:</span> '+esc(n.product_line));
+    if (n.hardware_model) details.push('<span class="lbl">Model:</span> '+esc(n.hardware_model));
+    if (n.firmware_version) details.push('<span class="lbl">FW:</span> '+esc(n.firmware_version));
+    if (n.serial_number) details.push('<span class="lbl">SN:</span> '+esc(n.serial_number));
+    if (n.system_name) details.push('<span class="lbl">Host:</span> '+esc(n.system_name));
     if (n.system_desc) details.push('<span class="lbl">Desc:</span> '+esc(n.system_desc));
     if (n.mgmt_ip) details.push('<span class="lbl">Mgmt:</span> '+esc(n.mgmt_ip));
     if (n.vlans && n.vlans.length) details.push('<span class="lbl">VLANs:</span> '+n.vlans.join(', '));
     if (n.capabilities && n.capabilities.length) details.push('<span class="lbl">Cap:</span> '+n.capabilities.map(esc).join(', '));
+    if (n.cve_vulnerabilities && n.cve_vulnerabilities.length) details.push('<span class="lbl" style="color:var(--sev-critical)">CVEs:</span> '+n.cve_vulnerabilities.length);
     if (n.recommended_modules && n.recommended_modules.length) details.push('<span class="lbl">Modules:</span> '+n.recommended_modules.map(esc).join(', '));
     var netRole = (n.initiates&&n.responds)?'init+resp':n.initiates?'initiator':n.responds?'responder':'passive';
     details.push('<span class="lbl">Net:</span> '+netRole);
@@ -516,6 +520,13 @@ function appendDetailRow(tbody, n) {
       html += '<div class="risk-line">' + msSevChipInline(r.severity) + ' ' + esc(r.description);
       if (r.remediation) html += '<br><span style="color:var(--accent);font-size:0.9em">Rec: '+esc(r.remediation)+'</span>';
       html += '</div>';
+    });
+  }
+
+  if (n.cve_vulnerabilities && n.cve_vulnerabilities.length) {
+    html += '<div style="margin:8px 0 4px;font-weight:600;font-size:0.82em;color:var(--sev-critical);text-transform:uppercase">CISA ICS Advisories & CVE Vulnerabilities ('+n.cve_vulnerabilities.length+')</div>';
+    n.cve_vulnerabilities.forEach(function(v) {
+      html += '<div class="risk-line"><span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 6px;border-radius:3px;font-family:var(--font-mono);font-size:0.85em;font-weight:600;border:1px solid rgba(239,68,68,0.3)">'+esc(v.cve || v.id)+'</span> <b>'+esc(v.title)+'</b> (CVSS '+v.cvss+')</div>';
     });
   }
 
