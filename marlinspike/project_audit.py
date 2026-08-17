@@ -176,10 +176,15 @@ def generate_project_audit_report(reports_list: list[dict[str, Any]]) -> dict[st
                     "description": f"Vulnerability {info['id']} REMEDIATED / RESOLVED on asset {info['ip']}.",
                 })
 
+        remediated_so_far = sum(1 for v in vuln_tracker.values() if v["status"] == "remediated")
+        total_so_far = len(vuln_tracker)
+
         daily_snapshots.append({
             "date": date_str,
             "report_name": report.get("report_name") or f"report_{idx+1}",
             "active_vulnerabilities": len(current_report_vulns),
+            "remediated_vulnerabilities": remediated_so_far,
+            "total_discovered": total_so_far,
             "total_nodes": len(nodes),
         })
 

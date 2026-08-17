@@ -107,6 +107,33 @@ tr:hover { background: rgba(91,138,240,0.04); }
 .sev-high { background: rgba(249,115,22,0.2); color: #f97316; }
 .sev-medium { background: rgba(245,158,11,0.2); color: #f59e0b; }
 .sev-low { background: rgba(59,130,246,0.2); color: #3b82f6; }
+
+.trend-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.trend-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 12px;
+}
+.trend-title { font-size: 1.05em; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.trend-legend { display: flex; align-items: center; gap: 16px; font-size: 0.82em; font-weight: 600; flex-wrap: wrap; }
+.legend-item {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+  opacity: 0.85; transition: opacity 0.15s;
+}
+.legend-item:hover { opacity: 1.0; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.chart-wrap { position: relative; width: 100%; height: 280px; }
+.chart-svg { width: 100%; height: 100%; overflow: visible; }
+.chart-tooltip {
+  position: absolute; display: none; pointer-events: none;
+  background: var(--bg-deep); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 14px; font-size: 0.82em; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  z-index: 10; white-space: nowrap;
+}
+.chart-tooltip .tt-title { font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.chart-tooltip .tt-row { display: flex; gap: 8px; align-items: center; margin-top: 3px; color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -143,6 +170,31 @@ tr:hover { background: rgba(91,138,240,0.04); }
       <div class="label">Remediation Rate</div>
       <div class="val val-warning">{{ audit.summary.remediation_rate }}%</div>
       <div class="sub">Resolution efficiency</div>
+    </div>
+  </div>
+
+  <!-- Historical Vulnerability Trend Graph Card -->
+  <div class="trend-card">
+    <div class="trend-header">
+      <div class="trend-title">📈 Vulnerability & Risk Trend Timeline</div>
+      <div class="trend-legend">
+        <span class="legend-item" id="leg-active" onclick="toggleSeries('active')">
+          <span class="legend-dot" style="background:#ef4444"></span> Active Vulns
+        </span>
+        <span class="legend-item" id="leg-remediated" onclick="toggleSeries('remediated')">
+          <span class="legend-dot" style="background:#22c55e"></span> Remediated
+        </span>
+        <span class="legend-item" id="leg-total" onclick="toggleSeries('total')">
+          <span class="legend-dot" style="background:#5b8af0"></span> Total Discovered
+        </span>
+        <span class="legend-item" id="leg-nodes" onclick="toggleSeries('nodes')">
+          <span class="legend-dot" style="background:#06b6d4"></span> Scanned Assets
+        </span>
+      </div>
+    </div>
+    <div class="chart-wrap" id="chart-container">
+      <div id="chart-tooltip" class="chart-tooltip"></div>
+      <svg id="trend-svg" class="chart-svg" viewBox="0 0 1000 280" preserveAspectRatio="none"></svg>
     </div>
   </div>
 
@@ -204,6 +256,191 @@ tr:hover { background: rgba(91,138,240,0.04); }
 </div>
 
 <script nonce="{{ csp_nonce }}">
+var snapshots = {{ audit.daily_snapshots | tojson | safe }};
+
+var seriesVisibility = {
+  active: true,
+  remediated: true,
+  total: true,
+  nodes: false
+};
+
+function toggleSeries(key) {
+  seriesVisibility[key] = !seriesVisibility[key];
+  var el = document.getElementById('leg-' + key);
+  if (el) {
+    el.style.opacity = seriesVisibility[key] ? '1.0' : '0.4';
+  }
+  renderTrendChart();
+}
+
+function renderTrendChart() {
+  var svg = document.getElementById('trend-svg');
+  if (!svg) return;
+  svg.innerHTML = '';
+
+  if (!snapshots || snapshots.length === 0) {
+    svg.innerHTML = '<text x="500" y="140" fill="#6e7f96" text-anchor="middle" font-size="14">No historical scan snapshots available to generate trend chart.</text>';
+    return;
+  }
+
+  var width = 1000;
+  var height = 280;
+  var padding = { top: 30, right: 40, bottom: 40, left: 50 };
+  var plotW = width - padding.left - padding.right;
+  var plotH = height - padding.top - padding.bottom;
+
+  var maxY = 5;
+  snapshots.forEach(function(s) {
+    if (seriesVisibility.active && s.active_vulnerabilities > maxY) maxY = s.active_vulnerabilities;
+    if (seriesVisibility.remediated && (s.remediated_vulnerabilities || 0) > maxY) maxY = (s.remediated_vulnerabilities || 0);
+    if (seriesVisibility.total && (s.total_discovered || 0) > maxY) maxY = (s.total_discovered || 0);
+    if (seriesVisibility.nodes && s.total_nodes > maxY) maxY = s.total_nodes;
+  });
+  maxY = Math.ceil(maxY * 1.15);
+
+  var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  defs.innerHTML = '<linearGradient id="grad-active" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" stop-color="#ef4444" stop-opacity="0.25"/>' +
+    '<stop offset="100%" stop-color="#ef4444" stop-opacity="0.0"/>' +
+    '</linearGradient>' +
+    '<linearGradient id="grad-remediated" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" stop-color="#22c55e" stop-opacity="0.2"/>' +
+    '<stop offset="100%" stop-color="#22c55e" stop-opacity="0.0"/>' +
+    '</linearGradient>';
+  svg.appendChild(defs);
+
+  var gridCount = 4;
+  for (var i = 0; i <= gridCount; i++) {
+    var val = Math.round((maxY / gridCount) * i);
+    var y = padding.top + plotH - (val / maxY) * plotH;
+
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', padding.left);
+    line.setAttribute('y1', y);
+    line.setAttribute('x2', width - padding.right);
+    line.setAttribute('y2', y);
+    line.setAttribute('stroke', '#1f3048');
+    line.setAttribute('stroke-dasharray', '4 4');
+    svg.appendChild(line);
+
+    var label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', padding.left - 10);
+    label.setAttribute('y', y + 4);
+    label.setAttribute('fill', '#6e7f96');
+    label.setAttribute('font-size', '11');
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('font-family', 'Fira Code, monospace');
+    label.textContent = val;
+    svg.appendChild(label);
+  }
+
+  var getX = function(idx) {
+    if (snapshots.length === 1) return padding.left + plotW / 2;
+    return padding.left + (idx / (snapshots.length - 1)) * plotW;
+  };
+  var getY = function(val) {
+    return padding.top + plotH - (val / maxY) * plotH;
+  };
+
+  snapshots.forEach(function(s, idx) {
+    var x = getX(idx);
+    var label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', x);
+    label.setAttribute('y', height - 12);
+    label.setAttribute('fill', '#6e7f96');
+    label.setAttribute('font-size', '11');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-family', 'Fira Code, monospace');
+    label.textContent = s.date;
+    svg.appendChild(label);
+  });
+
+  var seriesList = [
+    { key: 'active', color: '#ef4444', grad: 'url(#grad-active)', valFn: function(s) { return s.active_vulnerabilities; } },
+    { key: 'remediated', color: '#22c55e', grad: 'url(#grad-remediated)', valFn: function(s) { return s.remediated_vulnerabilities || 0; } },
+    { key: 'total', color: '#5b8af0', grad: null, valFn: function(s) { return s.total_discovered || 0; } },
+    { key: 'nodes', color: '#06b6d4', grad: null, valFn: function(s) { return s.total_nodes; } }
+  ];
+
+  seriesList.forEach(function(series) {
+    if (!seriesVisibility[series.key]) return;
+
+    var pts = snapshots.map(function(s, idx) {
+      return { x: getX(idx), y: getY(series.valFn(s)), val: series.valFn(s), snap: s };
+    });
+
+    if (series.grad && pts.length > 1) {
+      var areaD = 'M ' + pts[0].x + ' ' + (padding.top + plotH) + ' ' +
+        pts.map(function(p) { return 'L ' + p.x + ' ' + p.y; }).join(' ') +
+        ' L ' + pts[pts.length - 1].x + ' ' + (padding.top + plotH) + ' Z';
+      var area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      area.setAttribute('d', areaD);
+      area.setAttribute('fill', series.grad);
+      svg.appendChild(area);
+    }
+
+    if (pts.length > 1) {
+      var lineD = 'M ' + pts.map(function(p) { return p.x + ' ' + p.y; }).join(' L ');
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', lineD);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', series.color);
+      path.setAttribute('stroke-width', '2.5');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(path);
+    }
+
+    pts.forEach(function(p) {
+      var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', p.x);
+      circle.setAttribute('cy', p.y);
+      circle.setAttribute('r', '5');
+      circle.setAttribute('fill', series.color);
+      circle.setAttribute('stroke', '#0d1720');
+      circle.setAttribute('stroke-width', '2');
+      circle.setAttribute('style', 'cursor:pointer');
+
+      circle.addEventListener('mouseenter', function(e) {
+        circle.setAttribute('r', '7');
+        showTooltip(e, p.snap);
+      });
+      circle.addEventListener('mouseleave', function() {
+        circle.setAttribute('r', '5');
+        hideTooltip();
+      });
+      svg.appendChild(circle);
+    });
+  });
+}
+
+function showTooltip(evt, snap) {
+  var tt = document.getElementById('chart-tooltip');
+  if (!tt) return;
+  var container = document.getElementById('chart-container');
+  var rect = container.getBoundingClientRect();
+
+  var left = evt.clientX - rect.left + 15;
+  var top = evt.clientY - rect.top - 40;
+
+  tt.innerHTML = '<div class="tt-title">📅 ' + snap.date + ' (' + snap.report_name + ')</div>' +
+    '<div class="tt-row"><span style="color:#ef4444">🔴 Active Vulns:</span> <strong>' + snap.active_vulnerabilities + '</strong></div>' +
+    '<div class="tt-row"><span style="color:#22c55e">🟢 Remediated:</span> <strong>' + (snap.remediated_vulnerabilities || 0) + '</strong></div>' +
+    '<div class="tt-row"><span style="color:#5b8af0">🔵 Total Discovered:</span> <strong>' + (snap.total_discovered || 0) + '</strong></div>' +
+    '<div class="tt-row"><span style="color:#06b6d4">🩵 Scanned Assets:</span> <strong>' + snap.total_nodes + '</strong></div>';
+  tt.style.left = left + 'px';
+  tt.style.top = top + 'px';
+  tt.style.display = 'block';
+}
+
+function hideTooltip() {
+  var tt = document.getElementById('chart-tooltip');
+  if (tt) tt.style.display = 'none';
+}
+
+document.addEventListener('DOMContentLoaded', renderTrendChart);
+
 function filterAudit() {
   var q = document.getElementById('search-input').value.toLowerCase();
   var evFilter = document.getElementById('event-filter').value;
