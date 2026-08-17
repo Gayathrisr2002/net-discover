@@ -208,11 +208,13 @@ generation, matching the gate on other mutating project actions.
 
 ### Prompt design
 
-The system prompt asks for a concise (under ~200 words), actionable,
-plain-text recommendation, and explicitly asks the model to factor in
-ICS/OT/Purdue-level context when present — a finding on an OT asset
-often needs network segmentation rather than "just apply the patch,"
-since many OT devices can't tolerate the downtime a patch cycle implies.
+The system prompt instructs the model to provide a comprehensive remediation analysis detailing:
+1. Full vulnerability details
+2. Impact on the system and network
+3. Relevant support article and vendor advisory links
+4. Step-by-step resolution instructions
+
+It also explicitly asks the model to factor in ICS/OT/Purdue-level context when present — a finding on an OT asset often needs network segmentation rather than "just apply the patch," since many OT devices can't tolerate the downtime a patch cycle implies.
 
 ### What gets sent to the LLM
 

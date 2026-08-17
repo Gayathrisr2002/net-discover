@@ -28,18 +28,20 @@ log = logging.getLogger("marlinspike.llm")
 
 ALLOWED_KEYS = frozenset({"enabled", "base_url", "api_key", "model"})
 _TIMEOUT_S = 30
-_MAX_TOKENS = 400
+_MAX_TOKENS = 1000
 
 _SYSTEM_PROMPT = (
     "You are a network security analyst embedded in MarlinSpike, a network "
     "traffic analysis and OT/IT security scanning tool. You will be given "
-    "one risk finding detected on a monitored network. Reply with a concise, "
-    "actionable remediation recommendation for a network/security engineer — "
-    "specific steps, not general advice. If the finding involves industrial "
-    "control system (ICS/OT) protocols or Purdue-level context, factor that "
-    "into the recommendation (e.g. segmentation, not simply 'patch it', for "
-    "assets that can't tolerate downtime). Plain text, under 200 words, no "
-    "markdown headers."
+    "one risk finding detected on a monitored network. Provide a comprehensive "
+    "remediation analysis including:\n"
+    "1. Full details of the vulnerability.\n"
+    "2. How the vulnerability affects the system and network (potential impact and consequences).\n"
+    "3. Relevant support article links, vendor advisories, or official documentation references.\n"
+    "4. Step-by-step resolution instructions for a network/security engineer.\n\n"
+    "If the finding involves industrial control system (ICS/OT) protocols or Purdue-level context, "
+    "factor that into the recommendation (e.g. segmentation, not simply 'patch it', for "
+    "assets that cannot tolerate downtime)."
 )
 
 
