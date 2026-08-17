@@ -208,20 +208,17 @@ generation, matching the gate on other mutating project actions.
 
 ### Prompt design
 
-The system prompt instructs the model to provide a comprehensive remediation analysis detailing:
-1. Full vulnerability details
-2. Impact on the system and network
-3. Relevant support article and vendor advisory links
-4. Step-by-step resolution instructions
+The system prompt instructs the model to act as a Senior Principal OT/IT Cybersecurity Specialist and produce a 4-section Security Advisory:
+1. **Executive & Technical Overview**: Detailed vulnerability explanation, protocol mechanics, and CVE/CWE references.
+2. **Potential Security & Operational Impact**: Exploitation feasibility, Purdue Model blast radius, and physical/digital consequences.
+3. **Step-by-Step Mitigation & Remediation Plan**: Immediate containment (segmentation/firewalls) and long-term fix (patching/firmware/hardening) with explicit commands and configuration snippets.
+4. **Official Advisories & Reference Documentation**: Direct links to vendor advisories (CISA ICS-CERT, Siemens SSA, Rockwell, NVD, MITRE ATT&CK).
 
-It also explicitly asks the model to factor in ICS/OT/Purdue-level context when present — a finding on an OT asset often needs network segmentation rather than "just apply the patch," since many OT devices can't tolerate the downtime a patch cycle implies.
+It also explicitly instructs the model to prioritize non-disruptive compensating controls (such as micro-segmentation and DPI firewalling) over immediate host reboots or aggressive patching for critical infrastructure and OT assets that cannot tolerate downtime.
 
 ### What gets sent to the LLM
 
-Only the finding's own fields: category, severity, description, affected
-asset identifiers (IPs/MACs — no raw packet data), CVSS impact, and any
-MITRE ATT&CK technique IDs already attached to it. No PCAP contents, no
-full topology, no other findings.
+Full finding context: category, severity level, engine description, CVSS impact, affected assets (IPs/MACs), affected communication paths (flow edges), MITRE ATT&CK techniques, engine baseline guidance, detection engine/plugin source, historical project occurrences, and first/last observed timestamps. No raw PCAP contents or sensitive credentials are sent.
 
 ---
 

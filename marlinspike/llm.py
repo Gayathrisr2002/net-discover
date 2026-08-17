@@ -28,20 +28,30 @@ log = logging.getLogger("marlinspike.llm")
 
 ALLOWED_KEYS = frozenset({"enabled", "base_url", "api_key", "model"})
 _TIMEOUT_S = 30
-_MAX_TOKENS = 1000
+_TIMEOUT_S = 30
+_MAX_TOKENS = 1500
 
 _SYSTEM_PROMPT = (
-    "You are a network security analyst embedded in MarlinSpike, a network "
-    "traffic analysis and OT/IT security scanning tool. You will be given "
-    "one risk finding detected on a monitored network. Provide a comprehensive "
-    "remediation analysis including:\n"
-    "1. Full details of the vulnerability.\n"
-    "2. How the vulnerability affects the system and network (potential impact and consequences).\n"
-    "3. Relevant support article links, vendor advisories, or official documentation references.\n"
-    "4. Step-by-step resolution instructions for a network/security engineer.\n\n"
-    "If the finding involves industrial control system (ICS/OT) protocols or Purdue-level context, "
-    "factor that into the recommendation (e.g. segmentation, not simply 'patch it', for "
-    "assets that cannot tolerate downtime)."
+    "You are a Senior Principal OT/IT Cybersecurity Specialist embedded in MarlinSpike, "
+    "an enterprise network traffic analysis, threat detection, and ICS/OT security scanning platform. "
+    "You are analyzing a detected risk finding from network traffic capture.\n\n"
+    "Provide a comprehensive, highly technical, and actionable security advisory structured with "
+    "the following exact Markdown sections:\n\n"
+    "### 1. Executive & Technical Overview\n"
+    "- Deep explanation of the underlying vulnerability, protocol weakness, or misconfiguration.\n"
+    "- Relevant CVE, CISA Advisory, or CWE IDs if applicable.\n\n"
+    "### 2. Potential Security & Operational Impact\n"
+    "- Attack vectors, exploitation feasibility, and blast radius across IT and Purdue Model ICS/OT layers (e.g., Level 1/2 Control vs Level 3 Operations).\n"
+    "- Potential impact on operations, physical process safety, confidentiality, or system availability.\n\n"
+    "### 3. Step-by-Step Mitigation & Remediation Plan\n"
+    "- Immediate containment actions (e.g., network segmentation, firewall rules, VLAN isolation, protocol filtering).\n"
+    "- Long-term remediation steps (e.g., firmware patching, secure credential rotation, protocol encryption, hardening guidelines).\n"
+    "- Specific technical commands, configuration changes, or architectural controls where applicable.\n\n"
+    "### 4. Official Advisories & Reference Documentation\n"
+    "- Direct links and references to vendor advisories (e.g., CISA ICS-CERT, Siemens SSA, Rockwell Automation, Schneider Electric, Microsoft, NVD CVE links, MITRE ATT&CK techniques).\n\n"
+    "Tailor your response specifically to the protocol and device types mentioned. For critical infrastructure "
+    "or operational technology (OT) assets that cannot tolerate downtime, prioritize non-disruptive compensating "
+    "controls (such as micro-segmentation, DPI firewalling, and anomaly monitoring) over immediate host reboots or aggressive patching."
 )
 
 
@@ -164,16 +174,38 @@ def _chat_completion(base_url: str, api_key: str, model: str, user_message: str)
 
 def _finding_prompt(finding: dict) -> str:
     lines = [
-        f"Category: {finding.get('category', 'unknown')}",
-        f"Severity: {finding.get('severity', 'unknown')}",
-        f"Description: {finding.get('description', '(none)')}",
+        "=== MARLINSPIKE RISK FINDING DATA ===",
+        f"Category: {finding.get('category', 'UNKNOWN')}",
+        f"Severity Level: {finding.get('severity', 'UNKNOWN')}",
+        f"Engine Description: {finding.get('description', '(none)')}",
     ]
+
+    cvss = finding.get("max_cvss_impact") if finding.get("max_cvss_impact") is not None else finding.get("cvss_impact")
+    if cvss is not None:
+        lines.append(f"CVSS Score / Impact: {cvss} / 10.0")
+
     if finding.get("affected_nodes"):
-        lines.append("Affected assets: " + ", ".join(str(n) for n in finding["affected_nodes"]))
-    if finding.get("cvss_impact") is not None:
-        lines.append(f"CVSS impact: {finding['cvss_impact']}")
+        lines.append(f"Affected Host Assets (IPs/MACs): {', '.join(str(n) for n in finding['affected_nodes'])}")
+
+    if finding.get("affected_edges"):
+        lines.append(f"Affected Communication Paths / Flows: {', '.join(str(e) for e in finding['affected_edges'])}")
+
     if finding.get("attack_ids"):
-        lines.append("MITRE ATT&CK techniques: " + ", ".join(str(t) for t in finding["attack_ids"]))
+        lines.append(f"MITRE ATT&CK Techniques: {', '.join(str(t) for t in finding['attack_ids'])}")
+
+    if finding.get("remediation"):
+        lines.append(f"Engine Baseline Guidance: {finding['remediation']}")
+
+    if finding.get("source"):
+        lines.append(f"Detection Source / DPI Engine: {finding['source']}")
+
+    if finding.get("occurrences"):
+        lines.append(f"Historical Occurrences in Project: {finding['occurrences']} scan(s)")
+
+    if finding.get("first_seen_modified") or finding.get("last_seen_modified"):
+        lines.append(f"First Observed: {finding.get('first_seen_modified', 'N/A')} | Last Observed: {finding.get('last_seen_modified', 'N/A')}")
+
+    lines.append("\nPlease generate the comprehensive 4-section Security Advisory based on this finding.")
     return "\n".join(lines)
 
 
