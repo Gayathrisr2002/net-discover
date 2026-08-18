@@ -3038,6 +3038,11 @@ var MS = (function() {
     return { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 }[sev] || 5;
   }
 
+  function findingTitle(f) {
+    if (!f) return '';
+    return f.title || f.cve_id || f.cve || f.category_label || f.type_label || f.category || f.type || 'Finding';
+  }
+
   function nodeRiskFindings(n) {
     return n && n._riskFindings ? n._riskFindings : [];
   }
@@ -6456,7 +6461,10 @@ var MS = (function() {
       html += '<div class="ms-finding-card" style="border-left:3px solid var(' + sevVar + ');cursor:default">';
       html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
       html += '<span class="ms-finding-chip" style="color:var(' + sevVar + ');border-color:var(' + sevVar + ')44;background:var(' + sevVar + ')14">' + esc(sev) + '</span>';
-      html += '<strong style="font-size:0.9em;color:var(--text)">' + esc(f.signature || f.category_label || f.category || '') + '</strong>';
+      html += '<strong style="font-size:0.9em;color:var(--text)">' + esc(findingTitle(f)) + '</strong>';
+      if (f.signature) {
+        html += '<span class="ms-finding-chip" style="font-size:0.72em;color:var(--text-muted);font-family:var(--font-mono)" title="' + esc(f.signature) + '">#' + esc(f.signature.slice(0, 8)) + '</span>';
+      }
       html += '</div>';
       if (f.description) html += '<div style="font-size:0.82em;color:var(--text-dim);margin-top:4px;">' + esc(f.description) + '</div>';
       if (affected.length) {
@@ -7040,7 +7048,9 @@ var MS = (function() {
       }).join(' ') + (affected.length > 2 ? ' +' + (affected.length - 2) : '') : '—';
       var note = f.note || {};
       var status = note.status || '';
-      var sigHtml = '<span style="font-family:var(--font-mono)">' + esc(f.signature || f.category_label || f.category || '') + '</span>';
+      var nameText = findingTitle(f);
+      var sigHtml = '<div><strong style="color:var(--text)">' + esc(nameText) + '</strong>' +
+        (f.signature ? ' <span style="font-size:0.75em;color:var(--text-muted);font-family:var(--font-mono)" title="' + esc(f.signature) + '">#' + esc(f.signature.slice(0, 8)) + '</span>' : '') + '</div>';
       var sevHtml = '<span style="color:var(' + sevVar + ')">' + esc(sev) + '</span>';
       html += tableRow([sigHtml, sevHtml, affectedHtml, esc(status) || '<span style="color:var(--text-muted)">—</span>']);
     });
