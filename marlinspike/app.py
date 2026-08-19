@@ -3530,39 +3530,64 @@ def create_app():
                     p_assets_count = len(assets)
                     p_findings_count = len(findings)
 
+                    sev_to_cvss = {"CRITICAL": 9.5, "HIGH": 7.5, "MEDIUM": 5.0, "LOW": 3.0, "INFO": 1.0}
                     for a in assets:
-                        v = a.get("vendor") or "Unknown"
+                        vendors_list = a.get("vendors") or []
+                        v = vendors_list[0] if vendors_list and vendors_list[0] else "Unknown"
                         p_vendors[v] = p_vendors.get(v, 0) + 1
                         global_vendors[v] = global_vendors.get(v, 0) + 1
 
-                        plevel = str(a.get("purdue_level") or "").strip()
-                        if "4" in plevel or "5" in plevel or "Enterprise" in plevel:
+                        roles_list = a.get("roles") or []
+                        role_str = roles_list[0] if roles_list and roles_list[0] else (a.get("device_types", ["OT Asset"])[0] if a.get("device_types") else "OT Asset")
+
+                        ips_list = a.get("ips") or []
+                        macs_list = a.get("macs") or []
+                        node_id = ips_list[0] if ips_list else (macs_list[0] if macs_list else (a.get("key") or "Unknown Node"))
+
+                        plevel_val = a.get("purdue_level")
+                        if plevel_val in (4, 5):
                             pkey = "Level 4/5"
-                        elif "3" in plevel or "Operations" in plevel:
+                        elif plevel_val == 3:
                             pkey = "Level 3"
-                        elif "2" in plevel or "Control" in plevel:
+                        elif plevel_val == 2:
                             pkey = "Level 2"
-                        elif "1" in plevel or "Process" in plevel:
+                        elif plevel_val == 1:
                             pkey = "Level 1"
-                        elif "0" in plevel or "Safety" in plevel:
+                        elif plevel_val == 0:
                             pkey = "Level 0"
                         else:
                             pkey = "External/Other"
+
                         p_purdue[pkey] += 1
                         global_purdue[pkey] += 1
 
-                        cvss_impact = float(a.get("max_cvss") or a.get("cvss") or 0.0)
-                        if cvss_impact > 0 or a.get("has_kev"):
+                        asset_identifiers = set(ips_list + macs_list + [a.get("key", "")])
+                        asset_findings = []
+                        for f in findings:
+                            aff = set(f.get("affected_nodes") or [])
+                            if aff & asset_identifiers:
+                                asset_findings.append(f)
+
+                        cvss_list = [float(f.get("max_cvss_impact") or f.get("cvss_impact") or f.get("cvss") or 0.0) for f in asset_findings]
+                        for f in asset_findings:
+                            sev = str(f.get("severity") or "").upper()
+                            if sev in sev_to_cvss:
+                                cvss_list.append(sev_to_cvss[sev])
+
+                        max_asset_cvss = max(cvss_list) if cvss_list else 0.0
+                        has_kev = any(f.get("cisa_kev") for f in asset_findings)
+
+                        if max_asset_cvss > 0 or has_kev or asset_findings or len(assets) <= 20:
                             top_vulnerable_assets_list.append({
-                                "ip": a.get("ip") or a.get("mac") or "Unknown Node",
+                                "ip": node_id,
                                 "vendor": v,
-                                "role": a.get("role") or "OT Asset",
+                                "role": role_str,
                                 "purdue": pkey,
                                 "project_name": p.name,
                                 "project_id": p.id,
-                                "cvss": cvss_impact,
-                                "has_kev": bool(a.get("has_kev")),
-                                "finding_count": len(a.get("findings") or [])
+                                "cvss": round(max_asset_cvss, 1),
+                                "has_kev": bool(has_kev),
+                                "finding_count": len(asset_findings)
                             })
 
                     for f in findings:
