@@ -116,3 +116,14 @@ restart-vs-`enable --now` bug live, and confirming the fix. The full
 test suite was run after each change; the same 7 pre-existing,
 unrelated failures were present throughout with no new regressions
 introduced.
+
+## 8. Enterprise Vulnerability Analyzer & OT Security Modernization (`13edb04`)
+
+Integrated dedicated vulnerability management & threat intelligence features directly into the MarlinSpike PCAP analysis platform:
+- **Offline NVD & CISA ICS-CERT Correlation Engine**: Automatically maps extracted PLC hardware models, order numbers, and firmware versions (CIP Identity / S7 SZL) against CISA advisories and attaches explicit `CVE-202X-XXXX` IDs.
+- **CVSS v3.1 Quantitative Risk Scoring Engine**: Computes exact CVSS Base Impact Scores (`9.8 CRITICAL`, `8.1 HIGH`, etc.) and renders color-coded CVSS badges on findings cards and asset detail inspectors.
+- **CISA KEV (Known Exploited Vulnerabilities) & EPSS Threat Intel**: Surfaces glowing red `🔥 CISA KEV` active-exploitation badges and EPSS exploit probability scores for high-risk findings.
+- **Vulnerability Lifecycle & Ticket Status Workflow**: Adds interactive status tracking (`Open`, `In Progress`, `False Positive`, `Risk Accepted`, `Resolved / Patched`) directly in `viewer.html` and persists statuses across engagement sessions.
+- **Pre / Post-Patch PCAP Comparison & Diff Engine**: Added a `🔄 Compare PCAP` tool in the utility toolbar that compares baseline PCAP reports against current PCAPs to calculate patch deltas (`Resolved`, `Persistent`, `New Risks`).
+- **Purdue Model Zero-Trust Firewall Rule Exporter**: Added a `🛡️ Firewall Rules` utility button to export ready-to-apply Zero-Trust micro-segmentation ACL rules for Palo Alto PAN-OS, Fortinet FortiGate, Cisco ASA, and Linux `iptables`.
+

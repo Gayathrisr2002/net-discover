@@ -2009,6 +2009,73 @@ textarea.ms-input {
 .sev-LOW .ms-finding-sev { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
 .sev-INFO .ms-finding-sev { color: #7a8a9e; background: rgba(122, 138, 158, 0.1); }
 
+/* Vulnerability Management & Threat Intel Badges */
+.ms-cvss-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+}
+.ms-cvss-badge.cvss-critical { color: #ef4444; background: rgba(239, 68, 68, 0.18); border: 1px solid rgba(239, 68, 68, 0.35); }
+.ms-cvss-badge.cvss-high { color: #f59e0b; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(245, 158, 11, 0.35); }
+.ms-cvss-badge.cvss-medium { color: #3b82f6; background: rgba(59, 130, 246, 0.18); border: 1px solid rgba(59, 130, 246, 0.35); }
+.ms-cvss-badge.cvss-low { color: #22c55e; background: rgba(34, 197, 94, 0.18); border: 1px solid rgba(34, 197, 94, 0.35); }
+
+.ms-kev-chip {
+  background: rgba(239, 68, 68, 0.22) !important;
+  color: #ff4d4d !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+
+.ms-status-select {
+  background: var(--bg-surface-2, #1e293b);
+  color: var(--text, #e2e8f0);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.72em;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+.ms-status-select.status-OPEN { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
+.ms-status-select.status-IN_PROGRESS { color: #3b82f6; border-color: rgba(59, 130, 246, 0.4); }
+.ms-status-select.status-FALSE_POSITIVE { color: #94a3b8; border-color: rgba(148, 163, 184, 0.4); text-decoration: line-through; }
+.ms-status-select.status-RISK_ACCEPTED { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
+.ms-status-select.status-RESOLVED { color: #22c55e; border-color: rgba(34, 197, 94, 0.4); }
+
+.ms-card-dimmed {
+  opacity: 0.5;
+  filter: grayscale(40%);
+}
+
+/* Modal Overlay for PCAP Compare */
+.ms-modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ms-modal-content {
+  background: var(--bg-surface, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 10px;
+  width: 90%;
+  max-width: 850px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
 .ms-finding-cat {
   font-size: 0.82em;
   font-family: var(--font-mono);
@@ -2281,6 +2348,7 @@ textarea.ms-input {
       <a class="ms-btn" href="/api/reports/{{ filename }}/stix{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.stix_tooltip') }}">{{ t('viewer.utilities.stix') }}</a>
       <a class="ms-btn" href="/api/reports/{{ filename }}/sigma{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.sigma_tooltip') }}">{{ t('viewer.utilities.sigma') }}</a>
       <button class="ms-btn" onclick="MS.exportFirewallRules()" title="Export Purdue Zero-Trust Firewall ACL Rules (Palo Alto, Fortinet, Cisco, iptables)">🛡️ Firewall Rules</button>
+      <button class="ms-btn" onclick="MS.openCompareModal()" title="Compare this report with another PCAP run (Pre/Post-Patch Diff)">🔄 Compare PCAP</button>
       <button class="ms-btn" onclick="MS.exportPng()">{{ t('viewer.utilities.png') }}</button>
     </div>
   </div>
@@ -3660,8 +3728,17 @@ var MS = (function() {
       findingsBody += '<div class="ms-stage-collection">';
       risks.slice(0, 10).forEach(function(item) {
         var targetIp = toArray(item.affected_nodes)[0];
-        findingsBody += '<div class="ms-finding-card sev-' + esc(item.severity) + '"' + (targetIp && nodeByIp[targetIp] ? ' style="cursor:pointer"' : '') + (targetIp && nodeByIp[targetIp] ? ' onclick="MS.selectNodeByIp(\'' + escjs(targetIp) + '\', true)"' : '') + '>';
-        findingsBody += '<div class="ms-finding-head"><span class="ms-finding-sev">' + esc(item.severity) + '</span><span class="ms-finding-cat">' + esc(findingTitle(item)) + '</span></div>';
+        var fKey = (item.category || item.type || '') + '|' + (item.description || '');
+        var cardStatus = getFindingStatus(fKey);
+        var dimmedClass = (cardStatus === 'RESOLVED' || cardStatus === 'FALSE_POSITIVE') ? ' ms-card-dimmed' : '';
+        findingsBody += '<div class="ms-finding-card sev-' + esc(item.severity) + dimmedClass + '"' + (targetIp && nodeByIp[targetIp] ? ' style="cursor:pointer"' : '') + (targetIp && nodeByIp[targetIp] ? ' onclick="MS.selectNodeByIp(\'' + escjs(targetIp) + '\', true)"' : '') + '>';
+        findingsBody += '<div class="ms-finding-head"><span class="ms-finding-sev">' + esc(item.severity) + '</span>'
+          + renderCVSSBadgeHtml(item.cvss_impact || item.cvss)
+          + (item.cisa_kev ? '<span class="ms-finding-chip ms-kev-chip">🔥 CISA KEV</span>' : '')
+          + (item.cve_id ? '<span class="ms-finding-chip" style="font-family:var(--font-mono);background:rgba(239,68,68,0.15);color:#ef4444">' + esc(item.cve_id) + '</span>' : '')
+          + '<span class="ms-finding-cat">' + esc(findingTitle(item)) + '</span>'
+          + '<div style="margin-left:auto">' + renderStatusSelectHtml(fKey) + '</div>'
+          + '</div>';
         findingsBody += '<div class="ms-finding-desc">' + esc(item.description) + '</div>';
         if (item.remediation) findingsBody += '<div class="ms-finding-remediation"><strong>Recommendation:</strong> ' + esc(item.remediation) + '</div>';
         if (toArray(item.attack_ids).length) findingsBody += '<div class="ms-finding-meta">' + toArray(item.attack_ids).map(function(id) { return '<span class="ms-finding-chip">' + esc(id) + '</span>'; }).join('') + '</div>';
@@ -5823,6 +5900,168 @@ var MS = (function() {
     msToast("Exported Purdue Zero-Trust Firewall ACL rules file!", "success");
   }
 
+  // ── Vulnerability Lifecycle & Status Management ──
+  var findingStatuses = {};
+  try {
+    var stored = localStorage.getItem('ms_finding_statuses_' + (REPORT_FILENAME || 'default'));
+    if (stored) findingStatuses = JSON.parse(stored);
+  } catch(e){}
+
+  function setFindingStatus(findingKey, newStatus) {
+    if (!findingKey) return;
+    findingStatuses[findingKey] = newStatus;
+    try {
+      localStorage.setItem('ms_finding_statuses_' + (REPORT_FILENAME || 'default'), JSON.stringify(findingStatuses));
+    } catch(e){}
+    msToast('Updated status to ' + newStatus.replace('_', ' '), 'info');
+    renderWorkbenchStage();
+  }
+
+  function getFindingStatus(findingKey) {
+    return findingStatuses[findingKey] || 'OPEN';
+  }
+
+  function renderStatusSelectHtml(findingKey) {
+    var cur = getFindingStatus(findingKey);
+    var options = [
+      ['OPEN', '🔴 Open'],
+      ['IN_PROGRESS', '🔵 In Progress'],
+      ['FALSE_POSITIVE', '⚪ False Positive'],
+      ['RISK_ACCEPTED', '🟣 Risk Accepted'],
+      ['RESOLVED', '🟢 Resolved']
+    ];
+    var html = '<select class="ms-status-select status-' + cur + '" onchange="MS.setFindingStatus(\'' + escjs(findingKey) + '\', this.value)" onclick="event.stopPropagation()">';
+    options.forEach(function(opt) {
+      html += '<option value="' + opt[0] + '"' + (cur === opt[0] ? ' selected' : '') + '>' + esc(opt[1]) + '</option>';
+    });
+    html += '</select>';
+    return html;
+  }
+
+  function renderCVSSBadgeHtml(score) {
+    var val = parseFloat(score);
+    if (isNaN(val) || val <= 0) return '';
+    var cls = 'cvss-low';
+    if (val >= 9.0) cls = 'cvss-critical';
+    else if (val >= 7.0) cls = 'cvss-high';
+    else if (val >= 4.0) cls = 'cvss-medium';
+    return '<span class="ms-cvss-badge ' + cls + '">CVSS ' + val.toFixed(1) + '</span>';
+  }
+
+  // ── Pre / Post Patch PCAP Compare Engine Modal ──
+  function openCompareModal() {
+    var existing = document.getElementById('ms-compare-modal-bg');
+    if (existing) existing.remove();
+
+    var bg = document.createElement('div');
+    bg.id = 'ms-compare-modal-bg';
+    bg.className = 'ms-modal-backdrop';
+    bg.innerHTML = '<div class="ms-modal-content">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+      + '<h3 style="margin:0;font-size:1.2em;color:var(--text);display:flex;align-items:center;gap:8px">🔄 PCAP Audit Compare & Patch Delta Engine</h3>'
+      + '<button class="ms-mini-btn" onclick="document.getElementById(\'ms-compare-modal-bg\').remove()">✕ Close</button>'
+      + '</div>'
+      + '<p style="font-size:0.85em;color:var(--text-dim);margin:0 0 16px;">Upload or paste a baseline/second MarlinSpike report JSON to compute the vulnerability patch delta (Resolved vs Persistent vs New risks).</p>'
+      + '<div style="margin-bottom:16px;">'
+      + '<label style="display:block;font-size:0.8em;font-weight:700;margin-bottom:6px;color:var(--text-dim);">Load Comparison Report File (.json):</label>'
+      + '<input type="file" id="ms-compare-file-input" accept=".json" style="font-size:0.85em;color:var(--text);" onchange="MS.handleCompareFileSelect(event)">'
+      + '</div>'
+      + '<div style="margin-bottom:16px;">'
+      + '<label style="display:block;font-size:0.8em;font-weight:700;margin-bottom:6px;color:var(--text-dim);">Or Paste Report JSON Content:</label>'
+      + '<textarea id="ms-compare-json-text" rows="5" style="width:100%;box-sizing:border-box;background:var(--bg-surface-2,#1e293b);color:var(--text);border:1px solid var(--border-color,#334155);border-radius:6px;padding:8px;font-family:var(--font-mono);font-size:0.8em" placeholder="Paste JSON here..."></textarea>'
+      + '</div>'
+      + '<div style="display:flex;gap:10px;margin-bottom:20px;">'
+      + '<button class="ms-btn" onclick="MS.runCompareDiff()">Run Patch Verification Comparison</button>'
+      + '</div>'
+      + '<div id="ms-compare-results"></div>'
+      + '</div>';
+    document.body.appendChild(bg);
+  }
+
+  function handleCompareFileSelect(ev) {
+    var file = ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      document.getElementById('ms-compare-json-text').value = e.target.result;
+      runCompareDiff();
+    };
+    reader.readAsText(file);
+  }
+
+  function runCompareDiff() {
+    var text = document.getElementById('ms-compare-json-text').value;
+    var resDiv = document.getElementById('ms-compare-results');
+    if (!text || !text.trim()) {
+      resDiv.innerHTML = '<div style="color:var(--sev-high);font-size:0.85em;">Please select or paste a valid report JSON.</div>';
+      return;
+    }
+    try {
+      var otherReport = JSON.parse(text);
+      var curFindings = toArray(REPORT.risk_findings);
+      var otherFindings = toArray(otherReport.risk_findings);
+
+      var curKeys = {};
+      curFindings.forEach(function(f) {
+        var k = (f.category || '') + '|' + (f.description || '');
+        curKeys[k] = f;
+      });
+
+      var otherKeys = {};
+      otherFindings.forEach(function(f) {
+        var k = (f.category || '') + '|' + (f.description || '');
+        otherKeys[k] = f;
+      });
+
+      var resolved = [];
+      var persistent = [];
+      var newRisks = [];
+
+      otherFindings.forEach(function(f) {
+        var k = (f.category || '') + '|' + (f.description || '');
+        if (!curKeys[k]) {
+          resolved.push(f);
+        } else {
+          persistent.push(f);
+        }
+      });
+
+      curFindings.forEach(function(f) {
+        var k = (f.category || '') + '|' + (f.description || '');
+        if (!otherKeys[k]) {
+          newRisks.push(f);
+        }
+      });
+
+      var html = '<div style="padding:16px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border-color,#334155);">';
+      html += '<h4 style="margin:0 0 12px;color:var(--accent-cyan);font-size:1em;">Patch Verification & Delta Summary</h4>';
+      html += '<div style="display:flex;gap:12px;margin-bottom:16px;">';
+      html += '<div class="ms-metric-box" style="flex:1;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);padding:10px;text-align:center;border-radius:6px;"><div style="color:#22c55e;font-weight:700;font-size:1.4em">' + resolved.length + '</div><div style="font-size:0.75em;color:var(--text-dim)">✅ Resolved / Patched</div></div>';
+      html += '<div class="ms-metric-box" style="flex:1;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);padding:10px;text-align:center;border-radius:6px;"><div style="color:#f59e0b;font-weight:700;font-size:1.4em">' + persistent.length + '</div><div style="font-size:0.75em;color:var(--text-dim)">⚠️ Unmitigated / Persistent</div></div>';
+      html += '<div class="ms-metric-box" style="flex:1;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:10px;text-align:center;border-radius:6px;"><div style="color:#ef4444;font-weight:700;font-size:1.4em">' + newRisks.length + '</div><div style="font-size:0.75em;color:var(--text-dim)">🚨 New Identified Risks</div></div>';
+      html += '</div>';
+
+      if (resolved.length) {
+        html += '<div style="font-weight:700;color:#22c55e;font-size:0.85em;margin:12px 0 6px;">✅ Resolved Findings (' + resolved.length + '):</div>';
+        resolved.forEach(function(r) {
+          html += '<div style="font-size:0.8em;padding:6px;border-left:3px solid #22c55e;background:rgba(34,197,94,0.05);margin-bottom:4px;border-radius:3px;"><strong>' + esc(findingTitle(r)) + '</strong>: ' + esc(r.description) + '</div>';
+        });
+      }
+
+      if (newRisks.length) {
+        html += '<div style="font-weight:700;color:#ef4444;font-size:0.85em;margin:12px 0 6px;">🚨 New Vulnerabilities Introduced (' + newRisks.length + '):</div>';
+        newRisks.forEach(function(r) {
+          html += '<div style="font-size:0.8em;padding:6px;border-left:3px solid #ef4444;background:rgba(239,68,68,0.05);margin-bottom:4px;border-radius:3px;"><strong>' + esc(findingTitle(r)) + '</strong>: ' + esc(r.description) + '</div>';
+        });
+      }
+
+      html += '</div>';
+      resDiv.innerHTML = html;
+    } catch(err) {
+      resDiv.innerHTML = '<div style="color:var(--sev-high);font-size:0.85em;">Failed to parse comparison report JSON: ' + esc(err.message) + '</div>';
+    }
+  }
+
   function showTooltip(ev, text) {
     var tip = document.getElementById('ms-tooltip');
     tip.textContent = text;
@@ -7435,6 +7674,11 @@ var MS = (function() {
     exportCsvAssets: exportCsvAssets,
     exportCsvFindings: exportCsvFindings,
     exportFirewallRules: exportFirewallRules,
+    setFindingStatus: setFindingStatus,
+    getFindingStatus: getFindingStatus,
+    openCompareModal: openCompareModal,
+    handleCompareFileSelect: handleCompareFileSelect,
+    runCompareDiff: runCompareDiff,
     selectNodeByIp: selectNodeByIp,
     centerOnSelected: centerOnSelected,
     deselectNode: deselectNode,

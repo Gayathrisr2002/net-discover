@@ -101,6 +101,16 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **LLM-generated remediation recommendations**: an admin-configured, OpenAI-compatible LLM connection (OpenAI, Azure OpenAI, or a self-hosted Ollama/vLLM/LM Studio endpoint) generates a concise, ICS/OT-aware remediation suggestion per deduplicated finding, cached per project so it's produced once and reused. Shown on each project's **Recommendations** tab.
 - SSRF-guarded by default: a configured URL that resolves to a private/loopback/reserved address is rejected unless explicitly allowed for a self-hosted receiver.
 
+## 16. Enterprise OT Vulnerability Analysis & Threat Intelligence
+- **Passive CISA ICS-CERT & NVD CVE Correlation Engine:** Correlates extracted PLC model, serial numbers, and firmware versions (CIP Identity, S7 SZL) against an offline CISA ICS-CERT vulnerability database to attach explicit CVE IDs.
+- **CVSS v3.1 Quantitative Scoring:** Calculates numeric CVSS impact scores (`9.8 CRITICAL`, `8.1 HIGH`, etc.) with color-coded risk indicators across all finding cards.
+- **CISA KEV (Known Exploited Vulnerabilities) & Threat Intel:** Flags active threats with glowing red `🔥 CISA KEV: Actively Exploited` badges and EPSS exploit likelihood scores.
+- **Vulnerability Lifecycle Status Workflow:** Interactive finding triage statuses (`Open`, `In Progress`, `False Positive`, `Risk Accepted`, `Resolved / Patched`) persisted across audit runs.
+
+## 17. Patch Verification Diff Engine & Purdue Zero-Trust Firewall Exporter
+- **Pre / Post-Patch PCAP Diff Engine:** Interactively compares baseline PCAP reports against current PCAP runs to compute vulnerability patch deltas (`Resolved Findings`, `Persistent Vulnerabilities`, `New Unmitigated Risks`).
+- **Purdue Model Firewall Rule Exporter:** Generates ready-to-apply Zero-Trust micro-segmentation ACL policies (`Palo Alto PAN-OS`, `Fortinet FortiGate`, `Cisco ASA`, `Linux iptables`) to block unauthorized cross-Purdue flows observed in PCAPs.
+
 ---
 
 *For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*
