@@ -155,6 +155,8 @@ services:
       # that certs-init (above) always runs first and guarantees a real
       # file exists at this path.
       - ./certs/fleet-ca.crt:/certs/fleet-ca.crt:ro
+      - ./marlinspike:/usr/local/lib/python3.12/site-packages/marlinspike:ro
+      - ./marlinspike:/app/marlinspike:ro
     networks:
       - internal
     mem_limit: 3g

@@ -106,12 +106,22 @@
 <div class="ms-content">
 <div class="profile-layout">
 
+  <section class="workspace-hero" style="margin-bottom:12px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> User Identity & Security Credentials</div>
+      <h1 class="workspace-title"><span>User Profile</span> & Settings</h1>
+    </div>
+    <div class="workspace-actions">
+      <button class="btn btn-primary" onclick="PRF.save()">💾 {{ t('profile.save') }}</button>
+    </div>
+  </section>
+
   <!-- Stats row -->
   <div class="profile-stats" id="profile-stats">
-    <div class="stat-card"><div class="stat-label">{{ t('profile.stat_scans') }}</div><div class="stat-value" id="stat-scans">—</div></div>
-    <div class="stat-card"><div class="stat-label">{{ t('profile.stat_projects') }}</div><div class="stat-value" id="stat-projects">—</div></div>
-    <div class="stat-card"><div class="stat-label">{{ t('profile.stat_limit') }}</div><div class="stat-value" id="stat-limit">—</div><div class="stat-sub">{{ t('profile.stat_mb_per_file') }}</div></div>
-    <div class="stat-card"><div class="stat-label">{{ t('profile.member_since') }}</div><div class="stat-value" id="stat-joined" style="font-size:0.85em;">—</div></div>
+    <div class="workspace-kpi"><div class="workspace-kpi-label">{{ t('profile.stat_scans') }}</div><div class="workspace-kpi-value" id="stat-scans">—</div></div>
+    <div class="workspace-kpi"><div class="workspace-kpi-label">{{ t('profile.stat_projects') }}</div><div class="workspace-kpi-value" id="stat-projects">—</div></div>
+    <div class="workspace-kpi"><div class="workspace-kpi-label">{{ t('profile.stat_limit') }}</div><div class="workspace-kpi-value" id="stat-limit">—</div><div class="workspace-kpi-detail">{{ t('profile.stat_mb_per_file') }}</div></div>
+    <div class="workspace-kpi"><div class="workspace-kpi-label">{{ t('profile.member_since') }}</div><div class="workspace-kpi-value" id="stat-joined" style="font-size:1.1em;">—</div></div>
   </div>
 
   <!-- Profile info -->

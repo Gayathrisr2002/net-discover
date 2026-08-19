@@ -210,39 +210,49 @@
 {% block body %}
 <div class="ms-content">
 
+  <section class="workspace-hero" style="margin-bottom:20px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> Platform Health & System Admin</div>
+      <h1 class="workspace-title"><span>System Telemetry</span> & Operations</h1>
+    </div>
+    <div class="workspace-actions">
+      <button class="btn btn-primary" onclick="SYS.refresh()">🔄 Refresh Telemetry</button>
+    </div>
+  </section>
+
   <!-- Top cards -->
   <div class="stats-grid" id="stats-cards">
-    <div class="stat-card">
-      <div class="stat-label">{{ t('system.stat_uptime') }}</div>
-      <div class="stat-value" id="s-uptime">--</div>
-      <div class="stat-sub" id="s-platform"></div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('system.stat_uptime') }}</div>
+      <div class="workspace-kpi-value" id="s-uptime">--</div>
+      <div class="workspace-kpi-detail" id="s-platform"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('system.stat_cpu_load') }}</div>
-      <div class="stat-value" id="s-load">--</div>
-      <div class="stat-sub" id="s-cpu-info"></div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('system.stat_cpu_load') }}</div>
+      <div class="workspace-kpi-value" id="s-load">--</div>
+      <div class="workspace-kpi-detail" id="s-cpu-info"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('system.stat_memory') }}</div>
-      <div class="stat-value" id="s-mem">--</div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('system.stat_memory') }}</div>
+      <div class="workspace-kpi-value" id="s-mem">--</div>
       <div class="usage-bar"><div class="usage-bar-fill fill-blue" id="s-mem-bar" style="width:0%"></div></div>
-      <div class="stat-sub" id="s-mem-detail"></div>
+      <div class="workspace-kpi-detail" id="s-mem-detail"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('system.stat_disk') }}</div>
-      <div class="stat-value" id="s-disk">--</div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('system.stat_disk') }}</div>
+      <div class="workspace-kpi-value" id="s-disk">--</div>
       <div class="usage-bar"><div class="usage-bar-fill fill-green" id="s-disk-bar" style="width:0%"></div></div>
-      <div class="stat-sub" id="s-disk-detail"></div>
+      <div class="workspace-kpi-detail" id="s-disk-detail"></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('system.stat_active_scans') }}</div>
-      <div class="stat-value" id="s-active">--</div>
-      <div class="stat-sub">{{ t('system.stat_active_scans_caption') }}</div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('system.stat_active_scans') }}</div>
+      <div class="workspace-kpi-value" id="s-active">--</div>
+      <div class="workspace-kpi-detail">{{ t('system.stat_active_scans_caption') }}</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('system.stat_total_scans') }}</div>
-      <div class="stat-value" id="s-scans">--</div>
-      <div class="stat-sub" id="s-scan-detail"></div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('system.stat_total_scans') }}</div>
+      <div class="workspace-kpi-value" id="s-scans">--</div>
+      <div class="workspace-kpi-detail" id="s-scan-detail"></div>
     </div>
   </div>
 

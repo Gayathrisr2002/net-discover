@@ -269,43 +269,42 @@
 
 {% block body %}
 <div class="ms-content">
-  <div class="hero">
-    <div class="hero-copy">
-      <h1>{{ t('findings.title') }}</h1>
-      <p>
-        {{ t('findings.intro') }}
-      </p>
+
+  <section class="workspace-hero" style="margin-bottom:20px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> Detection & Security Rules Taxonomy</div>
+      <h1 class="workspace-title"><span>Taxonomy & Vulnerability</span> Rules Catalog</h1>
     </div>
-    <div class="hero-note">
-      <div class="label">{{ t('findings.catalog_entries') }}</div>
-      <div class="value">{{ filtered_count }}</div>
-      <div class="sub">{{ t('findings.catalog_total_caption', total=total_count) }}</div>
+    <div class="workspace-actions">
+      <div class="context-pill" style="padding:10px 18px; border-radius:10px; font-size:0.9em;">
+        {{ t('findings.catalog_entries') }}: <b style="font-size:1.2em; color:#38bdf8; margin-left:6px;">{{ filtered_count }}</b> / {{ total_count }}
+      </div>
     </div>
-  </div>
+  </section>
 
   <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">{{ t('findings.stat_report_classes') }}</div>
-      <div class="stat-value">{{ summary.report_classes }}</div>
-      <div class="stat-sub">{{ source_meta.report.summary }}</div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('findings.stat_report_classes') }}</div>
+      <div class="workspace-kpi-value">{{ summary.report_classes }}</div>
+      <div class="workspace-kpi-detail">{{ source_meta.report.summary }}</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('findings.stat_dpi_surface') }}</div>
-      <div class="stat-value">{{ summary.dpi_protocols }}</div>
-      <div class="stat-sub">{{ source_meta.dpi.summary }}</div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('findings.stat_dpi_surface') }}</div>
+      <div class="workspace-kpi-value">{{ summary.dpi_protocols }}</div>
+      <div class="workspace-kpi-detail">{{ source_meta.dpi.summary }}</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('findings.stat_malware_rules') }}</div>
-      <div class="stat-value">{{ summary.malware_rules or "?" }}</div>
-      <div class="stat-sub">{{ source_meta.malware.summary }}</div>
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('findings.stat_malware_rules') }}</div>
+      <div class="workspace-kpi-value">{{ summary.malware_rules or "?" }}</div>
+      <div class="workspace-kpi-detail">{{ source_meta.malware.summary }}</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">{{ t('findings.stat_attack_mapping') }}</div>
-      <div class="stat-value">{{ summary.mitre_rules }}</div>
-      <div class="stat-sub">
+    <div class="workspace-kpi">
+      <div class="workspace-kpi-label">{{ t('findings.stat_attack_mapping') }}</div>
+      <div class="workspace-kpi-value">{{ summary.mitre_rules }}</div>
+      <div class="workspace-kpi-detail">
         {{ source_meta.mitre.summary }}
         {% if summary.mitre_attack_version %}
-        <br>{{ t('findings.attack_version', version=summary.mitre_attack_version) }}
+        &middot; {{ t('findings.attack_version', version=summary.mitre_attack_version) }}
         {% endif %}
       </div>
     </div>

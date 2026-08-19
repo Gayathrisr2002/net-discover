@@ -40,6 +40,16 @@
 {% block body %}
 <div class="ms-content">
 
+  <section class="workspace-hero" style="margin-bottom:20px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> Access Control & RBAC Management</div>
+      <h1 class="workspace-title"><span>User Accounts</span> & Roles</h1>
+    </div>
+    <div class="workspace-actions">
+      <button class="btn btn-primary" onclick="USR.showAdd()">➕ {{ t('users.invite') }}</button>
+    </div>
+  </section>
+
   <div class="panel">
     <div class="panel-header">
       <h2>{{ t('users.management') }}</h2>

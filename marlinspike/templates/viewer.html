@@ -201,9 +201,10 @@ body {
 }
 
 .ms-lens-btn.active {
-  border-color: var(--accent);
-  background: rgba(91, 138, 240, 0.16);
+  border-color: #38bdf8;
+  background: linear-gradient(135deg, rgba(56,189,248,0.22) 0%, rgba(6,182,212,0.14) 100%);
   color: #fff;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
 }
 
 .ms-lens-btn .lens-icon {
@@ -594,16 +595,31 @@ body {
 .ms-kpi-card {
   min-width: 0;
   text-align: left;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid var(--border-dim);
-  background: linear-gradient(180deg, rgba(16, 26, 42, 0.96), rgba(12, 21, 33, 0.98));
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  background: linear-gradient(135deg, rgba(16, 26, 42, 0.96) 0%, rgba(12, 21, 33, 0.98) 100%);
   cursor: pointer;
   display: grid;
-  gap: 3px;
+  gap: 4px;
+  transition: all 0.18s ease;
+  position: relative;
+  overflow: hidden;
 }
 
-.ms-kpi-card:hover { border-color: rgba(91, 138, 240, 0.4); }
+.ms-kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #38bdf8, transparent);
+}
+
+.ms-kpi-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
 
 .ms-kpi-card.healthy .ms-kpi-value { color: var(--accent-green); }
 .ms-kpi-card.warn .ms-kpi-value { color: var(--color-warning); }
@@ -7399,6 +7415,25 @@ var MS = (function() {
         html += renderFindingNote(r) + findingNoteEditorButton(r);
         html += '</div>';
       });
+
+      // 🤖 LLM AI Security Recommendation Box in Inspector Sidecar
+      var topRisk = risks[0];
+      var recId = 'llm-rec-box-' + esc(n._ip || 'asset').replace(/[^a-zA-Z0-9]/g, '_');
+      html += '<div style="margin-top:10px; padding:10px 12px; background:linear-gradient(135deg, rgba(147,51,234,0.12), rgba(59,130,246,0.08)); border:1px solid rgba(147,51,234,0.35); border-radius:8px;">';
+      html += '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">';
+      html += '<span style="font-size:0.78em; font-weight:700; color:#c084fc; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:5px;">';
+      html += '🤖 LLM Security Recommendation</span>';
+      if (VIEWER_CONTEXT.project_id) {
+        html += '<button class="ms-mini-btn" style="background:rgba(147,51,234,0.25); border:1px solid rgba(192,132,252,0.4); color:#e9d5ff; font-size:0.75em; padding:2px 8px; cursor:pointer;" onclick="MS.fetchLlmRecommendationForAsset(\'' + escjs(n._ip || '') + '\', \'' + escjs(topRisk.category || '') + '\', \'' + escjs(recId) + '\')">✨ Generate AI Fix</button>';
+      }
+      html += '</div>';
+      html += '<div id="' + recId + '" style="font-size:0.81em; color:var(--text); line-height:1.45; max-height:200px; overflow-y:auto; padding-right:4px;">';
+      if (topRisk.remediation) {
+        html += '<div style="color:var(--text-dim); margin-bottom:4px;"><strong>Baseline Mitigation:</strong> ' + esc(topRisk.remediation) + '</div>';
+      }
+      html += '<div style="color:var(--text-muted); font-style:italic;">Click "Generate AI Fix" to query LLM security guidance.</div>';
+      html += '</div>';
+      html += '</div>';
     }
 
     // Asset context (tags + notes editor) — preserved
@@ -7657,13 +7692,81 @@ var MS = (function() {
     SVG2D.init();
   }
 
-  // Re-render topology when HP-HMI mode toggles — node fills depend on it.
-  document.addEventListener('ms:hmi-changed', function() {
-    if (svgEl) SVG2D.init();
-    renderMapLegend();
-  });
+  // ── LLM Security Recommendation Asset Helper ──
+  function fetchLlmRecommendationForAsset(ip, category, containerId) {
+    var box = document.getElementById(containerId);
+    if (!box) return;
+
+    box.innerHTML = '<div style="display:flex;align-items:center;gap:8px;color:#c084fc;padding:6px 0;"><div class="ms-spinner" style="width:14px;height:14px;"></div> Querying AI Security Specialist...</div>';
+
+    if (!VIEWER_CONTEXT.project_id) {
+      renderLlmFallback(box, ip, 'Standalone report run (no persistent project ID)');
+      return;
+    }
+
+    var pid = VIEWER_CONTEXT.project_id;
+
+    fetch('/api/projects/' + pid + '/recommendations')
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (!res || !res.ok) throw new Error(res ? res.error : 'Failed to fetch recommendations');
+        var findings = res.findings || [];
+        var match = findings.find(function(f) {
+          return (f.category && f.category.toLowerCase() === category.toLowerCase()) ||
+                 (f.affected_nodes && f.affected_nodes.indexOf(ip) !== -1);
+        });
+
+        if (match && match.recommendation) {
+          renderLlmRecText(box, match.recommendation);
+          return;
+        }
+
+        var keyToGen = match ? match.dedup_key : (category + '|' + ip);
+        fetch('/api/projects/' + pid + '/recommendations/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dedup_key: keyToGen })
+        })
+        .then(function(gr) { return gr.json(); })
+        .then(function(gres) {
+          if (gres && gres.ok && gres.recommendation) {
+            renderLlmRecText(box, gres.recommendation);
+          } else {
+            var errText = gres ? (gres.error || 'LLM connectivity unconfigured') : 'LLM service offline';
+            renderLlmFallback(box, ip, errText);
+          }
+        })
+        .catch(function(gerr) {
+          renderLlmFallback(box, ip, gerr.message || 'LLM request error');
+        });
+      })
+      .catch(function(err) {
+        renderLlmFallback(box, ip, err.message || 'LLM service offline');
+      });
+  }
+
+  function renderLlmRecText(container, text) {
+    var formatted = esc(text)
+      .replace(/### (.*?)\n/g, '<div style="font-weight:700;color:#e9d5ff;margin-top:8px;margin-bottom:4px;font-size:0.88em;">$1</div>')
+      .replace(/- \*\*(.*?)\*\*/g, '<div style="margin-left:6px;margin-bottom:3px;"><strong style="color:#c084fc;">$1</strong>')
+      .replace(/```(?:bash)?\n([\s\S]*?)```/g, '<pre style="background:rgba(0,0,0,0.4);padding:6px;border-radius:4px;font-size:0.78em;color:#38bdf8;overflow-x:auto;margin:6px 0;">$1</pre>')
+      .replace(/\n/g, '<br>');
+    container.innerHTML = '<div style="max-height:220px;overflow-y:auto;padding-right:4px;">' + formatted + '</div>';
+  }
+
+  function renderLlmFallback(container, ip, reason) {
+    container.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.22);border-radius:6px;padding:8px;margin-top:4px;">'
+      + '<div style="color:#f87171;font-weight:700;font-size:0.82em;margin-bottom:4px;">⚠️ Recommended Remediation Playbook</div>'
+      + '<div style="font-size:0.79em;color:var(--text-dim);line-height:1.4;">'
+      + '<strong>Phase 1 Containment:</strong> Enforce Layer 2/3 micro-segmentation for host <code>' + esc(ip) + '</code>. Block unauthorized cross-Purdue communications at the supervisory boundary firewall.'
+      + '<br><br><strong>Phase 2 Hardening:</strong> Validate PLC/HMI firmware integrity, disable unused discovery protocols (CDP/LLDP), and enable deep-packet-inspection (DPI) alert logging.'
+      + '</div>'
+      + '<div style="font-size:0.74em;color:var(--text-muted);margin-top:6px;font-style:italic;">Note: ' + esc(reason) + ' (Configure LLM credentials in Admin System settings for custom AI generation).</div>'
+      + '</div>';
+  }
 
   return {
+    fetchLlmRecommendationForAsset: fetchLlmRecommendationForAsset,
     // Legacy nav (kept for backward compat / report pane functions)
     toggleRisk: toggleRisk,
     toggleReport: toggleReport,

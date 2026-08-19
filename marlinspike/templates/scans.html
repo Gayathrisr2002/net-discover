@@ -93,14 +93,25 @@
 {% block body %}
 <div class="ms-content">
 
+  <section class="workspace-hero" style="margin-bottom:20px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> Telemetry & Execution Audit</div>
+      <h1 class="workspace-title"><span>Scan Execution</span> & Job History</h1>
+    </div>
+    <div class="workspace-actions">
+      <a class="btn btn-primary" href="/dashboard">⚡ Launch New Scan</a>
+      <a class="btn" href="/reports">📊 View Assessment Reports</a>
+    </div>
+  </section>
+
   <div class="panel">
     <div class="panel-header">
       <h2>{{ t('scans.history') }}</h2>
       <div class="page-toolbar">
-        <select id="project-filter" onchange="SH.onProjectChange()">
+        <select id="project-filter" onchange="SH.onProjectChange()" style="padding: 8px 12px; background: rgba(14, 21, 38, 0.8); border: 1px solid var(--border-bright); border-radius: 6px; color: var(--text);">
           <option value="">{{ t('common.loading') }}</option>
         </select>
-        <button class="btn btn-sm" onclick="SH.loadHistory()">{{ t('common.refresh') }}</button>
+        <button class="btn btn-sm btn-primary" onclick="SH.loadHistory()">{{ t('common.refresh') }}</button>
       </div>
     </div>
     <div class="panel-body">
@@ -176,7 +187,8 @@ var SH = (function() {
         var tr = document.createElement('tr');
         var actions = '';
         if (s.status === 'completed' && s.report_filename && s.report_available) {
-          actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
+          var pidParam = s.project_id ? '?project_id=' + s.project_id : '';
+          actions = '<a class="btn btn-sm" href="/api/reports/' + encodeURIComponent(s.report_filename) + '/viewer' + pidParam + '" target="_blank">' + msT('scans.view_report', 'View Report') + '</a>';
         } else if (s.status === 'completed' && s.report_filename && !s.report_available) {
           // report_path is set but the file is gone (disk cleanup, manual
           // removal, etc.) — show that honestly instead of a "View Report"

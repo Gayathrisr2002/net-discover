@@ -83,6 +83,17 @@
 {% block body %}
 <div class="ms-content">
 
+  <section class="workspace-hero" style="margin-bottom:20px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> Distributed Fleet & Agent Grid</div>
+      <h1 class="workspace-title"><span>Fleet Sensors</span> & Sensor Operations</h1>
+    </div>
+    <div class="workspace-actions">
+      <a class="btn btn-primary" href="/api/fleet/agent-package" download>⬇ {{ t('fleet.download_agent') }}</a>
+      <a class="btn btn-accent" href="/api/fleet/agent-package.deb" download>⬇ {{ t('fleet.download_agent_deb') }}</a>
+    </div>
+  </section>
+
   <div class="fleet-grid">
 
     <!-- Projects list -->

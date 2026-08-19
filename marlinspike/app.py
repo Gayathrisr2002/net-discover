@@ -81,6 +81,7 @@ from marlinspike.iocs import (
     scan_single_report,
 )
 from marlinspike.models import (
+    Agent,
     AssetTag,
     AuditLog,
     FindingNote,
@@ -1498,13 +1499,49 @@ def _localize_report(report: dict, locale: str) -> dict:
 
 
 def _is_primary_report_filename(filename: str) -> bool:
-    safe_name = os.path.basename(str(filename or ""))
-    return bool(
-        safe_name.endswith(".json")
-        and not safe_name.endswith("-mitre.json")
-        and not safe_name.endswith("-arp.json")
-        and not safe_name.endswith("-apt.json")
+    safe_name = os.path.basename(str(filename or "")).lower()
+    if not safe_name.endswith(".json"):
+        return False
+    non_primary_suffixes = (
+        "-mitre.json",
+        "-arp.json",
+        "-apt.json",
+        "-cisa.json",
+        ".stix.json",
+        ".navigator.ics.json",
+        ".navigator.enterprise.json",
+        ".ocsf.json",
+        ".ocsf.ndjson",
     )
+    for suffix in non_primary_suffixes:
+        if safe_name.endswith(suffix):
+            return False
+    return True
+
+
+def _get_primary_report_filename(filename: str) -> str:
+    safe_name = os.path.basename(str(filename or ""))
+    lower_name = safe_name.lower()
+    if _is_primary_report_filename(safe_name):
+        return safe_name
+
+    non_primary_suffixes = (
+        "-mitre.json",
+        "-arp.json",
+        "-apt.json",
+        "-cisa.json",
+        ".stix.json",
+        ".navigator.ics.json",
+        ".navigator.enterprise.json",
+        ".ocsf.json",
+        ".ocsf.ndjson",
+    )
+    for suffix in non_primary_suffixes:
+        if lower_name.endswith(suffix):
+            prefix = safe_name[:-len(suffix)]
+            return prefix + ".json"
+
+    return safe_name
 
 
 def _mitre_sidecar_path(report_path: str) -> str:
@@ -2947,8 +2984,11 @@ def create_app():
         accept = request.headers.get("Accept-Language")
         g.locale = resolve_locale(session.get("locale"), accept)
 
-    def _t(key, **kwargs):
-        return _translate(key, locale=getattr(g, "locale", DEFAULT_LOCALE), **kwargs)
+    def _t(key, default=None, **kwargs):
+        res = _translate(key, locale=getattr(g, "locale", DEFAULT_LOCALE), **kwargs)
+        if (res == key or not res) and default is not None:
+            return default
+        return res
 
     def _i18n_dict():
         return merged_for_locale(getattr(g, "locale", DEFAULT_LOCALE))
@@ -3388,6 +3428,16 @@ def create_app():
                                  if f.lower().endswith((".pcap", ".pcapng", ".cap")))
             if os.path.isdir(rp_dir):
                 report_count = sum(1 for f in os.listdir(rp_dir) if _is_primary_report_filename(f))
+
+            p_agents = Agent.query.filter_by(project_id=p.id).all()
+            agent_summary = {"online": 0, "offline": 0, "pending": 0, "total": len(p_agents)}
+            for ag in p_agents:
+                st = (ag.status or "offline").lower()
+                if st in agent_summary:
+                    agent_summary[st] += 1
+                else:
+                    agent_summary["offline"] += 1
+
             result.append({
                 "id": p.id,
                 "name": p.name,
@@ -3396,8 +3446,221 @@ def create_app():
                 "created_at": p.created_at.isoformat() if p.created_at else None,
                 "is_owner": is_owner,
                 "member_role": member_role,
+                "agent_count": len(p_agents),
+                "agent_summary": agent_summary if p_agents else None,
             })
         return jsonify({"projects": result})
+
+    @app.route("/api/dashboard/siem-stats")
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_dashboard_siem_stats():
+        from sqlalchemy import or_
+        uid = session["user_id"]
+        shared_pids = db.session.query(ProjectMember.project_id).filter_by(user_id=uid)
+        all_projects = Project.query.filter(
+            or_(Project.user_id == uid, Project.id.in_(shared_pids))
+        ).order_by(Project.created_at.desc()).all()
+
+        all_projects_meta = [{"id": p.id, "name": p.name} for p in all_projects]
+
+        pid_filter = request.args.get("project_id", "").strip()
+        if pid_filter.isdigit():
+            target_pid = int(pid_filter)
+            projects = [p for p in all_projects if p.id == target_pid]
+        else:
+            projects = all_projects
+
+        memberships = {
+            m.project_id: m.role
+            for m in ProjectMember.query.filter_by(user_id=uid).all()
+        }
+
+        project_stats = []
+        global_severities = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+        global_purdue = {"Level 4/5": 0, "Level 3": 0, "Level 2": 0, "Level 1": 0, "Level 0": 0, "External/Other": 0}
+        global_protocols: dict[str, int] = {}
+        global_vendors: dict[str, int] = {}
+        total_assets = 0
+        total_findings = 0
+        total_pcaps = 0
+        total_reports = 0
+        cisa_kev_total = 0
+        top_vulnerable_assets_list = []
+
+        all_latest_reports = []
+
+        for p in projects:
+            is_owner = p.user_id == uid
+            member_role = "owner" if is_owner else memberships.get(p.id, "viewer")
+            up_dir = os.path.join(config.UPLOADS_DIR, str(p.user_id), str(p.id))
+            rp_dir = os.path.join(config.REPORTS_DIR, str(p.user_id), str(p.id))
+            pcap_count = 0
+            if os.path.isdir(up_dir):
+                pcap_count = sum(1 for f in os.listdir(up_dir) if f.lower().endswith((".pcap", ".pcapng", ".cap")))
+            total_pcaps += pcap_count
+
+            report_paths = []
+            if os.path.isdir(rp_dir):
+                for fn in os.listdir(rp_dir):
+                    if _is_primary_report_filename(fn):
+                        report_paths.append(os.path.join(rp_dir, fn))
+            total_reports += len(report_paths)
+
+            latest_report_fn = None
+            if report_paths:
+                report_paths.sort(key=lambda x: os.path.getmtime(x))
+                latest_report_fn = os.path.basename(report_paths[-1])
+                all_latest_reports.append((os.path.getmtime(report_paths[-1]), latest_report_fn, p.id))
+
+            p_assets_count = 0
+            p_findings_count = 0
+            p_severities = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+            p_purdue = {"Level 4/5": 0, "Level 3": 0, "Level 2": 0, "Level 1": 0, "Level 0": 0, "External/Other": 0}
+            p_protocols: dict[str, int] = {}
+            p_vendors: dict[str, int] = {}
+            p_max_cvss = 0.0
+            p_kev_count = 0
+
+            if report_paths:
+                try:
+                    agg = aggregate_reports(report_paths, loader=_load_report_with_extensions)
+                    assets = agg.get("assets", [])
+                    findings = agg.get("findings", [])
+                    p_assets_count = len(assets)
+                    p_findings_count = len(findings)
+
+                    for a in assets:
+                        v = a.get("vendor") or "Unknown"
+                        p_vendors[v] = p_vendors.get(v, 0) + 1
+                        global_vendors[v] = global_vendors.get(v, 0) + 1
+
+                        plevel = str(a.get("purdue_level") or "").strip()
+                        if "4" in plevel or "5" in plevel or "Enterprise" in plevel:
+                            pkey = "Level 4/5"
+                        elif "3" in plevel or "Operations" in plevel:
+                            pkey = "Level 3"
+                        elif "2" in plevel or "Control" in plevel:
+                            pkey = "Level 2"
+                        elif "1" in plevel or "Process" in plevel:
+                            pkey = "Level 1"
+                        elif "0" in plevel or "Safety" in plevel:
+                            pkey = "Level 0"
+                        else:
+                            pkey = "External/Other"
+                        p_purdue[pkey] += 1
+                        global_purdue[pkey] += 1
+
+                        cvss_impact = float(a.get("max_cvss") or a.get("cvss") or 0.0)
+                        if cvss_impact > 0 or a.get("has_kev"):
+                            top_vulnerable_assets_list.append({
+                                "ip": a.get("ip") or a.get("mac") or "Unknown Node",
+                                "vendor": v,
+                                "role": a.get("role") or "OT Asset",
+                                "purdue": pkey,
+                                "project_name": p.name,
+                                "project_id": p.id,
+                                "cvss": cvss_impact,
+                                "has_kev": bool(a.get("has_kev")),
+                                "finding_count": len(a.get("findings") or [])
+                            })
+
+                    for f in findings:
+                        sev = str(f.get("severity") or "MEDIUM").upper()
+                        if sev in p_severities:
+                            p_severities[sev] += 1
+                            global_severities[sev] += 1
+                        cvss = float(f.get("cvss") or f.get("cvss_impact") or 0.0)
+                        if cvss > p_max_cvss:
+                            p_max_cvss = cvss
+                        if f.get("cisa_kev"):
+                            p_kev_count += 1
+                            cisa_kev_total += 1
+
+                    for proto in agg.get("protocols", []):
+                        pname = proto if isinstance(proto, str) else proto.get("name", "Unknown")
+                        p_protocols[pname] = p_protocols.get(pname, 0) + 1
+                        global_protocols[pname] = global_protocols.get(pname, 0) + 1
+
+                except Exception as ex:
+                    logger.warning("SIEM aggregate failed for project %s: %s", p.id, ex)
+
+            total_assets += p_assets_count
+            total_findings += p_findings_count
+
+            p_agents = Agent.query.filter_by(project_id=p.id).all()
+            agent_info = []
+            agent_status_summary = {"online": 0, "offline": 0, "pending": 0, "enrolled": 0, "revoked": 0}
+            for ag in p_agents:
+                st = (ag.status or "offline").lower()
+                if st in agent_status_summary:
+                    agent_status_summary[st] += 1
+                else:
+                    agent_status_summary["offline"] += 1
+                agent_info.append({
+                    "id": ag.id,
+                    "name": ag.name,
+                    "status": ag.status,
+                    "version": ag.agent_version,
+                    "last_seen_at": ag.last_seen_at.isoformat() if ag.last_seen_at else None,
+                    "capture_active": bool(ag.capture_active),
+                })
+
+            project_stats.append({
+                "id": p.id,
+                "name": p.name,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "is_owner": is_owner,
+                "member_role": member_role,
+                "pcap_count": pcap_count,
+                "report_count": len(report_paths),
+                "latest_report_filename": latest_report_fn,
+                "asset_count": p_assets_count,
+                "finding_count": p_findings_count,
+                "severities": p_severities,
+                "purdue": p_purdue,
+                "top_vendors": dict(sorted(p_vendors.items(), key=lambda x: x[1], reverse=True)[:5]),
+                "top_protocols": dict(sorted(p_protocols.items(), key=lambda x: x[1], reverse=True)[:5]),
+                "max_cvss": round(p_max_cvss, 1),
+                "kev_count": p_kev_count,
+                "agent_count": len(p_agents),
+                "agents": agent_info,
+                "agent_status_summary": agent_status_summary if p_agents else None
+            })
+
+        if not all_latest_reports:
+            user_rp_dir = os.path.join(config.REPORTS_DIR, str(uid))
+            if os.path.isdir(user_rp_dir):
+                user_reports = [os.path.join(user_rp_dir, f) for f in os.listdir(user_rp_dir) if _is_primary_report_filename(f)]
+                if user_reports:
+                    user_reports.sort(key=lambda x: os.path.getmtime(x))
+                    all_latest_reports.append((os.path.getmtime(user_reports[-1]), os.path.basename(user_reports[-1]), None))
+
+        all_latest_reports.sort(key=lambda x: x[0])
+        global_latest = all_latest_reports[-1] if all_latest_reports else None
+
+        top_vulnerable_assets_list.sort(key=lambda x: (x["has_kev"], x["cvss"], x["finding_count"]), reverse=True)
+
+        return jsonify({
+            "ok": True,
+            "all_projects": all_projects_meta,
+            "summary": {
+                "total_projects": len(projects),
+                "total_assets": total_assets,
+                "total_findings": total_findings,
+                "total_pcaps": total_pcaps,
+                "total_reports": total_reports,
+                "cisa_kev_total": cisa_kev_total,
+                "latest_report_filename": global_latest[1] if global_latest else None,
+                "latest_report_project_id": global_latest[2] if global_latest else None,
+                "global_severities": global_severities,
+                "global_purdue": global_purdue,
+                "global_protocols": dict(sorted(global_protocols.items(), key=lambda x: x[1], reverse=True)[:8]),
+                "global_vendors": dict(sorted(global_vendors.items(), key=lambda x: x[1], reverse=True)[:8]),
+            },
+            "projects": project_stats,
+            "top_vulnerable_assets": top_vulnerable_assets_list[:10]
+        })
 
     @app.route("/api/projects", methods=["POST"])
     @login_required
@@ -5603,9 +5866,18 @@ def create_app():
     def api_report_viewer(filename):
         safe_name = os.path.basename(filename)
         project_id = request.args.get("project_id", None, type=int)
-        path = os.path.join(user_reports_dir(project_id), safe_name)
+        primary_name = _get_primary_report_filename(safe_name)
+
+        r_dir = user_reports_dir(project_id)
+        path = os.path.join(r_dir, primary_name)
+
         if not os.path.isfile(path):
-            return "Report not found", 404
+            path = os.path.join(r_dir, safe_name)
+            if not os.path.isfile(path):
+                return "Report not found", 404
+            primary_name = safe_name
+        else:
+            safe_name = primary_name
         report = _load_report_with_extensions(path, ensure_mitre=True)
         sanitized_report = _sanitize_report(report)
         # Localize finding/indicator strings per the request locale BEFORE the

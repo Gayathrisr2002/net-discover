@@ -3,30 +3,87 @@
 
 {% block head %}
 <style nonce="{{ csp_nonce }}">
-.report-actions { display: flex; gap: 8px; }
-.report-actions a, .report-actions button {
-  font-size: 0.82em;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-family: var(--font-ui);
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.report-actions .view-link { color: var(--accent-cyan); }
-.report-actions .view-link:hover { text-decoration: underline; }
-.report-actions .dl-link { color: var(--accent); text-decoration: none; }
-.report-actions .dl-link:hover { text-decoration: underline; }
-.report-actions .del-btn { color: var(--color-danger); }
-.report-actions .del-btn:hover { text-decoration: underline; }
+.report-actions .view-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  font-size: 0.78em;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+.report-actions .view-link:hover {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.report-actions .dl-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #10b981;
+  font-size: 0.78em;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+.report-actions .dl-link:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10b981;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.4);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.report-actions .del-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: #f43f5e;
+  font-size: 0.78em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.report-actions .del-btn:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: #f43f5e;
+  box-shadow: 0 0 14px rgba(244, 63, 94, 0.4);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
 .compare-bar {
   display: none;
-  padding: 8px 16px;
-  background: rgba(91,138,240,0.08);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  margin-bottom: 12px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, rgba(14, 21, 38, 0.95) 0%, rgba(56, 189, 248, 0.15) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-left: 4px solid #38bdf8;
+  border-radius: 10px;
+  margin-bottom: 16px;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   font-size: 0.88em;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.2), 0 8px 24px rgba(0,0,0,0.35);
+  backdrop-filter: blur(12px);
 }
 .compare-bar.active { display: flex; }
 .page-toolbar {
@@ -56,18 +113,29 @@
 {% block body %}
 <div class="ms-content">
 
+  <section class="workspace-hero" style="margin-bottom:20px;">
+    <div class="workspace-copy">
+      <div class="workspace-eyebrow"><span class="dot"></span> Compliance & Security Reporting</div>
+      <h1 class="workspace-title"><span>Assessment Reports</span> & Drift Analysis</h1>
+    </div>
+    <div class="workspace-actions">
+      <a class="btn btn-primary" href="/projects">📁 Open Projects Workspace</a>
+      <a class="btn btn-success" href="/dashboard">⚡ Run Assessment</a>
+    </div>
+  </section>
+
   <div class="panel">
     <div class="panel-header">
       <h2>{{ t('reports.all_reports') }} <span class="info-hint">i<span class="info-tip">{{ t('reports.compare_hint') }}</span></span></h2>
       <div class="page-toolbar">
-        <select id="project-filter" onchange="RP.onProjectChange()">
+        <select id="project-filter" onchange="RP.onProjectChange()" style="padding: 8px 12px; background: rgba(14, 21, 38, 0.8); border: 1px solid var(--border-bright); border-radius: 6px; color: var(--text);">
           <option value="">{{ t('common.loading') }}</option>
         </select>
-        <button class="btn btn-sm" onclick="RP.loadReports()">{{ t('common.refresh') }}</button>
+        <button class="btn btn-sm btn-primary" onclick="RP.loadReports()">{{ t('common.refresh') }}</button>
       </div>
     </div>
     <div class="panel-body">
-      <div class="compare-bar" id="compare-bar">
+      <div class="compare-bar" id="compare-bar" style="background: rgba(56, 189, 248, 0.12); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 16px;">
         <span>{{ t('reports.baseline') }}: <b id="compare-a">&mdash;</b> {{ t('reports.vs') }} <b id="compare-b">&mdash;</b></span>
         <button class="btn btn-primary btn-sm" onclick="RP.compareDiff()">{{ t('reports.view_drift') }}</button>
         <button class="btn btn-sm" onclick="RP.clearCompare()">{{ t('reports.clear') }}</button>
@@ -155,9 +223,9 @@ var RP = (function() {
           + '<td class="dim">' + formatSize(r.size) + '</td>'
           + '<td class="dim">' + formatDate(r.modified) + '</td>'
           + '<td class="report-actions">'
-          + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?' + pidParam + '" target="_blank">' + msT('reports.view', 'View') + '</a>'
-          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?' + pidParam + '">' + msT('common.download', 'Download') + '</a>'
-          + '<button class="del-btn" onclick="RP.deleteReport(\'' + escjs(r.filename) + '\', ' + r.project_id + ')">' + msT('common.delete', 'Delete') + '</button>'
+          + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?' + pidParam + '" target="_blank">👁 ' + msT('reports.view', 'View') + '</a>'
+          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?' + pidParam + '">⬇ ' + msT('common.download', 'Download') + '</a>'
+          + '<button class="del-btn" onclick="RP.deleteReport(\'' + escjs(r.filename) + '\', ' + r.project_id + ')">🗑 ' + msT('common.delete', 'Delete') + '</button>'
           + '</td>';
         tbody.appendChild(tr);
       });
