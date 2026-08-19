@@ -2307,17 +2307,29 @@ textarea.ms-input {
       <div id="ms-svg-container"></div>
       <div id="ms-tooltip"></div>
       <div id="ms-empty"><h2>{{ t('viewer.map.empty_title') }}</h2><p>{{ t('viewer.map.empty_body') }}</p></div>
-      <!-- Map legend overlay (bottom-left corner of canvas) -->
-      <div id="ms-map-legend" style="position:absolute;bottom:12px;left:12px;background:rgba(12,20,34,0.88);border:1px solid var(--border-dim);border-radius:8px;padding:10px 12px;font-size:0.8em;z-index:5;max-width:220px;">
-        <div style="font-weight:700;font-size:0.78em;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin-bottom:6px;">{{ t('viewer.legend.title') }}</div>
-        <div id="ms-legend-mode-note" style="display:none;margin-bottom:6px;color:var(--text-dim);line-height:1.45;"></div>
-        <div id="ms-role-legend"></div>
-        <div style="margin-top:6px;color:var(--text-dim);line-height:1.5;">
-          <div style="padding:1px 0;"><svg width="12" height="8" style="vertical-align:middle;margin-right:4px;"><circle cx="6" cy="4" r="3" fill="var(--text-dim)"/></svg>{{ t('viewer.legend.circle_size') }}</div>
-          <div style="padding:1px 0;"><svg width="12" height="8" style="vertical-align:middle;margin-right:4px;"><line x1="0" y1="4" x2="12" y2="4" stroke="var(--text-dim)" stroke-width="1.5"/></svg>{{ t('viewer.legend.solid_edge') }}</div>
-          <div style="padding:1px 0;"><svg width="12" height="8" style="vertical-align:middle;margin-right:4px;"><line x1="0" y1="4" x2="12" y2="4" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,1.5"/></svg>{{ t('viewer.legend.dashed_edge') }}</div>
+      <!-- Map legend overlay (bottom-left corner of canvas - draggable & collapsible) -->
+      <div id="ms-map-legend" style="position:absolute;bottom:12px;left:12px;background:rgba(12,20,34,0.92);border:1px solid var(--border-dim);border-radius:8px;padding:8px 12px;font-size:0.8em;z-index:5;max-width:230px;box-shadow:0 8px 24px rgba(0,0,0,0.4);user-select:none;">
+        <div id="ms-legend-header" style="display:flex;align-items:center;justify-content:space-between;cursor:move;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.08);" title="Drag to reposition legend">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="color:var(--text-muted);font-size:0.9em;cursor:grab;">⠿</span>
+            <span style="font-weight:700;font-size:0.78em;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);">{{ t('viewer.legend.title') }}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <button id="ms-legend-min-btn" onclick="MS.toggleLegendMinimize()" title="Minimize / Expand" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1.1em;line-height:1;padding:0 3px;">−</button>
+            <button onclick="MS.closeMapLegend()" title="Close Legend" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.9em;line-height:1;padding:0 3px;">✕</button>
+          </div>
+        </div>
+        <div id="ms-legend-body">
+          <div id="ms-legend-mode-note" style="display:none;margin-bottom:6px;color:var(--text-dim);line-height:1.45;"></div>
+          <div id="ms-role-legend"></div>
+          <div style="margin-top:6px;color:var(--text-dim);line-height:1.5;">
+            <div style="padding:1px 0;"><svg width="12" height="8" style="vertical-align:middle;margin-right:4px;"><circle cx="6" cy="4" r="3" fill="var(--text-dim)"/></svg>{{ t('viewer.legend.circle_size') }}</div>
+            <div style="padding:1px 0;"><svg width="12" height="8" style="vertical-align:middle;margin-right:4px;"><line x1="0" y1="4" x2="12" y2="4" stroke="var(--text-dim)" stroke-width="1.5"/></svg>{{ t('viewer.legend.solid_edge') }}</div>
+            <div style="padding:1px 0;"><svg width="12" height="8" style="vertical-align:middle;margin-right:4px;"><line x1="0" y1="4" x2="12" y2="4" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,1.5"/></svg>{{ t('viewer.legend.dashed_edge') }}</div>
+          </div>
         </div>
       </div>
+      <button id="ms-map-legend-toggle" onclick="MS.openMapLegend()" style="position:absolute;bottom:12px;left:12px;z-index:6;display:none;padding:5px 12px;font-size:0.78em;font-weight:600;border-radius:16px;background:rgba(12,20,34,0.92);border:1px solid var(--border-dim);color:var(--text);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.3);">🎨 Map Legend</button>
       <!-- Lens overlay panels — displayed over the map for non-Comms lenses -->
       <div id="ms-lens-findings" class="ms-lens-overlay"></div>
       <div id="ms-lens-ioc"      class="ms-lens-overlay"></div>
@@ -3648,7 +3660,7 @@ var MS = (function() {
       risks.slice(0, 10).forEach(function(item) {
         var targetIp = toArray(item.affected_nodes)[0];
         findingsBody += '<div class="ms-finding-card sev-' + esc(item.severity) + '"' + (targetIp && nodeByIp[targetIp] ? ' style="cursor:pointer"' : '') + (targetIp && nodeByIp[targetIp] ? ' onclick="MS.selectNodeByIp(\'' + escjs(targetIp) + '\', true)"' : '') + '>';
-        findingsBody += '<div class="ms-finding-head"><span class="ms-finding-sev">' + esc(item.severity) + '</span><span class="ms-finding-cat">' + esc(item.category) + '</span></div>';
+        findingsBody += '<div class="ms-finding-head"><span class="ms-finding-sev">' + esc(item.severity) + '</span><span class="ms-finding-cat">' + esc(findingTitle(item)) + '</span></div>';
         findingsBody += '<div class="ms-finding-desc">' + esc(item.description) + '</div>';
         if (item.remediation) findingsBody += '<div class="ms-finding-remediation"><strong>Recommendation:</strong> ' + esc(item.remediation) + '</div>';
         if (toArray(item.attack_ids).length) findingsBody += '<div class="ms-finding-meta">' + toArray(item.attack_ids).map(function(id) { return '<span class="ms-finding-chip">' + esc(id) + '</span>'; }).join('') + '</div>';
@@ -4560,7 +4572,95 @@ var MS = (function() {
   var findingNotesBySig = (VIEWER_CONTEXT.finding_notes_by_sig || {});
   var projectId = (VIEWER_CONTEXT.project_id != null ? VIEWER_CONTEXT.project_id : null);
 
+  var legendMinimized = false;
+  var legendClosed = false;
+
+  function closeMapLegend() {
+    legendClosed = true;
+    var el = document.getElementById('ms-map-legend');
+    var btn = document.getElementById('ms-map-legend-toggle');
+    if (el) el.style.display = 'none';
+    if (btn) btn.style.display = 'block';
+  }
+
+  function openMapLegend() {
+    legendClosed = false;
+    legendMinimized = false;
+    var el = document.getElementById('ms-map-legend');
+    var body = document.getElementById('ms-legend-body');
+    var btn = document.getElementById('ms-map-legend-toggle');
+    var minBtn = document.getElementById('ms-legend-min-btn');
+    if (el) el.style.display = 'block';
+    if (body) body.style.display = 'block';
+    if (btn) btn.style.display = 'none';
+    if (minBtn) minBtn.textContent = '−';
+  }
+
+  function toggleLegendMinimize() {
+    legendMinimized = !legendMinimized;
+    var body = document.getElementById('ms-legend-body');
+    var minBtn = document.getElementById('ms-legend-min-btn');
+    if (body) body.style.display = legendMinimized ? 'none' : 'block';
+    if (minBtn) minBtn.textContent = legendMinimized ? '+' : '−';
+  }
+
+  function initLegendDraggable() {
+    var legend = document.getElementById('ms-map-legend');
+    var handle = document.getElementById('ms-legend-header');
+    var container = document.getElementById('ms-canvas-zone');
+    if (!legend || !handle || !container || handle._dragBound) return;
+    handle._dragBound = true;
+
+    var isDragging = false;
+    var startX = 0, startY = 0;
+    var initialLeft = 0, initialTop = 0;
+
+    handle.addEventListener('mousedown', function(e) {
+      if (e.target.tagName.toLowerCase() === 'button') return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      var rect = legend.getBoundingClientRect();
+      var cRect = container.getBoundingClientRect();
+
+      initialLeft = rect.left - cRect.left;
+      initialTop = rect.top - cRect.top;
+
+      legend.style.bottom = 'auto';
+      legend.style.right = 'auto';
+      legend.style.left = initialLeft + 'px';
+      legend.style.top = initialTop + 'px';
+
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+
+      var cRect = container.getBoundingClientRect();
+      var lRect = legend.getBoundingClientRect();
+
+      var newLeft = Math.max(4, Math.min(cRect.width - lRect.width - 4, initialLeft + dx));
+      var newTop = Math.max(4, Math.min(cRect.height - lRect.height - 4, initialTop + dy));
+
+      legend.style.left = newLeft + 'px';
+      legend.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.userSelect = '';
+      }
+    });
+  }
+
   function renderMapLegend() {
+    initLegendDraggable();
     var legendEl = document.getElementById('ms-role-legend');
     var modeNoteEl = document.getElementById('ms-legend-mode-note');
     if (!legendEl) return;
@@ -5877,7 +5977,7 @@ var MS = (function() {
       var sortedFindings = risks.slice().sort(function(a, b) { return severityRank(a.severity) - severityRank(b.severity); });
       sortedFindings.forEach(function(r) {
         findHtml += '<div class="ms-finding-card sev-' + esc(r.severity) + '">';
-        findHtml += '<div class="ms-finding-head"><span class="ms-finding-sev">' + esc(r.severity) + '</span><span class="ms-finding-cat">' + esc(r.category_label || r.category) + '</span></div>';
+        findHtml += '<div class="ms-finding-head"><span class="ms-finding-sev">' + esc(r.severity) + '</span><span class="ms-finding-cat">' + esc(findingTitle(r)) + '</span></div>';
         findHtml += '<div class="ms-finding-desc">' + esc(r.description) + '</div>';
         if (r.detection_id || (r.attack_ids && r.attack_ids.length)) {
           findHtml += '<div class="ms-finding-meta">';
@@ -7228,7 +7328,9 @@ var MS = (function() {
     deleteAssetContext: deleteAssetContext,
     saveFindingNote: saveFindingNote,
     deleteFindingNote: deleteFindingNote,
-    openFindingNoteDialog: openFindingNoteDialog,
+    closeMapLegend: closeMapLegend,
+    openMapLegend: openMapLegend,
+    toggleLegendMinimize: toggleLegendMinimize,
     // Workbench v3.4
     setLens: setLens,
     attckHighlight: attckHighlight,
