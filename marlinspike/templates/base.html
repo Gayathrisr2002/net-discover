@@ -211,7 +211,13 @@ html[data-hmi="on"] .ms-hmi-btn {
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  background: var(--bg);
+  background-color: #060911;
+  background-image: 
+    radial-gradient(ellipse at 50% 0%, rgba(56, 189, 248, 0.09) 0%, transparent 65%),
+    radial-gradient(ellipse at 85% 30%, rgba(168, 85, 247, 0.05) 0%, transparent 55%),
+    radial-gradient(ellipse at 15% 70%, rgba(6, 182, 212, 0.04) 0%, transparent 50%),
+    linear-gradient(to bottom, rgba(9, 13, 22, 0.85), #060911);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 14px;
@@ -224,15 +230,16 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 24px;
-  height: 52px;
-  background: rgba(9, 13, 22, 0.85);
-  backdrop-filter: blur(16px);
+  padding: 0 40px;
+  height: 54px;
+  background: rgba(8, 12, 20, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   position: sticky;
   top: 0;
   z-index: 100;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 -1px 0 rgba(56, 189, 248, 0.15);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(56, 189, 248, 0.15);
 }
 @keyframes ms-led-pulse {
   0% { transform: scale(0.95); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16,185,129,0.7); }
@@ -412,9 +419,10 @@ body {
 
 /* ── Content wrapper ── */
 .ms-content {
-  max-width: 1280px;
+  max-width: 1720px;
+  width: 100%;
   margin: 0 auto;
-  padding: 28px;
+  padding: 28px 40px;
 }
 
 /* ── Hero Subtitle & Action Toolbar System ── */
