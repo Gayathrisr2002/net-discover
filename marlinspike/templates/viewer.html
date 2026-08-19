@@ -5729,7 +5729,7 @@ var MS = (function() {
     rulesTxt.push(" MARLINSPIKE ZERO-TRUST PURDUE FIREWALL POLICY & ACL EXPORTER");
     rulesTxt.push(" Report: " + (REPORT_FILENAME || "marlinspike-assessment"));
     rulesTxt.push(" Generated: " + (new Date()).toISOString());
-    rulesTxt.push(" Description: Auto-generated micro-segmentation ACLs based on observed PCAP flows");
+    rulesTxt.push(" Description: RECOMMENDED Zero-Trust micro-segmentation rules to block unauthorized cross-Purdue flows (NOT current firewall config)");
     rulesTxt.push("=========================================================================\n");
 
     var crossPurdueBlocks = [];
