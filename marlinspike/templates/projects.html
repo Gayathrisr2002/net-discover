@@ -965,6 +965,7 @@
           <!-- Tabs -->
           <div class="proj-tabs" id="proj-tabs" style="display:none;">
             <div class="proj-tab active" data-tab="overview" onclick="PROJ.setTab('overview')">{{ t('projects.tab_overview') }}</div>
+            <div class="proj-tab" data-tab="pcaps" onclick="PROJ.setTab('pcaps')">📁 {{ t('projects.tab_pcaps') }}</div>
             <div class="proj-tab" data-tab="fleet" onclick="PROJ.setTab('fleet')">{{ t('fleet.title') }}</div>
             <div class="proj-tab" data-tab="reports" onclick="PROJ.setTab('reports')">{{ t('projects.tab_reports') }}</div>
             <div class="proj-tab" data-tab="history" onclick="PROJ.setTab('history')">{{ t('projects.tab_history') }}</div>
@@ -1161,7 +1162,69 @@
             </div>
           </div>
 
+          <!-- PCAP Upload & Files tab -->
+          <div class="proj-tab-panel" id="tab-pcaps">
+            <div class="ov-panel" id="ov-pcap-tab-section">
+              <div class="ov-panel-header">
+                <h3>📁 {{ t('projects.tab_pcaps') }}</h3>
+                <span class="meta" id="ov-pcap-tab-meta"></span>
+              </div>
+              <div class="ov-panel-body">
+                <div class="proj-upload-zone" id="proj-upload-zone-tab"
+                     onclick="document.getElementById('proj-upload-input-tab').click()">
+                  {{ t('projects.upload_drop_hint') }}
+                  <span id="upload-limit-label-tab" style="font-size:0.82em;color:var(--text-muted);margin-left:8px;">{{ t('projects.upload_max', mb=200) }}</span>
+                </div>
+                <input type="file" id="proj-upload-input-tab" accept=".pcap,.pcapng,.cap" style="display:none;">
+                <div id="proj-upload-status-tab" style="margin-bottom:8px;font-size:0.85em;color:var(--text-dim);"></div>
 
+                <!-- Scan controls -->
+                <div class="proj-scan-row" id="proj-scan-row-tab" style="display:none; margin-bottom:12px;">
+                  <div class="scan-field">
+                    <label>{{ t('projects.selected_pcap') }}</label>
+                    <select id="proj-pcap-select-tab" style="min-width:240px;">
+                      <option value="">{{ t('projects.option_select') }}</option>
+                    </select>
+                  </div>
+                  <div class="scan-field">
+                    <label>{{ t('projects.command') }}</label>
+                    <select id="proj-scan-cmd-tab">
+                      <option value="chain">{{ t('projects.cmd_chain') }}</option>
+                      <option value="ingest">{{ t('projects.cmd_ingest') }}</option>
+                      <option value="dissect">{{ t('projects.cmd_dissect') }}</option>
+                      <option value="topology">{{ t('projects.cmd_topology') }}</option>
+                      <option value="risk">{{ t('projects.cmd_risk') }}</option>
+                    </select>
+                  </div>
+                  <div class="scan-field">
+                    <label>{{ t('projects.profile') }}</label>
+                    <select id="proj-scan-profile-tab">
+                      <option value="fast">{{ t('projects.profile_fast') }}</option>
+                      <option value="full">{{ t('projects.profile_full') }}</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-success" onclick="PROJ.scanSelectedTab()">⚡ {{ t('projects.scan_selected') }}</button>
+                </div>
+
+                <div class="ov-table-scroll">
+                  <table class="ms-table" id="proj-files-table-tab">
+                    <thead>
+                      <tr>
+                        <th style="width:30px;"></th>
+                        <th>{{ t('projects.col_filename') }}</th>
+                        <th>{{ t('projects.col_size') }}</th>
+                        <th>{{ t('projects.col_modified') }}</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="proj-files-body-tab">
+                      <tr><td colspan="5"><div class="ms-empty" style="padding:20px;"><div class="ms-empty-sub">{{ t('projects.empty_files_select') }}</div></div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <!-- Fleet Sensors tab -->
           <div class="proj-tab-panel" id="tab-fleet">
@@ -1792,17 +1855,9 @@ var PROJ = (function() {
   // ── Tabs ──
 
   function setTab(tab) {
-    var isPcapReq = (tab === 'pcaps');
-    if (isPcapReq) tab = 'overview';
     currentTab = tab;
     syncTabUi();
     loadTabData();
-    if (isPcapReq) {
-      setTimeout(function() {
-        var sec = document.getElementById('ov-pcap-section');
-        if (sec) sec.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-    }
   }
 
   function syncTabUi() {
@@ -1823,6 +1878,7 @@ var PROJ = (function() {
       loadOverview();
       loadFiles();
     }
+    else if (currentTab === 'pcaps') loadFiles();
     else if (currentTab === 'fleet') loadProjectFleetAgents();
     else if (currentTab === 'reports') loadReports();
     else if (currentTab === 'history') loadHistory();
@@ -1914,50 +1970,78 @@ var PROJ = (function() {
     if (!currentProject) return;
     fetch('/api/projects/' + currentProject.id + '/files').then(function(r) { return r.json(); }).then(function(d) {
       var tbody = document.getElementById('proj-files-body');
+      var tbodyTab = document.getElementById('proj-files-body-tab');
       var scanRow = document.getElementById('proj-scan-row');
+      var scanRowTab = document.getElementById('proj-scan-row-tab');
       var sel = document.getElementById('proj-pcap-select');
+      var selTab = document.getElementById('proj-pcap-select-tab');
       var count = (d.files || []).length || 0;
       setProjectState({ fileCount: count });
-      setText('ov-pcap-meta', count + ' ' + msT('projects.files_count', 'files'));
+      var metaText = count + ' ' + msT('projects.files_count', 'files');
+      setText('ov-pcap-meta', metaText);
+      setText('ov-pcap-tab-meta', metaText);
+      var emptyHtml = msEmptyHTML({ icon: 'file', title: msT('projects.empty_pcap_title', 'No PCAP files yet'), sub: msT('projects.empty_pcap_sub', 'Upload a capture file above to get started.') }, 5);
       if (!d.files || d.files.length === 0) {
-        tbody.innerHTML = msEmptyHTML({ icon: 'file', title: msT('projects.empty_pcap_title', 'No PCAP files yet'), sub: msT('projects.empty_pcap_sub', 'Upload a capture file above to get started.') }, 5);
-        scanRow.style.display = 'none';
+        if (tbody) tbody.innerHTML = emptyHtml;
+        if (tbodyTab) tbodyTab.innerHTML = emptyHtml;
+        if (scanRow) scanRow.style.display = 'none';
+        if (scanRowTab) scanRowTab.style.display = 'none';
         return;
       }
-      scanRow.style.display = canEditProject() ? '' : 'none';
-      sel.innerHTML = '<option value="">' + esc(msT('projects.option_select_dash', '-- Select --')) + '</option>';
-      tbody.innerHTML = '';
-      d.files.forEach(function(f) {
-        // Select option
-        var opt = document.createElement('option');
-        opt.value = f.name;
-        opt.textContent = f.name + ' (' + formatSize(f.size) + ')';
-        if (selectedPcap === f.name) opt.selected = true;
-        sel.appendChild(opt);
+      var showScanRow = canEditProject() ? '' : 'none';
+      if (scanRow) scanRow.style.display = showScanRow;
+      if (scanRowTab) scanRowTab.style.display = showScanRow;
 
-        // Table row. Radio (feeds scanSelected) and Delete are both
-        // editor+-only actions (see canEditProject) — a viewer sees a
-        // plain "—" in their place instead of controls the backend
-        // would reject.
-        var tr = document.createElement('tr');
-        var radioCell = canEditProject()
-          ? '<input type="radio" name="proj-pcap-radio" value="' + esc(f.name) + '"'
-              + (selectedPcap === f.name ? ' checked' : '')
-              + ' onchange="PROJ.selectPcap(this.value)">'
-          : '';
-        var scanCell = canEditProject()
-          ? '<button class="btn btn-success btn-sm" onclick="PROJ.scanFile(\'' + escjs(f.name) + '\')" style="margin-right:6px;">⚡ Run Scan</button>'
-          : '';
-        var deleteCell = canEditProject()
-          ? '<button class="btn btn-danger btn-sm" onclick="PROJ.deleteFile(\'' + escjs(f.name) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
-          : '';
-        tr.innerHTML =
-          '<td>' + radioCell + '</td>'
-          + '<td class="mono">' + esc(f.name) + '</td>'
-          + '<td class="dim">' + formatSize(f.size) + '</td>'
-          + '<td class="dim">' + formatDate(f.modified) + '</td>'
-          + '<td>' + scanCell + deleteCell + '</td>';
-        tbody.appendChild(tr);
+      var optHtml = '<option value="">' + esc(msT('projects.option_select_dash', '-- Select --')) + '</option>';
+      if (sel) sel.innerHTML = optHtml;
+      if (selTab) selTab.innerHTML = optHtml;
+      if (tbody) tbody.innerHTML = '';
+      if (tbodyTab) tbodyTab.innerHTML = '';
+
+      d.files.forEach(function(f) {
+        // Select options
+        var opt1 = document.createElement('option');
+        opt1.value = f.name;
+        opt1.textContent = f.name + ' (' + formatSize(f.size) + ')';
+        if (selectedPcap === f.name) opt1.selected = true;
+        if (sel) sel.appendChild(opt1);
+
+        var opt2 = document.createElement('option');
+        opt2.value = f.name;
+        opt2.textContent = f.name + ' (' + formatSize(f.size) + ')';
+        if (selectedPcap === f.name) opt2.selected = true;
+        if (selTab) selTab.appendChild(opt2);
+
+        // Table rows
+        var trHTML = function(suffix) {
+          var radioCell = canEditProject()
+            ? '<input type="radio" name="proj-pcap-radio' + suffix + '" value="' + esc(f.name) + '"'
+                + (selectedPcap === f.name ? ' checked' : '')
+                + ' onchange="PROJ.selectPcap(this.value)">'
+            : '';
+          var scanCell = canEditProject()
+            ? '<button class="btn btn-success btn-sm" onclick="PROJ.scanFile(\'' + escjs(f.name) + '\')" style="margin-right:6px;">⚡ Run Scan</button>'
+            : '';
+          var deleteCell = canEditProject()
+            ? '<button class="btn btn-danger btn-sm" onclick="PROJ.deleteFile(\'' + escjs(f.name) + '\')">' + msT('projects.delete', 'Delete') + '</button>'
+            : '';
+          return '<td>' + radioCell + '</td>'
+            + '<td class="mono">' + esc(f.name) + '</td>'
+            + '<td class="dim">' + formatSize(f.size) + '</td>'
+            + '<td class="dim">' + formatDate(f.modified) + '</td>'
+            + '<td>' + scanCell + deleteCell + '</td>';
+        };
+
+        if (tbody) {
+          var tr1 = document.createElement('tr');
+          tr1.innerHTML = trHTML('');
+          tbody.appendChild(tr1);
+        }
+        if (tbodyTab) {
+          var tr2 = document.createElement('tr');
+          tr2.innerHTML = trHTML('-tab');
+          tbodyTab.appendChild(tr2);
+        }
       });
     });
   }
@@ -1965,8 +2049,16 @@ var PROJ = (function() {
   function selectPcap(name) {
     selectedPcap = name;
     var sel = document.getElementById('proj-pcap-select');
-    for (var i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].value === name) { sel.selectedIndex = i; break; }
+    if (sel) {
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === name) { sel.selectedIndex = i; break; }
+      }
+    }
+    var selTab = document.getElementById('proj-pcap-select-tab');
+    if (selTab) {
+      for (var j = 0; j < selTab.options.length; j++) {
+        if (selTab.options[j].value === name) { selTab.selectedIndex = j; break; }
+      }
     }
   }
 
@@ -1994,7 +2086,7 @@ var PROJ = (function() {
 
   function triggerQuickScan() {
     setTab('pcaps');
-    var sel = document.getElementById('proj-pcap-select');
+    var sel = document.getElementById('proj-pcap-select-tab') || document.getElementById('proj-pcap-select');
     if (sel && sel.options.length > 1 && (!sel.value || sel.value === '')) {
       sel.selectedIndex = 1;
       selectPcap(sel.options[1].value);
@@ -2006,12 +2098,32 @@ var PROJ = (function() {
     }
   }
 
+  function scanSelectedTab() {
+    var pcapSelTab = document.getElementById('proj-pcap-select-tab');
+    if (pcapSelTab && pcapSelTab.value) {
+      selectPcap(pcapSelTab.value);
+    }
+    var cmdTab = document.getElementById('proj-scan-cmd-tab');
+    var profileTab = document.getElementById('proj-scan-profile-tab');
+    if (cmdTab && document.getElementById('proj-scan-cmd')) {
+      document.getElementById('proj-scan-cmd').value = cmdTab.value;
+    }
+    if (profileTab && document.getElementById('proj-scan-profile')) {
+      document.getElementById('proj-scan-profile').value = profileTab.value;
+    }
+    scanSelected();
+  }
+
   function scanSelected() {
     if (!currentProject) return;
-    var pcap = document.getElementById('proj-pcap-select').value;
+    var sel1 = document.getElementById('proj-pcap-select');
+    var sel2 = document.getElementById('proj-pcap-select-tab');
+    var pcap = (sel1 && sel1.value) ? sel1.value : (sel2 ? sel2.value : '');
     if (!pcap) { msToast(msT('projects.select_pcap_first', 'Select a PCAP file first'), true); return; }
-    var cmd = document.getElementById('proj-scan-cmd').value;
-    var scanProfile = document.getElementById('proj-scan-profile').value;
+    var cmdEl = document.getElementById('proj-scan-cmd') || document.getElementById('proj-scan-cmd-tab');
+    var cmd = cmdEl ? cmdEl.value : 'chain';
+    var profEl = document.getElementById('proj-scan-profile') || document.getElementById('proj-scan-profile-tab');
+    var scanProfile = profEl ? profEl.value : 'fast';
     fetch('/api/scans/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2029,19 +2141,25 @@ var PROJ = (function() {
   // ── Upload ──
 
   function setupUpload() {
-    var zone = document.getElementById('proj-upload-zone');
-    var input = document.getElementById('proj-upload-input');
-    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragging'); });
-    zone.addEventListener('dragleave', function() { zone.classList.remove('dragging'); });
-    zone.addEventListener('drop', function(e) {
-      e.preventDefault();
-      zone.classList.remove('dragging');
-      if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
-    });
-    input.addEventListener('change', function() {
-      if (input.files.length) doUpload(input.files[0]);
-      input.value = '';
-    });
+    var bindZone = function(zoneId, inputId) {
+      var zone = document.getElementById(zoneId);
+      var input = document.getElementById(inputId);
+      if (!zone || !input) return;
+      zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragging'); });
+      zone.addEventListener('dragleave', function() { zone.classList.remove('dragging'); });
+      zone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        zone.classList.remove('dragging');
+        if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
+      });
+      input.addEventListener('change', function() {
+        if (input.files.length) doUpload(input.files[0]);
+        input.value = '';
+      });
+    };
+
+    bindZone('proj-upload-zone', 'proj-upload-input');
+    bindZone('proj-upload-zone-tab', 'proj-upload-input-tab');
   }
 
   var uploadLimitMb = 200;
@@ -2049,8 +2167,11 @@ var PROJ = (function() {
   function loadUploadLimit() {
     fetch('/api/profile').then(function(r) { return r.json(); }).then(function(d) {
       uploadLimitMb = d.upload_limit_mb || 200;
-      var lbl = document.getElementById('upload-limit-label');
-      if (lbl) lbl.textContent = msT('projects.upload_max', 'Max {mb} MB').replace('{mb}', uploadLimitMb);
+      var lbl1 = document.getElementById('upload-limit-label');
+      var lbl2 = document.getElementById('upload-limit-label-tab');
+      var txt = msT('projects.upload_max', 'Max {mb} MB').replace('{mb}', uploadLimitMb);
+      if (lbl1) lbl1.textContent = txt;
+      if (lbl2) lbl2.textContent = txt;
     }).catch(function() {});
   }
 
@@ -2061,8 +2182,12 @@ var PROJ = (function() {
       msToast(msT('projects.file_too_large', 'File too large (max {max} MB)').replace('{max}', uploadLimitMb), true);
       return;
     }
-    var status = document.getElementById('proj-upload-status');
-    status.textContent = msT('projects.uploading', 'Uploading {name}…').replace('{name}', file.name);
+    var status1 = document.getElementById('proj-upload-status');
+    var status2 = document.getElementById('proj-upload-status-tab');
+    var upTxt = msT('projects.uploading', 'Uploading {name}…').replace('{name}', file.name);
+    if (status1) status1.textContent = upTxt;
+    if (status2) status2.textContent = upTxt;
+
     var fd = new FormData();
     fd.append('file', file);
     fetch('/api/projects/' + currentProject.id + '/upload', { method: 'POST', body: fd })
@@ -2078,13 +2203,24 @@ var PROJ = (function() {
               .replace('{original}', formatSize(d.original_size));
             msg += '<div class="trim-notice">' + trimMsg + '</div>';
           }
-          status.innerHTML = msg;
+          if (status1) status1.innerHTML = msg;
+          if (status2) status2.innerHTML = msg;
           selectedPcap = d.filename;
           loadFiles();
           loadProjects(currentProject.id);
         } else {
           var errMsg = msT('projects.upload_failed', 'Upload failed: {error}').replace('{error}', esc(d.error));
-          status.innerHTML = '<span style="color:var(--color-danger)">' + errMsg + '</span>';
+          var errHtml = '<span style="color:var(--color-danger)">' + errMsg + '</span>';
+          if (status1) status1.innerHTML = errHtml;
+          if (status2) status2.innerHTML = errHtml;
+        }
+      })
+      .catch(function(e) {
+        var errHtml = '<span style="color:var(--color-danger)">Upload error: ' + esc(e.message) + '</span>';
+        if (status1) status1.innerHTML = errHtml;
+        if (status2) status2.innerHTML = errHtml;
+      });
+  }
         }
       })
       .catch(function(e) { status.textContent = msT('projects.upload_error', 'Upload error: {error}').replace('{error}', e.message); });
