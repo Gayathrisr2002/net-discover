@@ -5555,15 +5555,17 @@ var MS = (function() {
         g.setAttribute('class', 'ms-node');
         g.style.cursor = 'pointer';
 
-        if (n.attack_priority > 10 && riskOverlay) {
+        if (riskOverlay && (nodeHasRisk(n) || (n.attack_priority && n.attack_priority > 0))) {
           var glow = document.createElementNS(ns, 'circle');
           glow.setAttribute('cx', n._x);
           glow.setAttribute('cy', n._y);
-          glow.setAttribute('r', n._r + 6);
+          glow.setAttribute('r', n._r + 7);
           glow.setAttribute('fill', 'none');
-          glow.setAttribute('stroke', '#ef4444');
-          glow.setAttribute('stroke-width', '2');
-          glow.setAttribute('stroke-opacity', '0.55');
+          var risks = nodeRiskFindings(n);
+          var topSev = risks.length && risks[0].severity ? risks[0].severity.toUpperCase() : 'HIGH';
+          glow.setAttribute('stroke', topSev === 'CRITICAL' ? '#ef4444' : '#f59e0b');
+          glow.setAttribute('stroke-width', '3.5');
+          glow.setAttribute('stroke-opacity', '0.85');
           g.appendChild(glow);
         }
 
@@ -5834,11 +5836,26 @@ var MS = (function() {
   function toggleRisk() {
     var selectedIp = selectedNode ? selectedNode._ip : null;
     riskOverlay = !riskOverlay;
-    document.getElementById('ms-btn-risk').classList.toggle('active', riskOverlay);
-    SVG2D.init();
+    var btn = document.getElementById('ms-btn-risk');
+    if (btn) btn.classList.toggle('active', riskOverlay);
+    if (typeof SVG2D !== 'undefined' && SVG2D.syncState) {
+      SVG2D.init();
+      SVG2D.syncState();
+    }
     if (selectedIp && nodeByIp[selectedIp]) {
       selectedNode = nodeByIp[selectedIp];
       renderSidebar();
+      if (typeof SVG2D !== 'undefined' && SVG2D.syncState) SVG2D.syncState();
+    }
+  }
+
+  function toggleHmi() {
+    var next = !window.msHmiActive();
+    window.msSetHmi(next);
+    var btn = document.getElementById('ms-btn-hmi');
+    if (btn) btn.classList.toggle('active', next);
+    if (typeof SVG2D !== 'undefined' && SVG2D.syncState) {
+      SVG2D.init();
       SVG2D.syncState();
     }
   }
@@ -7768,6 +7785,8 @@ var MS = (function() {
   function start() {
     initData();
     renderHeader();
+    var hmiBtn = document.getElementById('ms-btn-hmi');
+    if (hmiBtn) hmiBtn.classList.toggle('active', window.msHmiActive());
     // Initialize new workbench surface (inspector, lens strip, drawer count)
     renderInspector();
     renderDrawerCount();
@@ -7926,7 +7945,8 @@ var MS = (function() {
     toggleDrawer: toggleDrawer,
     openDrawer: openDrawer,
     setDrawerTab: setDrawerTab,
-    toggleHmi: function() { window.msSetHmi(!window.msHmiActive()); },
+    toggleHmi: toggleHmi,
+    toggleRisk: toggleRisk,
     msToast: msToast,
     start: start
   };
