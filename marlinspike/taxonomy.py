@@ -382,7 +382,7 @@ ICS_ATTACK_MAPPING: dict[str, dict[str, str]] = {
 
 def get_ics_attack_technique(finding_type: str) -> dict[str, str] | None:
     """Return MITRE ATT&CK for ICS technique details for a finding type."""
-    key = str(finding_type or "").upper().strip()
+    key = (finding_type or "").upper().strip()
     return ICS_ATTACK_MAPPING.get(key)
 
 
@@ -392,7 +392,7 @@ def severity_chip_class(severity: str) -> str:
     Accepts both uppercase engine tokens (``CRITICAL``) and lowercase
     malware-finding tokens (``critical``).  Unknown values map to ``chip-info``.
     """
-    return SEVERITY_CHIP.get(str(severity or "").upper().strip(), "chip-info")
+    return SEVERITY_CHIP.get((severity or "").upper().strip(), "chip-info")
 
 
 # ---------------------------------------------------------------------------
