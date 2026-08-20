@@ -76,9 +76,9 @@ ICS_VULNERABILITY_CATALOG: list[dict[str, Any]] = [
 def match_asset_cves(vendor: str | None, model: str | None, protocols: list[str] | None = None) -> list[dict[str, Any]]:
     """Match asset vendor/model strings and active protocols against the ICS CVE database."""
     matches: list[dict[str, Any]] = []
-    vendor_clean = str(vendor or "").lower().strip()
-    model_clean = str(model or "").lower().strip()
-    proto_clean = [str(p).lower().strip() for p in (protocols or [])]
+    vendor_clean = (vendor or "").lower().strip()
+    model_clean = (model or "").lower().strip()
+    proto_clean = [str(p or "").lower().strip() for p in (protocols or [])]
 
     for vuln in ICS_VULNERABILITY_CATALOG:
         is_match = False
