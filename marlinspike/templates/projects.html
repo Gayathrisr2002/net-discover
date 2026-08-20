@@ -330,25 +330,33 @@
 
 /* Tabs */
 .proj-tabs {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  gap: max(2px, 0.3vw);
   background: rgba(15, 23, 42, 0.8);
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 4px;
   border-radius: 8px;
   margin-bottom: 16px;
+  box-sizing: border-box;
 }
 .proj-tab {
-  padding: 8px 18px;
+  flex: 1 1 auto;
+  min-width: min-content;
+  text-align: center;
+  padding: max(6px, 0.8vh) max(12px, 0.9vw);
   border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 0.84em;
+  font-size: clamp(0.78em, 0.75vw + 0.1rem, 0.88em);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.18s ease;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 .proj-tab:hover {
   color: var(--text);

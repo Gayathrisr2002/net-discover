@@ -4466,6 +4466,7 @@ class RiskSurface:
         self._check_opc_security()
         self._check_program_access()
         self._check_port_analysis()
+        self._check_conduit_and_command_anomalies()
         c2_indicators = [] if self.skip_c2 else self._check_c2_indicators()
 
         print(f"\n  Risk Summary:")
@@ -4605,6 +4606,47 @@ class RiskSurface:
             )
             self.findings.append(finding)
             print(f"  [HIGH] Cross-Purdue violations: {len(violations)}")
+
+    def _check_conduit_and_command_anomalies(self):
+        """Flag IEC 62443 zone/conduit violations & deep industrial protocol command writes."""
+        # 1. IEC 62443 Conduit Boundary Audit
+        conduit_violations = []
+        for edge in self.edges:
+            src = self.nodes.get(edge["src"])
+            dst = self.nodes.get(edge["dst"])
+            if not src or not dst:
+                continue
+            src_lvl = src.get("purdue_level", -1)
+            dst_lvl = dst.get("purdue_level", -1)
+            if src_lvl >= 0 and dst_lvl >= 0 and abs(src_lvl - dst_lvl) > 1:
+                # Direct communication across non-adjacent Purdue zones without DMZ isolation
+                conduit_violations.append((edge["src"], edge["dst"], src_lvl, dst_lvl))
+
+        if conduit_violations:
+            nodes_affected = list(set([item[0] for item in conduit_violations] + [item[1] for item in conduit_violations]))
+            edges_affected = [f"{src} (Level {sl}) → {dst} (Level {dl})" for src, dst, sl, dl in conduit_violations]
+            self.findings.append(RiskFinding(
+                severity="HIGH",
+                category="IEC62443_CONDUIT_VIOLATION",
+                description=f"Detected {len(conduit_violations)} un-conduited boundary crossings between non-adjacent Purdue levels (IEC 62443-3-2 violation)",
+                affected_nodes=nodes_affected,
+                affected_edges=edges_affected,
+                remediation="Enforce IEC 62443 conduit controls using dedicated Level 3.5 DMZ firewalls or OT proxies.",
+            ))
+            print(f"  [HIGH] IEC 62443 Conduit Violations: {len(conduit_violations)}")
+
+        # 2. Modbus / CIP / S7 Control Command Write Audit
+        modbus_write_convs = [c for c in self.conversations if getattr(c, 'modbus_writes', 0) > 0]
+        if modbus_write_convs:
+            affected_nodes = list(set([(c.src_ip or c.src_mac) for c in modbus_write_convs] + [(c.dst_ip or c.dst_mac) for c in modbus_write_convs]))
+            self.findings.append(RiskFinding(
+                severity="HIGH",
+                category="MODBUS_WRITE_COIL",
+                description=f"Observed {len(modbus_write_convs)} Modbus TCP control write command flow(s) targeting field PLCs (Function Codes 0x05/0x06/0x10)",
+                affected_nodes=affected_nodes,
+                affected_edges=[f"{c.src_ip or c.src_mac} → {c.dst_ip or c.dst_mac}" for c in modbus_write_convs],
+                remediation="Restrict Modbus TCP write permissions using hardware key switches or firewall ACLs.",
+            ))
 
     def _check_cleartext_engineering(self):
         """Flag cleartext engineering protocols."""

@@ -360,6 +360,31 @@ SEVERITY_CHIP: dict[str, str] = {
     "INFO":     "chip-info",
 }
 
+# ---------------------------------------------------------------------------
+# MITRE ATT&CK® for ICS Technique Mapping
+# ---------------------------------------------------------------------------
+
+ICS_ATTACK_MAPPING: dict[str, dict[str, str]] = {
+    "MODBUS_WRITE_COIL":        {"id": "T0855", "name": "Unauthorized Command Message", "tactic": "Execution", "severity": "HIGH"},
+    "MODBUS_WRITE_REGISTER":    {"id": "T0855", "name": "Unauthorized Command Message", "tactic": "Execution", "severity": "HIGH"},
+    "MODBUS_WRITE_MULTIPLE":    {"id": "T0836", "name": "Modify Parameter",            "tactic": "Impair Process Control", "severity": "CRITICAL"},
+    "CIP_WRITE_TAG":            {"id": "T0855", "name": "Unauthorized Command Message", "tactic": "Execution", "severity": "HIGH"},
+    "CIP_SET_ATTRIBUTE":        {"id": "T0836", "name": "Modify Parameter",            "tactic": "Impair Process Control", "severity": "HIGH"},
+    "S7_STOP_CONTROLLER":       {"id": "T0814", "name": "Denial of Service",           "tactic": "Inhibit Function", "severity": "CRITICAL"},
+    "S7_WRITE_DATA":            {"id": "T0836", "name": "Modify Parameter",            "tactic": "Impair Process Control", "severity": "HIGH"},
+    "PLC_PROGRAM_DOWNLOAD":     {"id": "T0843", "name": "Program Download",            "tactic": "Command and Control", "severity": "CRITICAL"},
+    "IEC62443_CONDUIT_VIOLATION": {"id": "T0886", "name": "Remote Services",          "tactic": "Initial Access", "severity": "HIGH"},
+    "UNENCRYPTED_CLEAR_AUTH":   {"id": "T0859", "name": "Valid Accounts",              "tactic": "Persistence", "severity": "MEDIUM"},
+    "PROFINET_DISCOVERY":       {"id": "T0888", "name": "Network Information Discovery", "tactic": "Discovery", "severity": "LOW"},
+    "BACNET_DISCOVERY":         {"id": "T0888", "name": "Network Information Discovery", "tactic": "Discovery", "severity": "LOW"},
+}
+
+
+def get_ics_attack_technique(finding_type: str) -> dict[str, str] | None:
+    """Return MITRE ATT&CK for ICS technique details for a finding type."""
+    key = str(finding_type or "").upper().strip()
+    return ICS_ATTACK_MAPPING.get(key)
+
 
 def severity_chip_class(severity: str) -> str:
     """Return the chip CSS class for a severity string.

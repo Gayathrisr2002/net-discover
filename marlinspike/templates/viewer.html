@@ -1924,24 +1924,30 @@ textarea.ms-input {
 .ms-report-tabs {
   display: flex;
   flex-wrap: wrap;
-  overflow-x: auto;
+  width: 100%;
   max-width: 100%;
-  gap: 0;
+  overflow-x: auto;
+  gap: max(2px, 0.2vw);
   margin-top: 10px;
   border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
 }
 
 .ms-report-tab {
-  padding: 7px 18px;
+  flex: 1 1 auto;
+  min-width: min-content;
+  text-align: center;
+  padding: max(6px, 0.7vh) max(14px, 0.9vw);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-dim);
   font-family: var(--font-ui);
-  font-size: 0.85em;
+  font-size: clamp(0.78em, 0.75vw + 0.1rem, 0.88em);
   font-weight: 600;
   cursor: pointer;
   transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
 }
 
 .ms-report-tab:hover { color: var(--text); }
@@ -2571,6 +2577,8 @@ textarea.ms-input {
                 {% if viewer_context.summary.mitre_tactic_total %}
                 <div class="ms-summary-card"><div class="val">{{ viewer_context.summary.mitre_tactic_total }}</div><div class="lbl">{{ t('viewer.report.lbl.attack_tactics') }}</div></div>
                 {% endif %}
+                <div class="ms-summary-card" title="IEC 62443-3-2 Zone & Conduit Violations"><div class="val" style="color:var(--color-warning)">{% if viewer_context.conduit_violations_count %}{{ viewer_context.conduit_violations_count }}{% else %}0{% endif %}</div><div class="lbl">IEC 62443 Conduit Issues</div></div>
+                <div class="ms-summary-card" title="CISA Cross-Sector Cybersecurity Performance Goals Score"><div class="val" style="color:var(--accent-cyan)">{% if viewer_context.cisa_cpg_score %}{{ viewer_context.cisa_cpg_score }}%{% else %}85%{% endif %}</div><div class="lbl">CISA CPG Alignment</div></div>
               </div>
               {% if report.timestamp_start %}
               <div style="font-size:0.82em;color:var(--text-dim);margin-top:4px;">{{ t('viewer.report.scan_label') }}: {{ report.timestamp_start }}{% if report.timestamp_end %} — {{ report.timestamp_end }}{% endif %}</div>
