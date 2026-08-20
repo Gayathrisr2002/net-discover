@@ -4348,8 +4348,30 @@ def create_app():
         # round-trips the masked GET response and only sends "secret" when
         # the owner actually typed a new one); pass "secret": null to clear it.
         existing = _webhook.parse_config(proj.webhook_config)
+        merged = {**existing, **body}
 
-    # ── STIX 2.1 & Ansible Incident Response Export Routes ──
+        err = _webhook.validate_effective_config(merged)
+        if err:
+            return jsonify({"ok": False, "error": err}), 400
+
+        proj.webhook_config = json.dumps(merged) if merged else None
+        db.session.commit()
+
+        audit("project.webhook_set", target_type="project", target_id=str(pid),
+              detail=json.dumps({
+                  "project_id": pid,
+                  "enabled": merged.get("enabled", False),
+                  "url_set": bool(merged.get("url")),
+                  "min_severity": merged.get("min_severity"),
+              }))
+
+        return jsonify({
+            "ok": True,
+            "project_id": pid,
+            "config": _mask_webhook_secret(_webhook.parse_config(proj.webhook_config)),
+        })
+
+    # ── STIX 2.1 & Ansible Incident Response Export Routes (Project Level) ──
     @app.route("/api/projects/<int:pid>/stix/download", methods=["GET"])
     @login_required
     def download_project_stix(pid):
@@ -4407,28 +4429,6 @@ def create_app():
         response.headers["Content-Type"] = "application/x-yaml"
         response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
-        merged = {**existing, **body}
-
-        err = _webhook.validate_effective_config(merged)
-        if err:
-            return jsonify({"ok": False, "error": err}), 400
-
-        proj.webhook_config = json.dumps(merged) if merged else None
-        db.session.commit()
-
-        audit("project.webhook_set", target_type="project", target_id=str(pid),
-              detail=json.dumps({
-                  "project_id": pid,
-                  "enabled": merged.get("enabled", False),
-                  "url_set": bool(merged.get("url")),
-                  "min_severity": merged.get("min_severity"),
-              }))
-
-        return jsonify({
-            "ok": True,
-            "project_id": pid,
-            "config": _mask_webhook_secret(_webhook.parse_config(proj.webhook_config)),
-        })
 
     @app.route("/api/projects/<int:pid>/webhook/test", methods=["POST"])
     @login_required
@@ -5941,6 +5941,37 @@ def create_app():
             mimetype="application/x-yaml",
             headers={
                 "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".sigma.yml")}"',
+            },
+        )
+
+    @app.route("/api/reports/<filename>/ansible")
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_report_ansible(filename):
+        """Stream the Ansible incident response playbook for a specific report."""
+        safe_name = os.path.basename(filename)
+        project_id = request.args.get("project_id", None, type=int)
+        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        if not os.path.isfile(json_path):
+            return jsonify({"error": "Report not found"}), 404
+        try:
+            from marlinspike.emit import ansible as _ansible_emit
+            with open(json_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            yaml_text = _ansible_emit.export_ansible_playbook(
+                safe_name.replace(".json", ""),
+                findings=report.get("findings", []),
+                purdue_violations=report.get("purdue_violations", [])
+            )
+        except Exception as exc:
+            log.warning("Ansible playbook render failed for %s: %s", safe_name, exc)
+            return jsonify({"error": "Ansible playbook emit failed"}), 500
+        from flask import Response
+        return Response(
+            yaml_text + "\n",
+            mimetype="application/x-yaml",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".ansible.yml")}"',
             },
         )
 
