@@ -3597,9 +3597,14 @@ def create_app():
                             cisa_kev_total += 1
 
                     for proto in agg.get("protocols", []):
-                        pname = proto if isinstance(proto, str) else proto.get("name", "Unknown")
-                        p_protocols[pname] = p_protocols.get(pname, 0) + 1
-                        global_protocols[pname] = global_protocols.get(pname, 0) + 1
+                        if isinstance(proto, dict):
+                            pname = proto.get("name", "Unknown")
+                            pcount = proto.get("packet_count") or proto.get("count") or proto.get("report_count") or 1
+                        else:
+                            pname = str(proto)
+                            pcount = 1
+                        p_protocols[pname] = p_protocols.get(pname, 0) + int(pcount)
+                        global_protocols[pname] = global_protocols.get(pname, 0) + int(pcount)
 
                 except Exception as ex:
                     logger.warning("SIEM aggregate failed for project %s: %s", p.id, ex)

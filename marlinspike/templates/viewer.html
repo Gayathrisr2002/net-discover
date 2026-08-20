@@ -2183,20 +2183,37 @@ textarea.ms-input {
 
 @media (max-width: 900px) {
   #ms-inspector {
-    display: none; /* on small screens the inspector is always collapsed */
+    display: flex !important;
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 320px;
+    max-width: 85vw;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.6);
+    border-left: 1px solid var(--border);
+  }
+
+  #ms-inspector.collapsed {
+    width: 0;
+    min-width: 0;
+    border-left: none;
   }
 
   #ms-workbench-body {
     grid-template-columns: 1fr;
+    position: relative;
   }
 
   .ms-overview-strip {
-    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   }
 
   .ms-report-columns { grid-template-columns: 1fr; }
   .ms-stage-shell,
   .ms-stage-split { grid-template-columns: 1fr; }
+  .ms-toolbar-controls { grid-template-columns: 1fr; }
 }
 
 @media print {
@@ -5716,6 +5733,9 @@ var MS = (function() {
     var preserveHighlights = arguments.length > 2 ? !!arguments[2] : false;
     if (!preserveHighlights) highlightedIps = [];
     selectedNode = n;
+    if (inspectorCollapsed && window.innerWidth <= 900) {
+      toggleInspector();
+    }
     renderInspector();
     renderSidebar();
     renderToolbarStatus();

@@ -67,6 +67,7 @@
 .workspace-title span {
   background: linear-gradient(135deg, #f43f5e 0%, #fb7185 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .workspace-subtitle {
@@ -561,7 +562,7 @@
 /* ── SIEM Executive Command Center ── */
 .siem-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 14px;
   margin-bottom: 20px;
 }
@@ -950,8 +951,16 @@
 {% endblock %}
 
 {% block scripts %}
+<script type="application/json" id="ms-admin-flag">{{ (session.get('role') == 'admin') | tojson }}</script>
 <script nonce="{{ csp_nonce }}">
-{% if session.get('role') == 'admin' %}var IS_ADMIN = true;{% else %}var IS_ADMIN = false;{% endif %}
+var IS_ADMIN = (function() {
+  try {
+    var raw = document.getElementById('ms-admin-flag');
+    return raw ? JSON.parse(raw.textContent || 'false') : false;
+  } catch (e) {
+    return false;
+  }
+})();
 var MS = (function() {
   'use strict';
 

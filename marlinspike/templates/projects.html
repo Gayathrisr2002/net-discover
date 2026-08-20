@@ -274,7 +274,7 @@
 }
 .proj-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 14px;
   margin-bottom: 20px;
 }
@@ -600,7 +600,7 @@
 
 .ov-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -763,7 +763,7 @@
 .ov-table-scroll.tight { max-height: 380px; }
 
 /* ov-sev-pill — alias for canonical taxonomy chip; kept for selector compat */
-.ov-sev-pill { /* use chip chip-* classes from base.html token system */ }
+.ov-sev-pill { box-shadow: none; }
 
 .ov-finding-row td { vertical-align: top; padding: 10px 12px; }
 .ov-finding-cat { font-weight: 600; font-size: 0.86em; }

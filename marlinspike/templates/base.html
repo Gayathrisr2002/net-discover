@@ -161,7 +161,7 @@ html[data-hmi="on"] .ms-chip {
 }
 html[data-hmi="on"] .chip-critical,
 html[data-hmi="on"] .chip-high {
-  /* alarm colors retain — only critical/high are "actionable abnormality" */
+  box-shadow: none; /* alarm colors retain — only critical/high are "actionable abnormality" */
 }
 html[data-hmi="on"] .chip-medium,
 html[data-hmi="on"] .chip-low,
@@ -277,6 +277,7 @@ body {
 .ms-nav-brand .brand-text {
   background: linear-gradient(135deg, #f43f5e 0%, #fb7185 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .ms-nav-brand .brand-icon {
@@ -923,22 +924,48 @@ body {
 }
 .info-hint:hover .info-tip { display: block; }
 
-/* ── Responsive ── */
-@media (max-width: 768px) {
-  .ms-nav { padding: 0 12px; gap: 8px; }
-  .ms-nav-links { gap: 0; margin-left: 8px; overflow-x: auto; }
-  .ms-nav-links a { padding: 0 8px; font-size: 0.78em; white-space: nowrap; }
-  .ms-nav-right { gap: 6px; font-size: 0.78em; }
-  .ms-nav-version { display: none; }
-  .ms-content { padding: 12px; }
-  .ms-table { font-size: 0.78em; }
-  .ms-table th, .ms-table td { padding: 6px 8px; }
-  .ms-modal { min-width: 0; margin: 12px; }
+/* ── Table responsive wrapper utility ── */
+.ms-table-wrap, .table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: var(--sp-4);
 }
-@media (max-width: 480px) {
-  .ms-nav-links a { padding: 0 6px; font-size: 0.72em; }
-  .ms-nav-right a:not(:last-child) { display: none; }
-  .panel-header { padding: 10px 12px; }
+
+/* ── Responsive ── */
+@media (max-width: 992px) {
+  .ms-nav {
+    padding: 6px 14px;
+    height: auto;
+    min-height: 54px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ms-nav-links {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 0;
+    gap: 4px;
+    border-top: 1px solid var(--border-dim);
+  }
+  .ms-nav-links a { padding: 4px 10px; font-size: 0.84em; white-space: nowrap; }
+  .ms-nav-right { gap: 8px; font-size: 0.82em; flex-wrap: wrap; }
+  .ms-nav-version { display: none; }
+  .ms-content { padding: 16px 14px; }
+  .ms-table { font-size: 0.85em; }
+  .ms-table th, .ms-table td { padding: 6px 10px; }
+  .ms-modal { min-width: 0; width: calc(100% - 24px); margin: 12px; }
+}
+
+@media (max-width: 576px) {
+  .ms-nav-links a { padding: 3px 8px; font-size: 0.78em; }
+  .ms-nav-right { gap: 6px; font-size: 0.78em; }
+  .ms-hmi-btn { padding: 3px 6px; font-size: 0.7em; }
+  .ms-lang-btn { padding: 3px 8px; font-size: 0.78em; }
+  .panel-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
   .panel-body { padding: 12px; }
 }
 </style>
@@ -1018,11 +1045,17 @@ window.MS_CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).conte
 /** msFetch — explicit named wrapper (same behaviour, useful for call sites
  *  that want to be self-documenting about CSRF awareness). */
 window.msFetch = function(url, opts) { return window.fetch(url, opts); };
-/** Taxonomy: entity visual specs for client-side chip / graph rendering.
- *  Keyed by entity_type value (e.g. "asset", "finding").
- *  Each entry: { entity_type, color_var, node_shape, chip_class,
- *               i18n_label_key, i18n_plural_key, icon } */
-window.MS_TAXONOMY = {{ taxonomy_entities | tojson }};
+</script>
+<script type="application/json" id="ms-taxonomy-data">{{ taxonomy_entities | tojson }}</script>
+<script nonce="{{ csp_nonce }}">
+(function() {
+  try {
+    var raw = document.getElementById('ms-taxonomy-data');
+    window.MS_TAXONOMY = raw ? JSON.parse(raw.textContent || '{}') : {};
+  } catch (e) {
+    window.MS_TAXONOMY = {};
+  }
+})();
 /** Convenience: resolve chip class for a severity string */
 window.msSevChipClass = function(sev) {
   var MAP = { CRITICAL: 'chip-critical', HIGH: 'chip-high', MEDIUM: 'chip-medium', LOW: 'chip-low', INFO: 'chip-info' };
@@ -1071,10 +1104,9 @@ document.addEventListener('DOMContentLoaded', function() {
     window.msSetHmi(!window.msHmiActive());
   });
 });
-/** i18n: server-rendered string table for client-side rendering.
- *  Use as MS_T['nav.reports'] || 'fallback'. Add keys here as templates
- *  surface JS-rendered strings; missing keys fall back to the key itself. */
-window.MS_T = {
+</script>
+<script type="application/json" id="ms-i18n-data">
+{
   "common.loading": {{ t('common.loading') | tojson }},
   "common.refresh": {{ t('common.refresh') | tojson }},
   "common.cancel": {{ t('common.cancel') | tojson }},
@@ -1220,7 +1252,20 @@ window.MS_T = {
   "projects.relative_hour": {{ t('projects.relative_hour') | tojson }},
   "projects.relative_day": {{ t('projects.relative_day') | tojson }},
   "projects.btn_open": {{ t('projects.btn_open') | tojson }}
-};
+}
+</script>
+<script nonce="{{ csp_nonce }}">
+/** i18n: server-rendered string table for client-side rendering.
+ *  Use as MS_T['nav.reports'] || 'fallback'. Add keys here as templates
+ *  surface JS-rendered strings; missing keys fall back to the key itself. */
+(function() {
+  try {
+    var raw = document.getElementById('ms-i18n-data');
+    window.MS_T = raw ? JSON.parse(raw.textContent || '{}') : {};
+  } catch (e) {
+    window.MS_T = {};
+  }
+})();
 /** t(key, fallback) — JS-side translator. Falls back to fallback or key. */
 window.msT = function(key, fallback) {
   return (window.MS_T && window.MS_T[key]) || fallback || key;
