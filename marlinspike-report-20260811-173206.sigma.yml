@@ -1,0 +1,35 @@
+title: MarlinSpike — CROSS_PURDUE
+id: 9d36f9c8-71fa-2092-fb30-df189f0fae40
+status: experimental
+description: Detected 19 cross-Purdue-level communications bypassing supervisory layer
+author: MarlinSpike (ERISFORGE Ltd.)
+date: 2026/08/11
+references:
+  - "https://github.com/eris-ot/marlinspike"
+tags:
+  - marlinspike.cross_purdue
+level: high
+logsource:
+  product: zeek
+  service: conn
+detection:
+  selection:
+    id.orig_h|in:
+      - 224.0.0.22
+      - 224.0.0.1
+      - 255.255.255.255
+      - 192.168.0.1
+      - 192.168.2.102
+      - 192.168.2.1
+      - 192.168.0.102
+    id.resp_h|in:
+      - 224.0.0.22
+      - 224.0.0.1
+      - 255.255.255.255
+      - 192.168.0.1
+      - 192.168.2.102
+      - 192.168.2.1
+      - 192.168.0.102
+  condition: selection
+falsepositives:
+  - legitimate cross-zone supervisory polling

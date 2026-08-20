@@ -138,8 +138,6 @@ import sys
 import glob
 import argparse
 import re
-import hashlib
-import time
 import shutil
 import tempfile
 from collections import defaultdict

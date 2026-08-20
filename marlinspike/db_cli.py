@@ -42,7 +42,6 @@ def main() -> None:
     # (admin creation, recovery, preset sync) which we don't want in a DB tool.
     from flask import Flask
     from flask_migrate import Migrate
-    from flask_sqlalchemy import SQLAlchemy
 
     from marlinspike import config
     from marlinspike.models import db

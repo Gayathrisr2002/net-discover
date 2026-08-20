@@ -4,10 +4,6 @@ Tracks vulnerability lifecycles (Discovered, Remediated, Persistent, Reopened)
 and daily security surface trends across all generated reports within a Project.
 """
 
-from __future__ import annotations
-from datetime import datetime, timezone
-import json
-import os
 from typing import Any
 
 

@@ -1,0 +1,19 @@
+{
+  "type": "bundle",
+  "id": "bundle--aa0ca76d-be32-5b8f-b9db-b495ebeef22f",
+  "objects": [
+    {
+      "type": "identity",
+      "spec_version": "2.1",
+      "id": "identity--58612bfb-6e2c-5f57-b4ce-b98616bb26e0",
+      "created": "2026-08-11T12:01:51.000Z",
+      "modified": "2026-08-11T12:01:51.000Z",
+      "name": "MarlinSpike",
+      "identity_class": "system",
+      "sectors": [
+        "technology"
+      ],
+      "description": "MarlinSpike v3.7.0 \u2014 passive OT/ICS network analysis platform. Produced by ERISFORGE Ltd.."
+    }
+  ]
+}

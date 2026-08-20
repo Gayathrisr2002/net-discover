@@ -10,14 +10,12 @@ import json
 import logging
 import math
 import os
-import platform
 import re
 import secrets
 import shutil
 import subprocess
 import tempfile
 import threading
-import time
 import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -88,8 +86,6 @@ from marlinspike.models import (
     FindingRecommendation,
     IocEntry,
     IocList,
-    LlmConfig,
-    PasswordResetToken,
     Project,
     ProjectMember,
     ScanHistory,

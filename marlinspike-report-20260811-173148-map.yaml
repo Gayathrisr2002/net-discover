@@ -1,0 +1,10 @@
+# MarlinSpike — Passive OT Topology Map
+# Generated: 2026-08-11T12:01:48.953524+00:00
+# Source: /proc/228604/root/app/data/uploads/1/1/cap_00001_20260811172057.pcapng
+# tshark: 
+
+topology:
+  nodes: 0
+  edges: 0
+  protocols: []
+

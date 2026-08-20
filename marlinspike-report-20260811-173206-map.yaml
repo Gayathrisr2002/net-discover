@@ -1,0 +1,643 @@
+# MarlinSpike — Passive OT Topology Map
+# Generated: 2026-08-11T12:02:07.070775+00:00
+# Source: /proc/228604/root/app/data/uploads/1/1/cap_00001_20260811172057.pcapng
+# tshark: 
+
+topology:
+  nodes: 26
+  edges: 51
+  protocols: [ARP, DNS, HTTPS, IP, Syslog TLS, TCP/33904, TCP/34744, TCP/34752, TCP/34802, TCP/37030, TCP/37492, TCP/37902, TCP/37906, TCP/39750, TCP/40090, TCP/40102, TCP/44036, TCP/45488, TCP/45796, TCP/47580, TCP/48720, TCP/48724, TCP/49588, TCP/49604, TCP/50640, TCP/51878, TCP/55112, TCP/57590, TCP/57606, TCP/57868, UDP/29810, UDP/34382, UDP/40268, UDP/40371, UDP/40725, UDP/40826, UDP/42991, UDP/44078, UDP/51294, UDP/54744, UDP/55325, UDP/58498, UDP/58922, UDP/60224]
+
+# ── Purdue Level 1 — Field Control ──
+level_1:
+  - ip: 192.168.0.1
+    role: Network Infrastructure
+    vendor: TP-Link
+    protocols: [DNS, UDP, IP, ARP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: UDP/40826
+        bytes: 268
+      - dst: 255.255.255.255
+        protocol: UDP/29810
+        bytes: 1980
+      - dst: 192.168.0.102
+        protocol: UDP/34382
+        bytes: 180
+      - dst: 224.0.0.1
+        protocol: IP
+        bytes: 60
+      - dst: 224.0.0.22
+        protocol: IP
+        bytes: 62
+      - dst: 192.168.0.102
+        protocol: ARP
+        bytes: 60
+      - dst: 192.168.0.102
+        protocol: UDP/40268
+        bytes: 159
+      - dst: 192.168.0.102
+        protocol: UDP/40725
+        bytes: 154
+      - dst: 192.168.0.102
+        protocol: UDP/58922
+        bytes: 115
+      - dst: 192.168.0.102
+        protocol: UDP/58498
+        bytes: 162
+      - dst: 192.168.0.102
+        protocol: UDP/51294
+        bytes: 146
+      - dst: 192.168.0.102
+        protocol: UDP/42991
+        bytes: 241
+      - dst: 192.168.0.102
+        protocol: UDP/55325
+        bytes: 145
+      - dst: 192.168.0.102
+        protocol: UDP/44078
+        bytes: 157
+      - dst: 192.168.0.102
+        protocol: UDP/40371
+        bytes: 225
+      - dst: 192.168.0.102
+        protocol: UDP/54744
+        bytes: 172
+      - src: 192.168.0.102
+        protocol: DNS
+        bytes: 1079
+        direction: inbound
+      - src: 192.168.0.102
+        protocol: ARP
+        bytes: 42
+        direction: inbound
+
+  - ip: 192.168.2.1
+    role: Network Infrastructure
+    vendor: TP-Link
+    protocols: [ARP]
+    connections:
+      - src: 192.168.2.102
+        protocol: ARP
+        bytes: 360
+        direction: inbound
+
+# ── Purdue Level 4 — Enterprise ──
+level_4:
+  - ip: 192.168.0.102
+    role: Enterprise Server
+    vendor: Dell
+    protocols: [DNS, UDP, HTTPS, TCP, IP, ARP]
+    connections:
+      - dst: 192.168.0.1
+        protocol: DNS
+        bytes: 1079
+      - dst: 172.217.118.4
+        protocol: HTTPS
+        bytes: 62311
+      - dst: 224.0.0.22
+        protocol: IP
+        bytes: 62
+      - dst: 192.168.0.1
+        protocol: ARP
+        bytes: 42
+      - src: 192.168.0.1
+        protocol: UDP/40826
+        bytes: 268
+        direction: inbound
+      - src: 172.217.116.4
+        protocol: TCP/47580
+        bytes: 198
+        direction: inbound
+      - src: 172.217.116.4
+        protocol: TCP/44036
+        bytes: 198
+        direction: inbound
+      - src: 108.62.99.22
+        protocol: TCP/49604
+        bytes: 796
+        direction: inbound
+      - src: 108.62.99.22
+        protocol: TCP/49588
+        bytes: 1112
+        direction: inbound
+      - src: 34.54.84.110
+        protocol: TCP/33904
+        bytes: 479
+        direction: inbound
+      - src: 172.217.117.4
+        protocol: TCP/45488
+        bytes: 198
+        direction: inbound
+      - src: 172.217.114.4
+        protocol: TCP/50640
+        bytes: 198
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/34382
+        bytes: 180
+        direction: inbound
+      - src: 34.54.84.110
+        protocol: TCP/51878
+        bytes: 5617
+        direction: inbound
+      - src: 172.217.118.4
+        protocol: TCP/37030
+        bytes: 198
+        direction: inbound
+      - src: 172.64.148.235
+        protocol: TCP/57606
+        bytes: 312
+        direction: inbound
+      - src: 34.54.84.110
+        protocol: TCP/57868
+        bytes: 66
+        direction: inbound
+      - src: 34.1.203.11
+        protocol: TCP/34802
+        bytes: 581
+        direction: inbound
+      - src: 172.64.148.235
+        protocol: TCP/57590
+        bytes: 132
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: ARP
+        bytes: 60
+        direction: inbound
+      - src: 104.26.14.135
+        protocol: TCP/48724
+        bytes: 1120
+        direction: inbound
+      - src: 104.26.14.135
+        protocol: TCP/48720
+        bytes: 622
+        direction: inbound
+      - src: 23.109.134.67
+        protocol: TCP/45796
+        bytes: 446
+        direction: inbound
+      - src: 142.251.106.157
+        protocol: TCP/34744
+        bytes: 171
+        direction: inbound
+      - src: 142.251.106.157
+        protocol: TCP/34752
+        bytes: 1003
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/40268
+        bytes: 159
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/40725
+        bytes: 154
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/58922
+        bytes: 115
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/58498
+        bytes: 162
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/51294
+        bytes: 146
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/42991
+        bytes: 241
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/55325
+        bytes: 145
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/44078
+        bytes: 157
+        direction: inbound
+      - src: 34.1.128.89
+        protocol: TCP/39750
+        bytes: 9141
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/40371
+        bytes: 225
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: UDP/54744
+        bytes: 172
+        direction: inbound
+      - src: 195.201.201.137
+        protocol: TCP/40090
+        bytes: 1657
+        direction: inbound
+      - src: 5.181.53.150
+        protocol: TCP/55112
+        bytes: 7588
+        direction: inbound
+      - src: 195.201.201.137
+        protocol: TCP/40102
+        bytes: 656
+        direction: inbound
+      - src: 198.206.157.240
+        protocol: TCP/37492
+        bytes: 2458
+        direction: inbound
+      - src: 80.77.82.125
+        protocol: TCP/37902
+        bytes: 1189
+        direction: inbound
+      - src: 80.77.82.125
+        protocol: TCP/37906
+        bytes: 494
+        direction: inbound
+      - src: 142.251.106.157
+        protocol: UDP/60224
+        bytes: 14068
+        direction: inbound
+
+  - ip: 192.168.2.101
+    role: Enterprise Workstation
+    vendor: Dell
+    protocols: [HTTPS, IP]
+    connections:
+      - dst: 104.18.33.89
+        protocol: HTTPS
+        bytes: 739
+      - dst: 224.0.0.22
+        protocol: IP
+        bytes: 180
+
+  - ip: 192.168.2.102
+    role: Enterprise Workstation
+    vendor: Dell
+    protocols: [Syslog TLS, ARP, IP]
+    connections:
+      - dst: 4.213.33.3
+        protocol: Syslog TLS
+        bytes: 4332
+      - dst: 192.168.2.1
+        protocol: ARP
+        bytes: 360
+      - dst: 224.0.0.22
+        protocol: IP
+        bytes: 180
+
+  - ip: 224.0.0.1
+    role: Broadcast/Multicast
+    vendor: Unknown
+    protocols: [IP]
+    connections:
+      - src: 192.168.0.1
+        protocol: IP
+        bytes: 60
+        direction: inbound
+
+  - ip: 224.0.0.22
+    role: Broadcast/Multicast
+    vendor: Unknown
+    protocols: [IP]
+    connections:
+      - src: 192.168.2.102
+        protocol: IP
+        bytes: 180
+        direction: inbound
+      - src: 192.168.2.101
+        protocol: IP
+        bytes: 180
+        direction: inbound
+      - src: 192.168.0.1
+        protocol: IP
+        bytes: 62
+        direction: inbound
+      - src: 192.168.0.102
+        protocol: IP
+        bytes: 62
+        direction: inbound
+
+  - ip: 255.255.255.255
+    role: Broadcast/Multicast
+    vendor: Unknown
+    protocols: [UDP]
+    connections:
+      - src: 192.168.0.1
+        protocol: UDP/29810
+        bytes: 1980
+        direction: inbound
+
+# ── Purdue Level 5 — DMZ ──
+level_5:
+  - ip: 104.18.33.89
+    role: External Host
+    vendor: Unknown
+    protocols: [HTTPS]
+    connections:
+      - src: 192.168.2.101
+        protocol: HTTPS
+        bytes: 739
+        direction: inbound
+
+  - ip: 104.26.14.135
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/48724
+        bytes: 1120
+      - dst: 192.168.0.102
+        protocol: TCP/48720
+        bytes: 622
+
+  - ip: 108.62.99.22
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/49604
+        bytes: 796
+      - dst: 192.168.0.102
+        protocol: TCP/49588
+        bytes: 1112
+
+  - ip: 142.251.106.157
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP, UDP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/34744
+        bytes: 171
+      - dst: 192.168.0.102
+        protocol: TCP/34752
+        bytes: 1003
+      - dst: 192.168.0.102
+        protocol: UDP/60224
+        bytes: 14068
+
+  - ip: 172.217.114.4
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/50640
+        bytes: 198
+
+  - ip: 172.217.116.4
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/47580
+        bytes: 198
+      - dst: 192.168.0.102
+        protocol: TCP/44036
+        bytes: 198
+
+  - ip: 172.217.117.4
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/45488
+        bytes: 198
+
+  - ip: 172.217.118.4
+    role: External Host
+    vendor: Unknown
+    protocols: [HTTPS, TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/37030
+        bytes: 198
+      - src: 192.168.0.102
+        protocol: HTTPS
+        bytes: 62311
+        direction: inbound
+
+  - ip: 172.64.148.235
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/57606
+        bytes: 312
+      - dst: 192.168.0.102
+        protocol: TCP/57590
+        bytes: 132
+
+  - ip: 195.201.201.137
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/40090
+        bytes: 1657
+      - dst: 192.168.0.102
+        protocol: TCP/40102
+        bytes: 656
+
+  - ip: 198.206.157.240
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/37492
+        bytes: 2458
+
+  - ip: 23.109.134.67
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/45796
+        bytes: 446
+
+  - ip: 34.1.128.89
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/39750
+        bytes: 9141
+
+  - ip: 34.1.203.11
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/34802
+        bytes: 581
+
+  - ip: 34.54.84.110
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/33904
+        bytes: 479
+      - dst: 192.168.0.102
+        protocol: TCP/51878
+        bytes: 5617
+      - dst: 192.168.0.102
+        protocol: TCP/57868
+        bytes: 66
+
+  - ip: 4.213.33.3
+    role: External Host
+    vendor: Unknown
+    protocols: [Syslog TLS]
+    connections:
+      - src: 192.168.2.102
+        protocol: Syslog TLS
+        bytes: 4332
+        direction: inbound
+
+  - ip: 5.181.53.150
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/55112
+        bytes: 7588
+
+  - ip: 80.77.82.125
+    role: External Host
+    vendor: Unknown
+    protocols: [TCP]
+    connections:
+      - dst: 192.168.0.102
+        protocol: TCP/37902
+        bytes: 1189
+      - dst: 192.168.0.102
+        protocol: TCP/37906
+        bytes: 494
+
+# ── Risk Findings ──
+risk:
+  - severity: INFO
+    category: EXTERNAL_IPS_OBSERVED
+    description: "Public internet addresses observed in capture: 104.18.33.89, 104.26.14.135, 108.62.99.22, 142.251.106.157, 172.217.114.4, 172.217.116.4, 172.217.117.4, 172.217.118.4, 172.64.148.235, 195.201.201.137, 198.206.157.240, 23.109.134.67, 34.1.128.89, 34.1.203.11, 34.54.84.110, 4.213.33.3, 5.181.53.150, 80.77.82.125"
+    affected: 18 nodes
+    remediation: "Verify expected external communications. ICS networks should minimize internet exposure."
+
+  - severity: HIGH
+    category: CROSS_PURDUE
+    description: "Detected 19 cross-Purdue-level communications bypassing supervisory layer"
+    affected: 7 nodes
+    remediation: "Implement zone segmentation with firewall rules enforcing Purdue model boundaries"
+
+  - severity: MEDIUM
+    category: NO_AUTH_OBSERVED
+    description: "2 device(s) using auth-capable protocols show no authentication exchanges (67% of internal assets)"
+    affected: 2 nodes
+    remediation: "Implement authentication for all OT protocols where supported"
+
+  - severity: HIGH
+    category: PORT_SCAN_TARGET
+    description: "Possible port scan target: 192.168.0.102 has 24 unknown high-port services (sample: 33904/tcp, 34382/tcp, 34744/tcp, 34752/tcp, 34802/tcp, 37030/tcp, 37492/tcp, 37902/tcp, 37906/tcp, 39750/tcp, ...)"
+    affected: 1 nodes
+    remediation: "Investigate scanning activity — review firewall logs and IDS alerts for this host"
+
+  - severity: MEDIUM
+    category: HIGH_PORT_SERVICE
+    description: "Unknown high-port service on 255.255.255.255:29810/tcp (1 connections)"
+    affected: 1 nodes
+    remediation: "Investigate high-port services — may indicate C2 channel, tunneling, or unauthorized application"
+
+# ── Priority Targets ──
+targets:
+  - ip: 192.168.0.102
+    role: Enterprise Server
+    priority: 10
+
+  - ip: 192.168.0.1
+    role: Network Infrastructure
+    priority: 10
+
+  - ip: 192.168.2.102
+    role: Enterprise Workstation
+    priority: 10
+
+  - ip: 192.168.2.101
+    role: Enterprise Workstation
+    priority: 8
+
+  - ip: 192.168.2.1
+    role: Network Infrastructure
+    priority: 8
+
+  - ip: 172.217.118.4
+    role: External Host
+    priority: 5
+
+  - ip: 172.217.116.4
+    role: External Host
+    priority: 5
+
+  - ip: 108.62.99.22
+    role: External Host
+    priority: 5
+
+  - ip: 34.54.84.110
+    role: External Host
+    priority: 5
+
+  - ip: 172.217.117.4
+    role: External Host
+    priority: 5
+
+  - ip: 104.18.33.89
+    role: External Host
+    priority: 5
+
+  - ip: 172.217.114.4
+    role: External Host
+    priority: 5
+
+  - ip: 4.213.33.3
+    role: External Host
+    priority: 5
+
+  - ip: 172.64.148.235
+    role: External Host
+    priority: 5
+
+  - ip: 34.1.203.11
+    role: External Host
+    priority: 5
+
+  - ip: 104.26.14.135
+    role: External Host
+    priority: 5
+
+  - ip: 23.109.134.67
+    role: External Host
+    priority: 5
+
+  - ip: 142.251.106.157
+    role: External Host
+    priority: 5
+
+  - ip: 34.1.128.89
+    role: External Host
+    priority: 5
+
+  - ip: 195.201.201.137
+    role: External Host
+    priority: 5
+

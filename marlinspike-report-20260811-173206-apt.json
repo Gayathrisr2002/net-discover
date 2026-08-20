@@ -1,0 +1,151 @@
+{
+  "artifact_type": "plugin_output",
+  "plugin_id": "marlinspike-apt",
+  "plugin_version": "0.1.0",
+  "contract_version": 1,
+  "generated_at": "2026-08-11T12:02:07.393671+00:00",
+  "input_report": "marlinspike-report-20260811-173206.json",
+  "summary": {
+    "conversation_count": 52,
+    "node_count": 26,
+    "finding_total": 0,
+    "APT_LATERAL_MOVEMENT_SMB": 0,
+    "APT_LATERAL_MOVEMENT_RDP": 0,
+    "APT_LATERAL_MOVEMENT_WINRM": 0,
+    "APT_OT_RECONNAISSANCE": 0,
+    "APT_NEW_HOST_PROTOCOL": 0,
+    "APT_C2_BEACON": 0
+  },
+  "data": {
+    "findings": [],
+    "settings_applied": {
+      "lateral_movement_smb": {
+        "enabled": true,
+        "threshold": 5
+      },
+      "lateral_movement_rdp": {
+        "enabled": true,
+        "threshold": 2
+      },
+      "lateral_movement_winrm": {
+        "enabled": true,
+        "threshold": 2
+      },
+      "ot_reconnaissance": {
+        "enabled": true,
+        "threshold": 5
+      },
+      "new_host_protocol": {
+        "enabled": true,
+        "min_packet_count": 3
+      },
+      "c2_beaconing": {
+        "enabled": true,
+        "min_score": 0.7,
+        "min_interval_s": 30.0,
+        "max_interval_s": 3600.0,
+        "min_packet_count": 6,
+        "excluded_protocols": [
+          "ARP",
+          "DNS",
+          "MDNS",
+          "LLMNR",
+          "NTP",
+          "ICMP",
+          "ICMPV6",
+          "DHCP",
+          "DHCPV6",
+          "STP",
+          "LLDP",
+          "CDP",
+          "IGMP",
+          "MODBUS",
+          "MODBUS TCP",
+          "MODBUS/TCP",
+          "ENIP",
+          "ETHERNET/IP",
+          "CIP",
+          "S7COMM",
+          "S7COMM-PLUS",
+          "DNP3",
+          "DNP",
+          "OPCUA",
+          "OPC-UA",
+          "OPCUA-BINARY",
+          "BACNET",
+          "BACNET/IP",
+          "IEC-60870-5-104",
+          "IEC60870",
+          "IEC104",
+          "PROFINET",
+          "PN-DCP",
+          "PN-RT",
+          "GOOSE",
+          "MMS"
+        ],
+        "external_dst_only": true
+      },
+      "jump_hosts": [],
+      "ot_polling_source_allowlist": [],
+      "polling_source_roles": [
+        "HMI",
+        "HISTORIAN",
+        "ENGINEERING WORKSTATION",
+        "NETWORK INFRASTRUCTURE",
+        "NETWORK SWITCH",
+        "ROUTER",
+        "INDUSTRIAL GATEWAY"
+      ]
+    }
+  },
+  "workbench_views": [
+    {
+      "view_id": "apt-risk-summary",
+      "title": "APT Lateral-Movement & Reconnaissance Indicators",
+      "nav_label": "APT",
+      "location": "risk",
+      "badge": "0",
+      "summary": "APT-style lateral-movement, OT reconnaissance, behavioral anomalies, and C2 beaconing detected from passive traffic.",
+      "order": 35,
+      "blocks": [
+        {
+          "type": "metric_strip",
+          "title": "Finding Categories",
+          "items": [
+            {
+              "label": "APT_C2_BEACON",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "APT_LATERAL_MOVEMENT_RDP",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "APT_LATERAL_MOVEMENT_SMB",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "APT_LATERAL_MOVEMENT_WINRM",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "APT_NEW_HOST_PROTOCOL",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "APT_OT_RECONNAISSANCE",
+              "value": "0",
+              "tone": "neutral"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}

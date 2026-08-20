@@ -1,0 +1,339 @@
+{
+  "name": "MarlinSpike \u2014 cap_00001_20260811172057 \u2014 ICS",
+  "versions": {
+    "attack": "18.1",
+    "navigator": "4.9",
+    "layer": "4.5"
+  },
+  "domain": "ics-attack",
+  "description": "ATT&CK technique coverage for capture 'cap_00001_20260811172057', derived from MarlinSpike risk findings + the marlinspike-mitre plugin. Score reflects detection confidence (0-100); colour follows the low/medium/high gradient. Click any cell for finding-level metadata.",
+  "filters": {
+    "platforms": []
+  },
+  "sorting": 3,
+  "layout": {
+    "layout": "side",
+    "showName": true,
+    "showID": true,
+    "showAggregateScores": false,
+    "countUnscored": false
+  },
+  "hideDisabled": false,
+  "techniques": [
+    {
+      "techniqueID": "T0801",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Monitor Process State\n\nObserving OT protocol exchanges (Modbus read/write, OPC-UA subscriptions, DNP3 unsolicited responses, IEC 60870-5-104 data transfer) provides passive coverage context equivalent to an adversary monitoring process state values over the network. Helps identify which assets are bein",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0842",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Network Sniffing\n\nPassive PCAP ingestion is the ICS analogue of network sniffing \u2014 the analyst observes all traffic traversing the capture point without transmitting a single packet. Provides coverage context for collector placement and east-west visibility within OT network segments.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0861",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Point & Tag Identification\n\nOPC-UA tag browsing, Modbus register ranges, BACnet object enumeration, and CIP tag reads observed passively expose the process variable namespace to any network observer \u2014 equivalent to active T0861 point discovery. The dissected conversations reveal which tags and data objects",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0868",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Detect Operating Mode\n\nProtocol-specific fields extracted during dissection (S7 ROSCTR, Modbus function codes, DNP3 unsolicited vs. polled mode, OPC-UA security mode, CIP identity attributes) expose device operating modes, run states, and controller configurations to passive observation \u2014 the same surf",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0888",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Remote System Information Discovery\n\nMarlinSpike infers vendor, product line, device type, firmware hints, and Purdue level from passive protocol analysis \u2014 the same information an adversary collects via T0888 after gaining network access. Report provides coverage context for asset-inventory completeness.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0840",
+      "score": 92,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Network Connection Enumeration\n\nA device observed as the target of a port scan has been actively enumerated by another host on the network \u2014 T0840 in the ICS context. Active network enumeration of OT devices is a pre-exploitation reconnaissance step and is anomalous in well-managed OT environments where communi",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "observed"
+        },
+        {
+          "name": "confidence",
+          "value": "92%"
+        },
+        {
+          "name": "affected_assets",
+          "value": "192.168.0.102"
+        },
+        {
+          "name": "mapped_from",
+          "value": "PORT_SCAN_TARGET"
+        },
+        {
+          "name": "family",
+          "value": "Discovery"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0846",
+      "score": 88,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Remote System Discovery\n\nPort scan traffic targeting an OT device indicates systematic remote system discovery \u2014 an adversary mapping the OT network to identify reachable assets, their roles, and their service fingerprints prior to selecting exploitation targets. OT-aware scanners (PLCScan, ModbusPal in",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "observed"
+        },
+        {
+          "name": "confidence",
+          "value": "88%"
+        },
+        {
+          "name": "affected_assets",
+          "value": "192.168.0.102"
+        },
+        {
+          "name": "mapped_from",
+          "value": "PORT_SCAN_TARGET"
+        },
+        {
+          "name": "family",
+          "value": "Discovery"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0886",
+      "score": 85,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Remote Services\n\nTraffic observed traversing Purdue model zone boundaries (e.g., Level 4 IT host communicating directly with Level 1-2 OT devices) indicates remote service access across the DMZ \u2014 a primary lateral movement path used by adversaries after gaining an IT foothold to reach OT assets.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "observed"
+        },
+        {
+          "name": "confidence",
+          "value": "85%"
+        },
+        {
+          "name": "affected_assets",
+          "value": "192.168.0.1, 192.168.0.102, 192.168.2.1, 192.168.2.102, 224.0.0.1, 224.0.0.22, 255.255.255.255"
+        },
+        {
+          "name": "mapped_from",
+          "value": "CROSS_PURDUE"
+        },
+        {
+          "name": "family",
+          "value": "Zone Traversal"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0812",
+      "score": 72,
+      "color": "#f97316",
+      "enabled": true,
+      "comment": "Default Credentials\n\nAuth-capable protocols (SSH, HTTPS, OPC-UA, Modbus with authentication extensions, S7comm) observed without any authentication exchange suggest devices are accepting connections without credential verification \u2014 consistent with factory-default configurations or disabled authentic",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "inferred"
+        },
+        {
+          "name": "confidence",
+          "value": "72%"
+        },
+        {
+          "name": "affected_assets",
+          "value": "192.168.0.102, 192.168.2.101"
+        },
+        {
+          "name": "mapped_from",
+          "value": "NO_AUTH_OBSERVED"
+        },
+        {
+          "name": "family",
+          "value": "Access and Authentication"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0866",
+      "score": 72,
+      "color": "#f97316",
+      "enabled": true,
+      "comment": "Exploitation of Remote Services\n\nUnauthorized cross-Purdue communication paths can indicate active exploitation of remote services across zone boundaries \u2014 particularly where IT hosts are communicating with OT devices over non-approved protocols. An adversary who exploits a service on an OT device from the IT zo",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "inferred"
+        },
+        {
+          "name": "confidence",
+          "value": "72%"
+        },
+        {
+          "name": "affected_assets",
+          "value": "192.168.0.1, 192.168.0.102, 192.168.2.1, 192.168.2.102, 224.0.0.1, 224.0.0.22, 255.255.255.255"
+        },
+        {
+          "name": "mapped_from",
+          "value": "CROSS_PURDUE"
+        },
+        {
+          "name": "family",
+          "value": "Zone Traversal"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T0891",
+      "score": 68,
+      "color": "#f97316",
+      "enabled": true,
+      "comment": "Hardcoded Credentials\n\nAbsence of observed authentication on protocols that nominally support it may indicate hardcoded credentials in firmware \u2014 devices that technically require a credential but accept a fixed, unchangeable password embedded at the factory. Hardcoded credentials persist across power c",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "inferred"
+        },
+        {
+          "name": "confidence",
+          "value": "68%"
+        },
+        {
+          "name": "affected_assets",
+          "value": "192.168.0.102, 192.168.2.101"
+        },
+        {
+          "name": "mapped_from",
+          "value": "NO_AUTH_OBSERVED"
+        },
+        {
+          "name": "family",
+          "value": "Access and Authentication"
+        }
+      ]
+    }
+  ],
+  "gradient": {
+    "colors": [
+      "#3b82f6",
+      "#f97316",
+      "#ef4444"
+    ],
+    "minValue": 0,
+    "maxValue": 100
+  },
+  "legendItems": [
+    {
+      "label": "Observed (high confidence)",
+      "color": "#ef4444"
+    },
+    {
+      "label": "Inferred (medium confidence)",
+      "color": "#f97316"
+    },
+    {
+      "label": "Platform coverage (low)",
+      "color": "#3b82f6"
+    }
+  ],
+  "metadata": [
+    {
+      "name": "capture_id",
+      "value": "cap_00001_20260811172057"
+    },
+    {
+      "name": "produced_by",
+      "value": "MarlinSpike"
+    }
+  ],
+  "showTacticRowBackground": false,
+  "selectTechniquesAcrossTactics": true,
+  "selectSubtechniquesWithParent": false
+}

@@ -1,0 +1,144 @@
+{
+  "name": "MarlinSpike \u2014 cap_00001_20260811172057 \u2014 Enterprise",
+  "versions": {
+    "attack": "18.1",
+    "navigator": "4.9",
+    "layer": "4.5"
+  },
+  "domain": "enterprise-attack",
+  "description": "ATT&CK technique coverage for capture 'cap_00001_20260811172057', derived from MarlinSpike risk findings + the marlinspike-mitre plugin. Score reflects detection confidence (0-100); colour follows the low/medium/high gradient. Click any cell for finding-level metadata.",
+  "filters": {
+    "platforms": []
+  },
+  "sorting": 3,
+  "layout": {
+    "layout": "side",
+    "showName": true,
+    "showID": true,
+    "showAggregateScores": false,
+    "countUnscored": false
+  },
+  "hideDisabled": false,
+  "techniques": [
+    {
+      "techniqueID": "T1016",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "System Network Configuration Discovery\n\nAddressing, topology, Purdue, and role inference provide system-network-configuration context.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T1040",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Network Sniffing\n\nPassive PCAP ingestion and review provide network-sniffing coverage context for the report.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T1046",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Network Service Discovery\n\nParsed conversations and exposed listeners provide passive network-service discovery context.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    },
+    {
+      "techniqueID": "T1590",
+      "score": 100,
+      "color": "#ef4444",
+      "enabled": true,
+      "comment": "Gather Victim Network Information\n\nAsset, topology, and communication inventory provide gather-victim-network-information coverage.",
+      "metadata": [
+        {
+          "name": "basis",
+          "value": "platform"
+        },
+        {
+          "name": "confidence",
+          "value": "100%"
+        },
+        {
+          "name": "family",
+          "value": "Passive Recon"
+        }
+      ]
+    }
+  ],
+  "gradient": {
+    "colors": [
+      "#3b82f6",
+      "#f97316",
+      "#ef4444"
+    ],
+    "minValue": 0,
+    "maxValue": 100
+  },
+  "legendItems": [
+    {
+      "label": "Observed (high confidence)",
+      "color": "#ef4444"
+    },
+    {
+      "label": "Inferred (medium confidence)",
+      "color": "#f97316"
+    },
+    {
+      "label": "Platform coverage (low)",
+      "color": "#3b82f6"
+    }
+  ],
+  "metadata": [
+    {
+      "name": "capture_id",
+      "value": "cap_00001_20260811172057"
+    },
+    {
+      "name": "produced_by",
+      "value": "MarlinSpike"
+    }
+  ],
+  "showTacticRowBackground": false,
+  "selectTechniquesAcrossTactics": true,
+  "selectSubtechniquesWithParent": false
+}

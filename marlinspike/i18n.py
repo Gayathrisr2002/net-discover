@@ -7,7 +7,6 @@ untranslated surfaces are visible during migration rather than blank.
 
 import json
 import logging
-import os
 from pathlib import Path
 
 log = logging.getLogger("marlinspike.i18n")

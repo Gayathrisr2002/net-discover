@@ -1,6 +1,6 @@
 """MarlinSpike standalone — SQLAlchemy models."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 

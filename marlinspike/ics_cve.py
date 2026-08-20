@@ -5,8 +5,6 @@ Firmware Version, Protocol Services) against a curated catalog of CISA ICS-CERT
 advisories, CVE vulnerabilities, and Known Exploited Vulnerabilities (KEV).
 """
 
-from __future__ import annotations
-import re
 from typing import Any
 
 

@@ -1,0 +1,465 @@
+{
+  "artifact_type": "plugin_output",
+  "plugin_id": "marlinspike-mitre",
+  "plugin_version": "0.2.0",
+  "contract_version": 1,
+  "generated_at": "2026-08-11T12:01:49.529469+00:00",
+  "input_report": "marlinspike-report-20260811-173148.json",
+  "summary": {
+    "classification_total": 0,
+    "observed_total": 0,
+    "inferred_total": 0,
+    "platform_coverage_total": 0,
+    "mapped_category_total": 0,
+    "unmapped_category_total": 0,
+    "tactic_total": 0,
+    "subtechnique_total": 0,
+    "matrix_domain_total": 2
+  },
+  "data": {
+    "classifications": [],
+    "platform_coverage": [],
+    "coverage": {
+      "mapped_categories": [],
+      "unmapped_categories": []
+    },
+    "matrix": {
+      "primary_domain": "enterprise-attack",
+      "domains": [
+        {
+          "domain": "enterprise-attack",
+          "name": "Enterprise ATT&CK",
+          "attack_version": "18.1",
+          "bundle_modified": "2025-11-13T14:00:00.188Z",
+          "source_url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-18.1.json",
+          "matrix": {
+            "name": "Enterprise ATT&CK",
+            "stix_id": "x-mitre-matrix--eafc1b4c-5e56-4965-bd4e-66a6a89c88cc",
+            "tactic_order": [
+              "TA0043",
+              "TA0042",
+              "TA0001",
+              "TA0002",
+              "TA0003",
+              "TA0004",
+              "TA0005",
+              "TA0006",
+              "TA0007",
+              "TA0008",
+              "TA0009",
+              "TA0011",
+              "TA0010",
+              "TA0040"
+            ]
+          },
+          "tactics": [
+            {
+              "tactic_id": "TA0043",
+              "name": "Reconnaissance",
+              "shortname": "reconnaissance",
+              "url": "https://attack.mitre.org/tactics/TA0043",
+              "description": "The adversary is trying to gather information they can use to plan future operations. Reconnaissance consists of techniques that involve adversaries actively or passively gathering information that can be used to support targeting. Such information may include details of the victim organization, infrastructure, or staff/personnel. This information can be leveraged by the adversary to aid in other phases of the adversary lifecycle, such as using gathered information to plan and execute Initial Access, to scope and prioritize post-compromise objectives, or to drive and lead further Reconnaissance efforts.",
+              "technique_total": 45,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0042",
+              "name": "Resource Development",
+              "shortname": "resource-development",
+              "url": "https://attack.mitre.org/tactics/TA0042",
+              "description": "The adversary is trying to establish resources they can use to support operations. Resource Development consists of techniques that involve adversaries creating, purchasing, or compromising/stealing resources that can be used to support targeting. Such resources include infrastructure, accounts, or capabilities. These resources can be leveraged by the adversary to aid in other phases of the adversary lifecycle, such as using purchased domains to support Command and Control, email accounts for phishing as a part of Initial Access, or stealing code signing certificates to help with Defense Evasion.",
+              "technique_total": 47,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0001",
+              "name": "Initial Access",
+              "shortname": "initial-access",
+              "url": "https://attack.mitre.org/tactics/TA0001",
+              "description": "The adversary is trying to get into your network. Initial Access consists of techniques that use various entry vectors to gain their initial foothold within a network. Techniques used to gain a foothold include targeted spearphishing and exploiting weaknesses on public-facing web servers. Footholds gained through initial access may allow for continued access, like valid accounts and use of external remote services, or may be limited-use due to changing passwords.",
+              "technique_total": 22,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0002",
+              "name": "Execution",
+              "shortname": "execution",
+              "url": "https://attack.mitre.org/tactics/TA0002",
+              "description": "The adversary is trying to run malicious code. Execution consists of techniques that result in adversary-controlled code running on a local or remote system. Techniques that run malicious code are often paired with techniques from all other tactics to achieve broader goals, like exploring a network or stealing data. For example, an adversary might use a remote access tool to run a PowerShell script that does Remote System Discovery.",
+              "technique_total": 46,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0003",
+              "name": "Persistence",
+              "shortname": "persistence",
+              "url": "https://attack.mitre.org/tactics/TA0003",
+              "description": "The adversary is trying to maintain their foothold. Persistence consists of techniques that adversaries use to keep access to systems across restarts, changed credentials, and other interruptions that could cut off their access. Techniques used for persistence include any access, action, or configuration changes that let them maintain their foothold on systems, such as replacing or hijacking legitimate code or adding startup code.",
+              "technique_total": 126,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0004",
+              "name": "Privilege Escalation",
+              "shortname": "privilege-escalation",
+              "url": "https://attack.mitre.org/tactics/TA0004",
+              "description": "The adversary is trying to gain higher-level permissions. Privilege Escalation consists of techniques that adversaries use to gain higher-level permissions on a system or network. Adversaries can often enter and explore a network with unprivileged access but require elevated permissions to follow through on their objectives. Common approaches are to take advantage of system weaknesses, misconfigurations, and vulnerabilities. Examples of elevated access include: * SYSTEM/root level * local administrator * user account with admin-like access * user accounts with access to specific system or perform specific function These techniques often overlap with Persistence techniques, as OS features that let an adversary persist can execute in an elevated context.",
+              "technique_total": 109,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0005",
+              "name": "Defense Evasion",
+              "shortname": "defense-evasion",
+              "url": "https://attack.mitre.org/tactics/TA0005",
+              "description": "The adversary is trying to avoid being detected. Defense Evasion consists of techniques that adversaries use to avoid detection throughout their compromise. Techniques used for defense evasion include uninstalling/disabling security software or obfuscating/encrypting data and scripts. Adversaries also leverage and abuse trusted processes to hide and masquerade their malware. Other tactics\u2019 techniques are cross-listed here when those techniques include the added benefit of subverting defenses.",
+              "technique_total": 215,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0006",
+              "name": "Credential Access",
+              "shortname": "credential-access",
+              "url": "https://attack.mitre.org/tactics/TA0006",
+              "description": "The adversary is trying to steal account names and passwords. Credential Access consists of techniques for stealing credentials like account names and passwords. Techniques used to get credentials include keylogging or credential dumping. Using legitimate credentials can give adversaries access to systems, make them harder to detect, and provide the opportunity to create more accounts to help achieve their goals.",
+              "technique_total": 67,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0007",
+              "name": "Discovery",
+              "shortname": "discovery",
+              "url": "https://attack.mitre.org/tactics/TA0007",
+              "description": "The adversary is trying to figure out your environment. Discovery consists of techniques an adversary may use to gain knowledge about the system and internal network. These techniques help adversaries observe the environment and orient themselves before deciding how to act. They also allow adversaries to explore what they can control and what\u2019s around their entry point in order to discover how it could benefit their current objective. Native operating system tools are often used toward this post-compromise information-gathering objective.",
+              "technique_total": 49,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0008",
+              "name": "Lateral Movement",
+              "shortname": "lateral-movement",
+              "url": "https://attack.mitre.org/tactics/TA0008",
+              "description": "The adversary is trying to move through your environment. Lateral Movement consists of techniques that adversaries use to enter and control remote systems on a network. Following through on their primary objective often requires exploring the network to find their target, then pivoting through multiple systems and accounts to gain access to it. Adversaries might install their own remote access tools to accomplish Lateral Movement or use legitimate credentials with native network and operating system tools, which may be stealthier.",
+              "technique_total": 23,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0009",
+              "name": "Collection",
+              "shortname": "collection",
+              "url": "https://attack.mitre.org/tactics/TA0009",
+              "description": "The adversary is trying to gather data of interest to their goal. Collection consists of techniques adversaries may use to gather information and the sources information is collected from that are relevant to following through on the adversary's objectives. Frequently, the next goal after collecting data is to either steal (exfiltrate) the data or to use the data to gain more information about the target environment. Common target sources include various drive types, browsers, audio, video, and email. Common collection methods include capturing screenshots and keyboard input.",
+              "technique_total": 41,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0011",
+              "name": "Command and Control",
+              "shortname": "command-and-control",
+              "url": "https://attack.mitre.org/tactics/TA0011",
+              "description": "The adversary is trying to communicate with compromised systems to control them. Command and Control consists of techniques that adversaries may use to communicate with systems under their control within a victim network. Adversaries commonly attempt to mimic normal, expected traffic to avoid detection. There are many ways an adversary can establish command and control with various levels of stealth depending on the victim\u2019s network structure and defenses.",
+              "technique_total": 45,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0010",
+              "name": "Exfiltration",
+              "shortname": "exfiltration",
+              "url": "https://attack.mitre.org/tactics/TA0010",
+              "description": "The adversary is trying to steal data. Exfiltration consists of techniques that adversaries may use to steal data from your network. Once they\u2019ve collected data, adversaries often package it to avoid detection while removing it. This can include compression and encryption. Techniques for getting data out of a target network typically include transferring it over their command and control channel or an alternate channel and may also include putting size limits on the transmission.",
+              "technique_total": 19,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0040",
+              "name": "Impact",
+              "shortname": "impact",
+              "url": "https://attack.mitre.org/tactics/TA0040",
+              "description": "The adversary is trying to manipulate, interrupt, or destroy your systems and data. Impact consists of techniques that adversaries use to disrupt availability or compromise integrity by manipulating business and operational processes. Techniques used for impact can include destroying or tampering with data. In some cases, business processes can look fine, but may have been altered to benefit the adversaries\u2019 goals. These techniques might be used by adversaries to follow through on their end goal or to provide cover for a confidentiality breach.",
+              "technique_total": 33,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            }
+          ]
+        },
+        {
+          "domain": "ics-attack",
+          "name": "ATT&CK for ICS",
+          "attack_version": "18.1",
+          "bundle_modified": "2025-11-13T14:00:00.188Z",
+          "source_url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/ics-attack/ics-attack-18.1.json",
+          "matrix": {
+            "name": "ATT&CK for ICS",
+            "stix_id": "x-mitre-matrix--575f48f4-8897-4468-897b-48bb364af6c7",
+            "tactic_order": [
+              "TA0108",
+              "TA0104",
+              "TA0110",
+              "TA0111",
+              "TA0103",
+              "TA0102",
+              "TA0109",
+              "TA0100",
+              "TA0101",
+              "TA0107",
+              "TA0106",
+              "TA0105"
+            ]
+          },
+          "tactics": [
+            {
+              "tactic_id": "TA0108",
+              "name": "Initial Access",
+              "shortname": "initial-access",
+              "url": "https://attack.mitre.org/tactics/TA0108",
+              "description": "The adversary is trying to get into your ICS environment. Initial Access consists of techniques that adversaries may use as entry vectors to gain an initial foothold within an ICS environment. These techniques include compromising operational technology assets, IT resources in the OT network, and external remote services and websites. They may also target third party entities and users with privileged access. In particular, these initial access footholds may include devices and communication mechanisms with access to and privileges in both the IT and OT environments. IT resources in the OT environment are also potentially vulnerable to the same attacks as enterprise IT systems. Trusted third parties of concern may include vendors, maintenance personnel, engineers, external integrators, and other outside entities involved in expected ICS operations. Vendor maintained assets may include physical devices, software, and operational equipment. Initial access techniques may also leverage outside devices, such as radios, controllers, or removable media, to remotely interfere with and possibly infect OT operations.",
+              "technique_total": 12,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0104",
+              "name": "Execution",
+              "shortname": "execution",
+              "url": "https://attack.mitre.org/tactics/TA0104",
+              "description": "The adversary is trying to run code or manipulate system functions, parameters, and data in an unauthorized way. Execution consists of techniques that result in adversary-controlled code running on a local or remote system, device, or other asset. This execution may also rely on unknowing end users or the manipulation of device operating modes to run. Adversaries may infect remote targets with programmed executables or malicious project files that operate according to specified behavior and may alter expected device behavior in subtle ways. Commands for execution may also be issued from command-line interfaces, APIs, GUIs, or other available interfaces. Techniques that run malicious code may also be paired with techniques from other tactics, particularly to aid network [Discovery](https://attack.mitre.org/tactics/TA0102) and [Collection](https://attack.mitre.org/tactics/TA0100), impact operations, and inhibit response functions.",
+              "technique_total": 10,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0110",
+              "name": "Persistence",
+              "shortname": "persistence",
+              "url": "https://attack.mitre.org/tactics/TA0110",
+              "description": "The adversary is trying to maintain their foothold in your ICS environment. Persistence consists of techniques that adversaries use to maintain access to ICS systems and devices across restarts, changed credentials, and other interruptions that could cut off their access. Techniques used for persistence include any access, action, or configuration changes that allow them to secure their ongoing activity and keep their foothold on systems. This may include replacing or hijacking legitimate code, firmware, and other project files, or adding startup code and downloading programs onto devices.",
+              "technique_total": 6,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0111",
+              "name": "Privilege Escalation",
+              "shortname": "privilege-escalation",
+              "url": "https://attack.mitre.org/tactics/TA0111",
+              "description": "The adversary is trying to gain higher-level permissions. Privilege Escalation consists of techniques that adversaries use to gain higher-level permissions on a system or network. Adversaries can often enter and explore a network with unprivileged access but require elevated permissions to follow through on their objectives. Common approaches are to take advantage of system weaknesses, misconfigurations, and vulnerabilities.",
+              "technique_total": 2,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0103",
+              "name": "Evasion",
+              "shortname": "evasion",
+              "url": "https://attack.mitre.org/tactics/TA0103",
+              "description": "The adversary is trying to avoid security defenses. Evasion consists of techniques that adversaries use to avoid technical defenses throughout their campaign. Techniques used for evasion include removal of indicators of compromise, spoofing communications, and exploiting software vulnerabilities. Adversaries may also leverage and abuse trusted devices and processes to hide their activity, possibly by masquerading as master devices or native software. Methods of defense evasion for this purpose are often more passive in nature.",
+              "technique_total": 7,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0102",
+              "name": "Discovery",
+              "shortname": "discovery",
+              "url": "https://attack.mitre.org/tactics/TA0102",
+              "description": "The adversary is locating information to assess and identify their targets in your environment. Discovery consists of techniques that adversaries use to survey your ICS environment and gain knowledge about the internal network, control system devices, and how their processes interact. These techniques help adversaries observe the environment and determine next steps for target selection and Lateral Movement. They also allow adversaries to explore what they can control and gain insight on interactions between various control system processes. Discovery techniques are often an act of progression into the environment which enable the adversary to orient themselves before deciding how to act. Adversaries may use Discovery techniques that result in Collection, to help determine how available resources benefit their current objective. A combination of native device communications and functions, and custom tools are often used toward this post-compromise information-gathering objective.",
+              "technique_total": 5,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0109",
+              "name": "Lateral Movement",
+              "shortname": "lateral-movement",
+              "url": "https://attack.mitre.org/tactics/TA0109",
+              "description": "The adversary is trying to move through your ICS environment. Lateral Movement consists of techniques that adversaries use to enter and control remote systems on a network. These techniques abuse default credentials, known accounts, and vulnerable services, and may also leverage dual-homed devices and systems that reside on both the IT and OT networks. The adversary uses these techniques to pivot to their next point in the environment, positioning themselves to where they want to be or think they should be. Following through on their primary objective often requires [Discovery](https://attack.mitre.org/tactics/TA0102) of the network and [Collection](https://attack.mitre.org/tactics/TA0100) to develop awareness of unique ICS devices and processes, in order to find their target and subsequently gain access to it. Reaching this objective often involves pivoting through multiple systems, devices, and accounts. Adversaries may install their own remote tools to accomplish Lateral Movement or leverage default tools, programs, and manufacturer set or other legitimate credentials native to the network, which may be stealthier.",
+              "technique_total": 7,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0100",
+              "name": "Collection",
+              "shortname": "collection",
+              "url": "https://attack.mitre.org/tactics/TA0100",
+              "description": "The adversary is trying to gather data of interest and domain knowledge on your ICS environment to inform their goal. Collection consists of techniques adversaries use to gather domain knowledge and obtain contextual feedback in an ICS environment. This tactic is often performed as part of [Discovery](https://attack.mitre.org/tactics/TA0102), to compile data on control systems and targets of interest that may be used to follow through on the adversary\u2019s objective. Examples of these techniques include observing operation states, capturing screenshots, identifying unique device roles, and gathering system and diagram schematics. Collection of this data can play a key role in planning, executing, and even revising an ICS-targeted attack. Methods of collection depend on the categories of data being targeted, which can include protocol specific, device specific, and process specific configurations and functionality. Information collected may pertain to a combination of system, supervisory, device, and network related data, which conceptually fall under high, medium, and low levels of plan operations. For example, information repositories on plant data at a high level or device specific programs at a low level. Sensitive floor plans, vendor device manuals, and other references may also be at risk and exposed on the internet or otherwise publicly accessible.",
+              "technique_total": 11,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0101",
+              "name": "Command and Control",
+              "shortname": "command-and-control",
+              "url": "https://attack.mitre.org/tactics/TA0101",
+              "description": "The adversary is trying to communicate with and control compromised systems, controllers, and platforms with access to your ICS environment. Command and Control consists of techniques that adversaries use to communicate with and send commands to compromised systems, devices, controllers, and platforms with specialized applications used in ICS environments. Examples of these specialized communication devices include human machine interfaces (HMIs), data historians, SCADA servers, and engineering workstations (EWS). Adversaries often seek to use commonly available resources and mimic expected network traffic to avoid detection and suspicion. For instance, commonly used ports and protocols in ICS environments, and even expected IT resources, depending on the target network. Command and Control may be established to varying degrees of stealth, often depending on the victim\u2019s network structure and defenses.",
+              "technique_total": 3,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0107",
+              "name": "Inhibit Response Function",
+              "shortname": "inhibit-response-function",
+              "url": "https://attack.mitre.org/tactics/TA0107",
+              "description": "The adversary is trying to prevent your safety, protection, quality assurance, and operator intervention functions from responding to a failure, hazard, or unsafe state. Inhibit Response Function consists of techniques that adversaries use to hinder the safeguards put in place for processes and products. This may involve the inhibition of safety, protection, quality assurance, or operator intervention functions to disrupt safeguards that aim to prevent the loss of life, destruction of equipment, and disruption of production. These techniques aim to actively deter and prevent expected alarms and responses that arise due to statuses in the ICS environment. Adversaries may modify or update system logic, or even outright prevent responses with a denial-of-service. They may result in the prevention, destruction, manipulation, or modification of programs, logic, devices, and communications. As prevention functions are generally dormant, reporting and processing functions can appear fine, but may have been altered to prevent failure responses in dangerous scenarios. Unlike [Evasion](https://attack.mitre.org/tactics/TA0103), Inhibit Response Function techniques may be more intrusive, such as actively preventing responses to a known dangerous scenario. Adversaries may use these techniques to follow through with or provide cover for [Impact](https://attack.mitre.org/tactics/TA0105) techniques.",
+              "technique_total": 14,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0106",
+              "name": "Impair Process Control",
+              "shortname": "impair-process-control",
+              "url": "https://attack.mitre.org/tactics/TA0106",
+              "description": "The adversary is trying to manipulate, disable, or damage physical control processes. Impair Process Control consists of techniques that adversaries use to disrupt control logic and cause determinantal effects to processes being controlled in the target environment. Targets of interest may include active procedures or parameters that manipulate the physical environment. These techniques can also include prevention or manipulation of reporting elements and control logic. If an adversary has modified process functionality, then they may also obfuscate the results, which are often self-revealing in their impact on the outcome of a product or the environment. The direct physical control these techniques exert may also threaten the safety of operators and downstream users, which can prompt response mechanisms. Adversaries may follow up with or use [Inhibit Response Function](https://attack.mitre.org/tactics/TA0107) techniques in tandem, to assist with the successful abuse of control processes to result in [Impact](https://attack.mitre.org/tactics/TA0105).",
+              "technique_total": 5,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            },
+            {
+              "tactic_id": "TA0105",
+              "name": "Impact",
+              "shortname": "impact",
+              "url": "https://attack.mitre.org/tactics/TA0105",
+              "description": "The adversary is trying to manipulate, interrupt, or destroy your ICS systems, data, and their surrounding environment. Impact consists of techniques that adversaries use to disrupt, compromise, destroy, and manipulate the integrity and availability of control system operations, processes, devices, and data. These techniques encompass the influence and effects resulting from adversarial efforts to attack the ICS environment or that tangentially impact it. Impact techniques can result in more instantaneous disruption to control processes and the operator, or may result in more long term damage or loss to the ICS environment and related operations. The adversary may leverage [Impair Process Control](https://attack.mitre.org/tactics/TA0106) techniques, which often manifest in more self-revealing impacts on operations, or [Impair Process Control](https://attack.mitre.org/tactics/TA0106) techniques to hinder safeguards and alarms in order to follow through with and provide cover for Impact. In some scenarios, control system processes can appear to function as expected, but may have been altered to benefit the adversary\u2019s goal over the course of a longer duration. These techniques might be used by adversaries to follow through on their end goal or to provide cover for a confidentiality breach. [Loss of Productivity and Revenue](https://attack.mitre.org/techniques/T0828), [Theft of Operational Information](https://attack.mitre.org/techniques/T0882), and [Damage to Property](https://attack.mitre.org/techniques/T0879) are meant to encompass some of the more granular goals of adversaries in targeted and untargeted attacks. These techniques in and of themselves are not necessarily detectable, but the associated adversary behavior can potentially be mitigated and/or detected.",
+              "technique_total": 12,
+              "mapped_total": 0,
+              "classified_total": 0,
+              "coverage_total": 0,
+              "entries": []
+            }
+          ]
+        }
+      ]
+    },
+    "pack_ids": [
+      "marlinspike-mitre-base",
+      "marlinspike-mitre-ics"
+    ],
+    "supported_techniques": []
+  },
+  "attack_metadata": {
+    "catalog_schema_version": 1,
+    "catalog_generated_at": "2026-03-27T10:38:50.214168+00:00",
+    "source_index_url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/index.json",
+    "domains": {
+      "enterprise-attack": {
+        "domain": "enterprise-attack",
+        "name": "Enterprise ATT&CK",
+        "attack_version": "18.1",
+        "bundle_modified": "2025-11-13T14:00:00.188Z",
+        "source_url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-18.1.json",
+        "matrix": {
+          "name": "Enterprise ATT&CK",
+          "stix_id": "x-mitre-matrix--eafc1b4c-5e56-4965-bd4e-66a6a89c88cc",
+          "tactic_order": [
+            "TA0043",
+            "TA0042",
+            "TA0001",
+            "TA0002",
+            "TA0003",
+            "TA0004",
+            "TA0005",
+            "TA0006",
+            "TA0007",
+            "TA0008",
+            "TA0009",
+            "TA0011",
+            "TA0010",
+            "TA0040"
+          ]
+        }
+      },
+      "ics-attack": {
+        "domain": "ics-attack",
+        "name": "ATT&CK for ICS",
+        "attack_version": "18.1",
+        "bundle_modified": "2025-11-13T14:00:00.188Z",
+        "source_url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/ics-attack/ics-attack-18.1.json",
+        "matrix": {
+          "name": "ATT&CK for ICS",
+          "stix_id": "x-mitre-matrix--575f48f4-8897-4468-897b-48bb364af6c7",
+          "tactic_order": [
+            "TA0108",
+            "TA0104",
+            "TA0110",
+            "TA0111",
+            "TA0103",
+            "TA0102",
+            "TA0109",
+            "TA0100",
+            "TA0101",
+            "TA0107",
+            "TA0106",
+            "TA0105"
+          ]
+        }
+      }
+    }
+  },
+  "warnings": []
+}

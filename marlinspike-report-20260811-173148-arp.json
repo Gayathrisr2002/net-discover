@@ -1,0 +1,116 @@
+{
+  "artifact_type": "plugin_output",
+  "plugin_id": "marlinspike-arp",
+  "plugin_version": "0.1.0",
+  "contract_version": 1,
+  "generated_at": "2026-08-11T12:01:50.313311+00:00",
+  "input_report": "marlinspike-report-20260811-173148.json",
+  "summary": {
+    "arp_conversation_count": 0,
+    "arp_observation_count": 0,
+    "l2_anomaly_count": 0,
+    "finding_total": 0,
+    "ARP_BROADCAST_STORM": 0,
+    "ARP_DUPLICATE_IP_CLAIM": 0,
+    "ARP_GATEWAY_MAC_CHANGE": 0,
+    "ARP_GRATUITOUS_REPLY": 0,
+    "ARP_MAC_CLAIMS_MANY_IPS": 0,
+    "ARP_SCAN_BEHAVIOR": 0
+  },
+  "data": {
+    "findings": [],
+    "settings_applied": {
+      "mac_claims_many_ips": {
+        "threshold": 5,
+        "enabled": true
+      },
+      "scan_targets": {
+        "threshold": 20,
+        "response_ratio_max": 0.2,
+        "enabled": true
+      },
+      "broadcast_rate": {
+        "per_minute": 100,
+        "enabled": true
+      },
+      "duplicate_ip": {
+        "enabled": true
+      },
+      "gateway_mac_change": {
+        "enabled": true
+      },
+      "gratuitous_reply": {
+        "enabled": true
+      },
+      "gateway_ip": null,
+      "router_oui_allowlist": [
+        "00:00:0c",
+        "00:00:5e",
+        "00:1c:7f",
+        "00:50:56",
+        "52:54:00"
+      ]
+    }
+  },
+  "workbench_views": [
+    {
+      "view_id": "arp-risk-summary",
+      "title": "ARP Poisoning Indicators",
+      "nav_label": "ARP",
+      "location": "risk",
+      "badge": "0",
+      "summary": "ARP poisoning and reconnaissance indicators detected from passive traffic.",
+      "order": 30,
+      "blocks": [
+        {
+          "type": "metric_strip",
+          "title": "Finding Categories",
+          "items": [
+            {
+              "label": "ARP_BROADCAST_STORM",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "ARP_DUPLICATE_IP_CLAIM",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "ARP_GATEWAY_MAC_CHANGE",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "ARP_GRATUITOUS_REPLY",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "ARP_MAC_CLAIMS_MANY_IPS",
+              "value": "0",
+              "tone": "neutral"
+            },
+            {
+              "label": "ARP_SCAN_BEHAVIOR",
+              "value": "0",
+              "tone": "neutral"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Top Duplicate IP Claims",
+          "columns": [
+            "IP",
+            "Claimed By MACs",
+            "Conversations",
+            "First Seen"
+          ],
+          "rows": []
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}
