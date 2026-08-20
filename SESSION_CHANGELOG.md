@@ -127,3 +127,11 @@ Integrated dedicated vulnerability management & threat intelligence features dir
 - **Pre / Post-Patch PCAP Comparison & Diff Engine**: Added a `🔄 Compare PCAP` tool in the utility toolbar that compares baseline PCAP reports against current PCAPs to calculate patch deltas (`Resolved`, `Persistent`, `New Risks`).
 - **Purdue Model Zero-Trust Firewall Rule Exporter**: Added a `🛡️ Firewall Rules` utility button to export ready-to-apply Zero-Trust micro-segmentation ACL rules for Palo Alto PAN-OS, Fortinet FortiGate, Cisco ASA, and Linux `iptables`.
 
+## 9. Automated Enterprise OT Security & Incident Response Exporters (`c78b31c`, `c0255eb`, `06d5dc6`)
+
+Enhanced the MarlinSpike platform with automated compliance and incident response exports for enterprise OT environments:
+- **OASIS STIX 2.1 Threat Intelligence Exporter (`marlinspike/emit/stix.py`)**: Generates STIX 2.1 JSON bundles (`Indicator`, `Infrastructure`, `Observed-Data`) for SIEM/TIP interoperability and cross-platform threat sharing. Exposed via `/api/projects/<pid>/stix/download`, `/api/reports/<filename>/stix`, and the `📦 Export STIX 2.1` button on the `/iocs` page.
+- **Automated Incident Response Ansible Playbook Exporter (`marlinspike/emit/ansible.py`)**: Generates executable YAML Ansible Playbooks (`marlinspike_incident_response_playbook.yml`) for rapid micro-segmentation and rogue OT traffic containment across Palo Alto Networks firewalls, Cisco IOS switches, and Linux `iptables`. Exposed via `/api/projects/<pid>/ansible/download` and `/api/reports/<filename>/ansible`.
+- **CISA Known Exploited Vulnerabilities (KEV) & CVE Matcher (`marlinspike/cve_matcher.py`)**: Automatic correlation of discovered industrial firmware and PLC hardware models (Rockwell ControlLogix, Siemens S7-1200/1500, Schneider Modicon, ABB AC 800M, SEL Relays) against active CISA KEV advisories and CVSS risk scores.
+- **Universal UI & Toolbar Interoperability**: Refactored global navigation (`base.html`) and viewer toolbar (`viewer.html`) with fluid horizontal scrolling, zero-overlap responsive layout, and fixed `MS.toggleRisk()` and `MS.toggleHmi()` interactive button exports.
+

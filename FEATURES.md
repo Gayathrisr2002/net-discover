@@ -111,6 +111,11 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **Pre / Post-Patch PCAP Diff Engine:** Interactively compares baseline PCAP reports against current PCAP runs to compute vulnerability patch deltas (`Resolved Findings`, `Persistent Vulnerabilities`, `New Unmitigated Risks`).
 - **Purdue Model Firewall Rule Exporter:** Generates ready-to-apply Zero-Trust micro-segmentation ACL policies (`Palo Alto PAN-OS`, `Fortinet FortiGate`, `Cisco ASA`, `Linux iptables`) to block unauthorized cross-Purdue flows observed in PCAPs.
 
+## 18. STIX 2.1 Threat Intel & Automated Ansible Incident Response
+- **STIX 2.1 Threat Intel Exporter:** OASIS STIX 2.1 JSON bundle generation (`Indicator`, `Infrastructure`, `Observed-Data`) for SIEM/TIP integration and cross-platform sharing.
+- **Automated Incident Response Ansible Playbooks:** Generates executable YAML Ansible Playbooks (`marlinspike_incident_response_playbook.yml`) to automate OT threat isolation across Palo Alto Networks firewalls, Cisco switches, and Linux `iptables`.
+- **Automated CISA KEV Vulnerability Matcher:** Real-time matching of discovered industrial firmware and PLC hardware models (Rockwell, Siemens, Schneider, ABB, SEL) against active CISA Known Exploited Vulnerabilities.
+
 ---
 
 *For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*
