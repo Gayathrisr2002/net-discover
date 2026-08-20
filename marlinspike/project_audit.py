@@ -190,6 +190,19 @@ def generate_project_audit_report(reports_list: list[dict[str, Any]]) -> dict[st
     active_count = total_discovered - remediated_count
     remediation_rate = round((remediated_count / total_discovered * 100.0), 1) if total_discovered > 0 else 100.0
 
+    # OT Security Standards Metrics (IEC 62443 & CISA CPG)
+    conduit_violations_count = 0
+    control_writes_count = 0
+    for report in sorted_reports:
+        for rf in (report.get("risk_findings") or []):
+            cat = rf.get("category", "")
+            if cat == "IEC62443_CONDUIT_VIOLATION" or cat == "CROSS_PURDUE":
+                conduit_violations_count += 1
+            elif "WRITE" in cat or cat in ("S7_PROGRAM_ACCESS", "MODBUS_WRITE_COIL"):
+                control_writes_count += 1
+
+    cisa_cpg_score = max(50.0, min(100.0, round(100.0 - (conduit_violations_count * 4.0 + control_writes_count * 5.0 + active_count * 1.5), 1)))
+
     return {
         "summary": {
             "total_discovered": total_discovered,
@@ -197,6 +210,9 @@ def generate_project_audit_report(reports_list: list[dict[str, Any]]) -> dict[st
             "active": active_count,
             "remediation_rate": remediation_rate,
             "total_scans": len(sorted_reports),
+            "conduit_violations_count": conduit_violations_count,
+            "control_writes_count": control_writes_count,
+            "cisa_cpg_score": cisa_cpg_score,
         },
         "vulnerability_lifecycle": list(vuln_tracker.values()),
         "timeline_events": sorted(timeline_events, key=lambda x: x.get("timestamp") or "", reverse=True),

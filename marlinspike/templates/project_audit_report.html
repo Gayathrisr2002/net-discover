@@ -171,6 +171,16 @@ tr:hover { background: rgba(91,138,240,0.04); }
       <div class="val val-warning">{{ audit.summary.remediation_rate }}%</div>
       <div class="sub">Resolution efficiency</div>
     </div>
+    <div class="card">
+      <div class="label">IEC 62443 Conduit Issues</div>
+      <div class="val val-warning">{{ audit.summary.conduit_violations_count }}</div>
+      <div class="sub">Purdue Zone Violations</div>
+    </div>
+    <div class="card">
+      <div class="label">CISA CPG Alignment</div>
+      <div class="val" style="color:var(--accent)">{{ audit.summary.cisa_cpg_score }}%</div>
+      <div class="sub">OT Cybersecurity Goals</div>
+    </div>
   </div>
 
   <!-- Historical Vulnerability Trend Graph Card -->
