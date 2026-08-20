@@ -1190,20 +1190,22 @@
               <button class="btn btn-primary btn-sm" onclick="PROJ.compareDiff()">{{ t('projects.compare_view_drift') }}</button>
               <button class="btn btn-sm" onclick="PROJ.clearCompare()">{{ t('projects.compare_clear') }}</button>
             </div>
-            <table class="ms-table" id="proj-reports-table">
-              <thead>
-                <tr>
-                  <th style="width:30px;"></th>
-                  <th>{{ t('projects.col_filename') }}</th>
-                  <th>{{ t('projects.col_size') }}</th>
-                  <th>{{ t('projects.col_modified') }}</th>
-                  <th>{{ t('projects.col_actions') }}</th>
-                </tr>
-              </thead>
-              <tbody id="proj-reports-body">
-                <tr><td colspan="5"><div class="ms-empty" style="padding:20px;"><div class="ms-empty-sub">{{ t('projects.empty_reports_select') }}</div></div></td></tr>
-              </tbody>
-            </table>
+            <div class="ov-table-scroll">
+              <table class="ms-table" id="proj-reports-table">
+                <thead>
+                  <tr>
+                    <th style="width:30px;"></th>
+                    <th>{{ t('projects.col_filename') }}</th>
+                    <th>{{ t('projects.col_size') }}</th>
+                    <th>{{ t('projects.col_modified') }}</th>
+                    <th>{{ t('projects.col_actions') }}</th>
+                  </tr>
+                </thead>
+                <tbody id="proj-reports-body">
+                  <tr><td colspan="5"><div class="ms-empty" style="padding:20px;"><div class="ms-empty-sub">{{ t('projects.empty_reports_select') }}</div></div></td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <!-- History tab -->

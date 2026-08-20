@@ -1854,14 +1854,18 @@ textarea.ms-input {
 
 #ms-report-pane {
   display: block;
-  grid-column: 2 / -1;
+  width: 100%;
+  max-height: min(75vh, calc(100dvh - 80px));
   background: var(--panel);
   border-top: 1px solid var(--border);
   overflow-y: auto;
   padding: 0 20px 20px;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 .js #ms-report-pane { display: none; }
+.js #ms-app.report-open ~ #ms-report-pane,
 .js #ms-app.report-open #ms-report-pane { display: block; }
 
 .ms-noscript-note {
@@ -1947,9 +1951,10 @@ textarea.ms-input {
 
 .ms-report-columns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 16px;
   margin-top: 12px;
+  min-width: 0;
 }
 
 .ms-section { margin-bottom: 4px; }

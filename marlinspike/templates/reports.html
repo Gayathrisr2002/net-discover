@@ -140,21 +140,23 @@
         <button class="btn btn-primary btn-sm" onclick="RP.compareDiff()">{{ t('reports.view_drift') }}</button>
         <button class="btn btn-sm" onclick="RP.clearCompare()">{{ t('reports.clear') }}</button>
       </div>
-      <table class="ms-table" id="reports-table">
-        <thead>
-          <tr>
-            <th style="width:30px;"></th>
-            <th>{{ t('reports.column_filename') }}</th>
-            <th>{{ t('reports.column_project') }}</th>
-            <th>{{ t('common.size') }}</th>
-            <th>{{ t('reports.column_modified') }}</th>
-            <th>{{ t('common.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody id="reports-body">
-          <tr><td colspan="6"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('reports.loading') }}</div></td></tr>
-        </tbody>
-      </table>
+      <div class="ov-table-scroll" style="max-height: max(400px, 60vh);">
+        <table class="ms-table" id="reports-table">
+          <thead>
+            <tr>
+              <th style="width:30px;"></th>
+              <th>{{ t('reports.column_filename') }}</th>
+              <th>{{ t('reports.column_project') }}</th>
+              <th>{{ t('common.size') }}</th>
+              <th>{{ t('reports.column_modified') }}</th>
+              <th>{{ t('common.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody id="reports-body">
+            <tr><td colspan="6"><div class="ms-loading"><div class="ms-spinner"></div> {{ t('reports.loading') }}</div></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
