@@ -5219,7 +5219,8 @@ var MS = (function() {
     html += renderQueuePanel();
     html += renderFindingsPanel();
     html += renderProtocolPanel();
-    document.getElementById('ms-sidebar-content').innerHTML = html;
+    var sbEl = document.getElementById('ms-sidebar-content');
+    if (sbEl) sbEl.innerHTML = html;
     renderWorkbenchStage();
     renderToolbarStatus();
     renderMapLegend();

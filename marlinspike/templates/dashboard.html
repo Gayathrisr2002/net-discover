@@ -1079,24 +1079,25 @@ var MS = (function() {
   // ── Projects ──
   function loadProjects(callback) {
     fetch('/api/projects').then(function(r) { return r.json(); }).then(function(d) {
-      var sel = document.getElementById('scan-project');
-      sel.innerHTML = '';
+      var sel = document.getElementById('scan-project') || document.getElementById('siem-project-filter');
       dashProjectsById = {};
       (d.projects || []).forEach(function(p) {
         dashProjectsById[p.id] = p;
-        var opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name + ' (' + p.pcap_count + ' PCAPs)';
-        sel.appendChild(opt);
+        if (sel) {
+          var opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name + ' (' + (p.pcap_count || 0) + ' PCAPs)';
+          sel.appendChild(opt);
+        }
       });
-      // Add sentinel
-      var sentinel = document.createElement('option');
-      sentinel.value = '__new__';
-      sentinel.textContent = msT('dashboard.create_new_project', '+ Create new project…');
-      sel.appendChild(sentinel);
-      // Select first (Default)
+      if (sel && sel.id === 'scan-project') {
+        var sentinel = document.createElement('option');
+        sentinel.value = '__new__';
+        sentinel.textContent = msT('dashboard.create_new_project', '+ Create new project…');
+        sel.appendChild(sentinel);
+      }
       if (d.projects && d.projects.length > 0) {
-        sel.value = d.projects[0].id;
+        if (sel) sel.value = d.projects[0].id;
         currentProjectId = d.projects[0].id;
       }
       dashUpdateEditGating();
@@ -1106,21 +1107,25 @@ var MS = (function() {
       });
       if (callback) callback();
     }).catch(function(e) {
-      var sel = document.getElementById('scan-project');
-      sel.innerHTML = '<option value="">' + esc(msT('dashboard.projects_load_failed', 'Failed to load projects')) + '</option>';
+      var sel = document.getElementById('scan-project') || document.getElementById('siem-project-filter');
+      if (sel) sel.innerHTML = '<option value="">' + esc(msT('dashboard.projects_load_failed', 'Failed to load projects')) + '</option>';
       msToast(msT('common.error', 'Error') + ': ' + e.message, true);
       if (callback) callback();
     });
   }
 
   function onProjectChange() {
-    var sel = document.getElementById('scan-project');
+    var sel = document.getElementById('scan-project') || document.getElementById('siem-project-filter');
+    if (!sel) return;
     if (sel.value === '__new__') {
-      document.getElementById('new-project-field').style.display = '';
-      document.getElementById('new-project-name').focus();
+      var npf = document.getElementById('new-project-field');
+      var npn = document.getElementById('new-project-name');
+      if (npf) npf.style.display = '';
+      if (npn) npn.focus();
       return;
     }
-    document.getElementById('new-project-field').style.display = 'none';
+    var npf = document.getElementById('new-project-field');
+    if (npf) npf.style.display = 'none';
     currentProjectId = parseInt(sel.value) || null;
     dashUpdateEditGating();
     setWorkspaceState({ projectName: getSelectedProjectName() });
@@ -1130,7 +1135,8 @@ var MS = (function() {
   }
 
   function createNewProject() {
-    var name = document.getElementById('new-project-name').value.trim();
+    var npn = document.getElementById('new-project-name');
+    var name = npn ? npn.value.trim() : '';
     if (!name) return;
     fetch('/api/projects', {
       method: 'POST',
@@ -1138,11 +1144,13 @@ var MS = (function() {
       body: JSON.stringify({ name: name }),
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.ok) {
-        document.getElementById('new-project-field').style.display = 'none';
-        document.getElementById('new-project-name').value = '';
+        var npf = document.getElementById('new-project-field');
+        if (npf) npf.style.display = 'none';
+        if (npn) npn.value = '';
         currentProjectId = d.id;
         loadProjects(function() {
-          document.getElementById('scan-project').value = d.id;
+          var sel = document.getElementById('scan-project') || document.getElementById('siem-project-filter');
+          if (sel) sel.value = d.id;
           setWorkspaceState({ projectName: getSelectedProjectName() });
           loadFiles();
           loadReports();
@@ -1156,8 +1164,10 @@ var MS = (function() {
   }
 
   function cancelNewProject() {
-    document.getElementById('new-project-field').style.display = 'none';
-    var sel = document.getElementById('scan-project');
+    var npf = document.getElementById('new-project-field');
+    if (npf) npf.style.display = 'none';
+    var sel = document.getElementById('scan-project') || document.getElementById('siem-project-filter');
+    if (!sel) return;
     if (currentProjectId) sel.value = currentProjectId;
     else if (sel.options.length > 1) { sel.selectedIndex = 0; currentProjectId = parseInt(sel.value) || null; }
   }
@@ -1191,16 +1201,20 @@ var MS = (function() {
   function setupUpload() {
     var zone = document.getElementById('upload-zone');
     var input = document.getElementById('upload-input');
-    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragging'); });
-    zone.addEventListener('dragleave', function() { zone.classList.remove('dragging'); });
-    zone.addEventListener('drop', function(e) {
-      e.preventDefault();
-      zone.classList.remove('dragging');
-      if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
-    });
-    input.addEventListener('change', function() {
-      if (input.files.length) doUpload(input.files[0]);
-    });
+    if (zone) {
+      zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragging'); });
+      zone.addEventListener('dragleave', function() { zone.classList.remove('dragging'); });
+      zone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        zone.classList.remove('dragging');
+        if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
+      });
+    }
+    if (input) {
+      input.addEventListener('change', function() {
+        if (input.files.length) doUpload(input.files[0]);
+      });
+    }
     loadUploadLimit();
   }
 
@@ -1211,7 +1225,7 @@ var MS = (function() {
       return;
     }
     var status = document.getElementById('upload-status');
-    status.textContent = 'Uploading ' + file.name + '...';
+    if (status) status.textContent = 'Uploading ' + file.name + '...';
     var fd = new FormData();
     fd.append('file', file);
     if (currentProjectId) fd.append('project_id', currentProjectId);
@@ -1224,15 +1238,15 @@ var MS = (function() {
           if (d.trimmed) {
             msg += ' <span style="color:var(--color-warning);">(trimmed to ' + formatSize(d.trimmed_size) + ', original ' + formatSize(d.original_size) + ')</span>';
           }
-          status.innerHTML = msg;
+          if (status) status.innerHTML = msg;
           // Refresh file list and auto-select the uploaded file, switch to file tab
           loadFiles(d.filename);
           setSource('file');
         } else {
-          status.innerHTML = '<span style="color:var(--color-danger)">Upload failed: ' + esc(d.error) + '</span>';
+          if (status) status.innerHTML = '<span style="color:var(--color-danger)">Upload failed: ' + esc(d.error) + '</span>';
         }
       })
-      .catch(function(e) { status.textContent = 'Upload error: ' + e.message; });
+      .catch(function(e) { if (status) status.textContent = 'Upload error: ' + e.message; });
   }
 
   // ── Sample Library ──
@@ -1279,6 +1293,7 @@ var MS = (function() {
   function loadPresets() {
     fetch('/api/files').then(function(r) { return r.json(); }).then(function(d) {
       var container = document.getElementById('preset-library');
+      if (!container) return;
       if (!d.presets || d.presets.length === 0) {
         container.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-dim);">No sample PCAPs available.</div>';
         presetsLoaded = true;
@@ -1338,36 +1353,44 @@ var MS = (function() {
     if (currentProjectId) url += '?project_id=' + currentProjectId;
     fetch(url).then(function(r) { return r.json(); }).then(function(d) {
       var sel = document.getElementById('pcap-select');
-      sel.innerHTML = '<option value="">-- Select a file --</option>';
-      (d.files || []).forEach(function(f) {
-        var opt = document.createElement('option');
-        opt.value = f.name;
-        opt.textContent = f.name + ' (' + formatSize(f.size) + ')';
-        if (autoSelect && f.name === autoSelect) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      if (!d.files || d.files.length === 0) {
-        sel.innerHTML = '<option value="">-- No uploaded PCAPs --</option>';
+      if (sel) {
+        sel.innerHTML = '<option value="">-- Select a file --</option>';
+        (d.files || []).forEach(function(f) {
+          var opt = document.createElement('option');
+          opt.value = f.name;
+          opt.textContent = f.name + ' (' + formatSize(f.size) + ')';
+          if (autoSelect && f.name === autoSelect) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        if (!d.files || d.files.length === 0) {
+          sel.innerHTML = '<option value="">-- No uploaded PCAPs --</option>';
+        }
       }
       setWorkspaceState({ fileCount: (d.files || []).length });
     }).catch(function() {
       var sel = document.getElementById('pcap-select');
-      sel.innerHTML = '<option value="">-- Failed to load files --</option>';
+      if (sel) sel.innerHTML = '<option value="">-- Failed to load files --</option>';
     });
   }
 
   // ── Start scan ──
   function startScan() {
+    var cmdEl = document.getElementById('scan-command');
+    var profEl = document.getElementById('scan-profile');
+    var ephEl = document.getElementById('skip-ephemeral');
+    var capEl = document.getElementById('capture-filter');
+    var pcapEl = document.getElementById('pcap-select');
+
     var body = {
-      command: document.getElementById('scan-command').value,
-      scan_profile: document.getElementById('scan-profile').value
+      command: cmdEl ? cmdEl.value : 'net-discover',
+      scan_profile: profEl ? profEl.value : 'full'
     };
     if (currentProjectId) body.project_id = currentProjectId;
-    if (document.getElementById('skip-ephemeral').checked) body.skip_ephemeral = true;
-    var captureFilter = document.getElementById('capture-filter').value.trim();
+    if (ephEl && ephEl.checked) body.skip_ephemeral = true;
+    var captureFilter = capEl ? capEl.value.trim() : '';
     if (captureFilter) body.capture_filter = captureFilter;
     if (source === 'file') {
-      body.pcap_file = document.getElementById('pcap-select').value;
+      body.pcap_file = pcapEl ? pcapEl.value : '';
       if (!body.pcap_file) { msToast(msT('dashboard.select_pcap_required', 'Select a PCAP file'), true); return; }
     } else if (source === 'library') {
       if (!selectedPreset) { msToast(msT('dashboard.select_sample_required', 'Select a sample PCAP from the library'), true); return; }
@@ -1633,7 +1656,8 @@ var MS = (function() {
         tbody.appendChild(tr);
       }
     }).catch(function(e) {
-      document.getElementById('reports-body').innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 5);
+      var rBody = document.getElementById('reports-body');
+      if (rBody) rBody.innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 5);
     });
   }
 
@@ -1674,10 +1698,13 @@ var MS = (function() {
 
   function updateCompareBar() {
     var bar = document.getElementById('compare-bar');
+    if (!bar) return;
     if (compareA && compareB) {
       bar.classList.add('active');
-      document.getElementById('compare-a').textContent = compareA;
-      document.getElementById('compare-b').textContent = compareB;
+      var cA = document.getElementById('compare-a');
+      var cB = document.getElementById('compare-b');
+      if (cA) cA.textContent = compareA;
+      if (cB) cB.textContent = compareB;
     } else {
       bar.classList.remove('active');
     }
@@ -1764,7 +1791,8 @@ var MS = (function() {
         tbody.appendChild(tr);
       }
     }).catch(function(e) {
-      document.getElementById('history-body').innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 8);
+      var hBody = document.getElementById('history-body');
+      if (hBody) hBody.innerHTML = msEmptyHTML({ title: msT('common.error', 'Error') + ': ' + e.message }, 8);
     });
   }
 
