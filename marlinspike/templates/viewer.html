@@ -170,6 +170,10 @@ body {
   padding: 8px 18px 6px;
   background: linear-gradient(180deg, rgba(24, 38, 58, 0.94), rgba(20, 31, 48, 0.98));
   border-bottom: 1px solid var(--border);
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow-x: auto;
 }
 
 /* ── Lens strip ── */
@@ -181,6 +185,10 @@ body {
   background: rgba(12, 20, 34, 0.96);
   border-bottom: 1px solid var(--border-dim);
   flex-wrap: wrap;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow-x: auto;
 }
 
 .ms-lens-btn {
@@ -232,9 +240,10 @@ body {
 .ms-lens-meta {
   margin-left: auto;
   display: flex;
-  gap: 8px;
+  gap: max(4px, 0.3vw);
   align-items: center;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 /* ── Timeline bar row ── */
@@ -552,8 +561,8 @@ body {
 }
 
 .ms-title-copy {
-  min-width: 320px;
-  flex: 1 1 420px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .ms-subtitle {
@@ -568,9 +577,9 @@ body {
 
 .ms-stats {
   display: flex;
-  gap: 10px;
+  gap: max(6px, 0.5vw);
   flex-wrap: wrap;
-  font-size: 0.82em;
+  font-size: clamp(0.74em, 0.7vw + 0.1rem, 0.82em);
   color: var(--text-dim);
   font-family: var(--font-mono);
   flex: 0 1 auto;
@@ -584,17 +593,19 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 14px;
+  padding: max(4px, 0.5vh) max(10px, 0.6vw);
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel-alt);
   color: var(--text);
-  font-size: 0.82em;
+  font-size: clamp(0.75em, 0.7vw + 0.1rem, 0.82em);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s, color 0.2s;
   font-family: var(--font-ui);
   text-decoration: none;
-  min-height: 34px;
+  min-height: 30px;
+  white-space: nowrap;
+  flex: 0 1 auto;
 }
 
 .ms-btn:hover {
@@ -620,8 +631,11 @@ body {
 
 .ms-overview-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .ms-kpi-card {
