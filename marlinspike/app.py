@@ -3071,9 +3071,7 @@ def create_app():
             return
 
         # ── Token check (primary, v3.5.4) ──────────────────────────
-        candidate = request.headers.get('X-CSRF-Token')
-        if candidate is None and request.content_type and 'multipart/form-data' in request.content_type:
-            candidate = request.form.get('_csrf')
+        candidate = request.headers.get('X-CSRF-Token') or request.form.get('_csrf')
         if validate_csrf(candidate):
             return  # token valid — no need to also check origin
 
