@@ -342,6 +342,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script type="application/json" id="ms-data-i18n">{{ i18n_dict() | tojson | safe }}</script>
 <script nonce="{{ csp_nonce }}">
 var IOC = (function() {
   'use strict';
@@ -358,7 +359,7 @@ var IOC = (function() {
     type: '',
     report: '',
   };
-  var I18N = {{ i18n_dict() | tojson }};
+  var I18N = JSON.parse(document.getElementById('ms-data-i18n').textContent);
 
   function tjs(key, params) {
     var raw = I18N[key];

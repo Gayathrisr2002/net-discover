@@ -159,7 +159,7 @@ var LIVE = (function() {
   'use strict';
 
   var RUN_ID = '{{ run_id }}';
-  var RECOVERED = {{ 'true' if recovered else 'false' }};
+  {% if recovered %}var RECOVERED = true;{% else %}var RECOVERED = false;{% endif %}
   var RECOVERY_STATE = '{{ recovery_state | e }}';
   var POLL_MS = 3000;
   var pollTimer = null;

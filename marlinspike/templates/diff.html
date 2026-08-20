@@ -134,11 +134,12 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-ui); f
 
 <div class="diff-tooltip" id="diff-tooltip"></div>
 
+<script type="application/json" id="ms-data-diff">{{ diff_json | tojson | safe }}</script>
 <script nonce="{{ csp_nonce }}">
 var DIFF = (function() {
   'use strict';
 
-  var data = {{ diff_json | tojson }};
+  var data = JSON.parse(document.getElementById('ms-data-diff').textContent);
   var nodes = data.nodes || [];
   var edges = data.edges || [];
   var nodeByIp = {};

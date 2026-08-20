@@ -255,8 +255,9 @@ tr:hover { background: rgba(91,138,240,0.04); }
 
 </div>
 
+<script type="application/json" id="ms-data-snapshots">{{ audit.daily_snapshots | tojson | safe }}</script>
 <script nonce="{{ csp_nonce }}">
-var snapshots = {{ audit.daily_snapshots | tojson | safe }};
+var snapshots = JSON.parse(document.getElementById('ms-data-snapshots').textContent);
 
 var seriesVisibility = {
   active: true,

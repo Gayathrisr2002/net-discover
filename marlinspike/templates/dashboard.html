@@ -951,7 +951,7 @@
 
 {% block scripts %}
 <script nonce="{{ csp_nonce }}">
-var IS_ADMIN = {{ (session.get('role') == 'admin')|tojson }};
+{% if session.get('role') == 'admin' %}var IS_ADMIN = true;{% else %}var IS_ADMIN = false;{% endif %}
 var MS = (function() {
   'use strict';
 

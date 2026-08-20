@@ -2495,7 +2495,11 @@ textarea.ms-input {
                 {% if viewer_context.summary.duration_seconds %}
                 <div class="ms-summary-card"><div class="val">{{ "%.1f"|format(viewer_context.summary.duration_seconds) }}s</div><div class="lbl">{{ t('viewer.report.lbl.duration') }}</div></div>
                 {% endif %}
-                <div class="ms-summary-card"><div class="val" style="color:{{ 'var(--color-danger)' if viewer_context.summary.critical_high_count else 'var(--accent-green)' }}">{{ viewer_context.summary.critical_high_count }}</div><div class="lbl">{{ t('viewer.report.lbl.critical_high') }}</div></div>
+                {% if viewer_context.summary.critical_high_count %}
+                <div class="ms-summary-card"><div class="val" style="color:var(--color-danger)">{{ viewer_context.summary.critical_high_count }}</div><div class="lbl">{{ t('viewer.report.lbl.critical_high') }}</div></div>
+                {% else %}
+                <div class="ms-summary-card"><div class="val" style="color:var(--accent-green)">{{ viewer_context.summary.critical_high_count }}</div><div class="lbl">{{ t('viewer.report.lbl.critical_high') }}</div></div>
+                {% endif %}
                 {% if viewer_context.summary.mitre_classification_total or viewer_context.summary.mitre_platform_total %}
                 <div class="ms-summary-card"><div class="val">{{ viewer_context.summary.mitre_classification_total }}</div><div class="lbl">{{ t('viewer.report.lbl.attack_hits') }}</div></div>
                 {% endif %}
@@ -2580,7 +2584,11 @@ textarea.ms-input {
                   <div><span style="color:var(--text-dim)">{{ t('viewer.report.device_type') }}:</span> <span style="font-family:var(--font-mono)">{{ node.device_type or t('viewer.unknown') }}</span></div>
                   <div><span style="color:var(--text-dim)">{{ t('viewer.report.product') }}:</span> <span style="font-family:var(--font-mono)">{{ node.product_line or '—' }}</span></div>
                   <div><span style="color:var(--text-dim)">{{ t('viewer.report.system_name') }}:</span> <span style="font-family:var(--font-mono)">{{ node.system_name or '—' }}</span></div>
-                  <div><span style="color:var(--text-dim)">{{ t('viewer.report.auth_observed') }}:</span> <span style="font-family:var(--font-mono);color:{{ 'var(--accent-green)' if node.auth_observed else 'var(--color-warning)' }}">{{ t('common.yes') if node.auth_observed else t('common.no') }}</span></div>
+                  {% if node.auth_observed %}
+                  <div><span style="color:var(--text-dim)">{{ t('viewer.report.auth_observed') }}:</span> <span style="font-family:var(--font-mono);color:var(--accent-green)">{{ t('common.yes') }}</span></div>
+                  {% else %}
+                  <div><span style="color:var(--text-dim)">{{ t('viewer.report.auth_observed') }}:</span> <span style="font-family:var(--font-mono);color:var(--color-warning)">{{ t('common.no') }}</span></div>
+                  {% endif %}
                   <div><span style="color:var(--text-dim)">{{ t('viewer.report.mgmt_ip') }}:</span> <span style="font-family:var(--font-mono)">{{ node.mgmt_ip or '—' }}</span></div>
                 </div>
                 {% if node.protocols %}
@@ -2821,12 +2829,19 @@ textarea.ms-input {
                   {{ t('viewer.report.mitre.inferred_blurb') }}
                 </div>
                 {% for classification in viewer_context.mitre_classifications %}
-                {% set tone = 'var(--color-danger)' if classification.basis == 'observed' else ('var(--accent-cyan)' if classification.basis == 'platform' else 'var(--color-warning)') %}
-                {% set tone_fill = 'rgba(239,68,68,0.12)' if classification.basis == 'observed' else ('rgba(50,184,198,0.12)' if classification.basis == 'platform' else 'rgba(245,158,11,0.12)') %}
-                {% set tone_border = 'rgba(239,68,68,0.28)' if classification.basis == 'observed' else ('rgba(50,184,198,0.28)' if classification.basis == 'platform' else 'rgba(245,158,11,0.28)') %}
-                <div class="ms-finding-card" style="border-left:3px solid {{ tone }};">
+                {% if classification.basis == 'observed' %}
+                <div class="ms-finding-card" style="border-left:3px solid var(--color-danger);">
                   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-                    <span class="ms-finding-chip" style="background:{{ tone_fill }};color:{{ tone }};border:1px solid {{ tone_border }};">{{ classification.technique_id }}</span>
+                    <span class="ms-finding-chip" style="background:rgba(239,68,68,0.12);color:var(--color-danger);border:1px solid rgba(239,68,68,0.28);">{{ classification.technique_id }}</span>
+                {% elif classification.basis == 'platform' %}
+                <div class="ms-finding-card" style="border-left:3px solid var(--accent-cyan);">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+                    <span class="ms-finding-chip" style="background:rgba(50,184,198,0.12);color:var(--accent-cyan);border:1px solid rgba(50,184,198,0.28);">{{ classification.technique_id }}</span>
+                {% else %}
+                <div class="ms-finding-card" style="border-left:3px solid var(--color-warning);">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+                    <span class="ms-finding-chip" style="background:rgba(245,158,11,0.12);color:var(--color-warning);border:1px solid rgba(245,158,11,0.28);">{{ classification.technique_id }}</span>
+                {% endif %}
                     {% if classification.technique_url %}
                     <a href="{{ classification.technique_url }}" target="_blank" rel="noopener noreferrer" style="font-size:0.95em;font-weight:600;color:var(--text);text-decoration:none;">{{ classification.attack_name or classification.title }}</a>
                     {% else %}
@@ -2957,14 +2972,19 @@ textarea.ms-input {
   </div>
 </div>
 
+<script type="application/json" id="ms-data-report">{{ report_json | tojson | safe }}</script>
+<script type="application/json" id="ms-data-viewer-context">{{ viewer_context | tojson | safe }}</script>
+<script type="application/json" id="ms-data-filename">{{ filename | tojson | safe }}</script>
+<script type="application/json" id="ms-data-i18n">{{ i18n_dict() | tojson | safe }}</script>
+
 <script nonce="{{ csp_nonce }}">
 var MS = (function() {
   'use strict';
 
-  var REPORT = {{ report_json | tojson }};
-  var VIEWER_CONTEXT = {{ viewer_context | tojson }};
-  var REPORT_FILENAME = {{ filename | tojson }};
-  var I18N = {{ i18n_dict() | tojson }};
+  var REPORT = JSON.parse(document.getElementById('ms-data-report').textContent);
+  var VIEWER_CONTEXT = JSON.parse(document.getElementById('ms-data-viewer-context').textContent);
+  var REPORT_FILENAME = JSON.parse(document.getElementById('ms-data-filename').textContent);
+  var I18N = JSON.parse(document.getElementById('ms-data-i18n').textContent);
 
   // JS-side translation lookup. Key resolution mirrors the Python `t()`:
   // current-locale string → English fallback (already merged in by the

@@ -309,13 +309,16 @@
 {% endblock %}
 
 {% block scripts %}
+<script type="application/json" id="ms-data-i18n">{{ i18n_dict() | tojson | safe }}</script>
+<script type="application/json" id="ms-data-pid">{{ pid | tojson | safe }}</script>
+<script type="application/json" id="ms-data-asset-key">{{ asset_key | tojson | safe }}</script>
 <script nonce="{{ csp_nonce }}">
 (function() {
   'use strict';
 
-  var I18N = {{ i18n_dict() | tojson }};
-  var PID      = {{ pid | tojson }};
-  var ASSET_KEY = {{ asset_key | tojson }};
+  var I18N = JSON.parse(document.getElementById('ms-data-i18n').textContent);
+  var PID      = JSON.parse(document.getElementById('ms-data-pid').textContent);
+  var ASSET_KEY = JSON.parse(document.getElementById('ms-data-asset-key').textContent);
 
   /* ── i18n shim ── */
   function tjs(key, params) {
