@@ -472,6 +472,7 @@ def taxonomy_export() -> dict:
         },
         "relationship_types": [rt.value for rt in RelationshipType],
         "severity_chips": dict(SEVERITY_CHIP),
+        "ics_attack_mapping": dict(ICS_ATTACK_MAPPING),
     }
 
 
