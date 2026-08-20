@@ -745,10 +745,13 @@
 .ov-panel-body.flush .ms-table td:last-child { padding-right: 14px; }
 
 .ov-table-scroll {
-  max-height: 480px;
-  overflow-y: auto;
+  max-height: max(320px, 45vh);
+  overflow: auto;
+  width: 100%;
+  max-width: 100%;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 .ov-table-scroll::-webkit-scrollbar { width: 8px; }
 .ov-table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }

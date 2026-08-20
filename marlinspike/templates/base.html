@@ -705,17 +705,18 @@ body {
 }
 .ms-empty-action:hover { text-decoration: underline; }
 
-/* ── Modal ── */
+/* ── Modal & Window System (Adaptive Window Resizing) ── */
 .ms-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(5,8,16,0.72);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: rgba(5,8,16,0.78);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 1000;
   display: none;
   align-items: center;
   justify-content: center;
+  padding: max(12px, 2vh) max(12px, 2vw);
   animation: ms-fade-in 0.12s ease;
 }
 .ms-modal-backdrop.open { display: flex; }
@@ -725,13 +726,19 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: 0 20px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03);
-  min-width: 340px;
-  max-width: 560px;
-  width: 100%;
-  max-height: 85vh;
-  overflow-y: auto;
+  width: min(92vw, 580px);
+  max-width: calc(100vw - 24px);
+  max-height: min(90vh, calc(100dvh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   animation: ms-modal-slide 0.18s ease;
+  transition: width 0.2s ease, max-height 0.2s ease, transform 0.18s ease;
 }
+.ms-modal-sm { width: min(90vw, 420px); }
+.ms-modal-lg { width: min(94vw, 840px); }
+.ms-modal-xl { width: min(96vw, 1140px); }
+.ms-modal-full { width: calc(100vw - 24px); height: calc(100dvh - 24px); max-height: calc(100dvh - 24px); }
 @keyframes ms-modal-slide {
   from { transform: translateY(-10px) scale(0.98); opacity: 0; }
   to   { transform: translateY(0) scale(1); opacity: 1; }
@@ -743,6 +750,7 @@ body {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-dim);
   background: linear-gradient(180deg, rgba(255,255,255,0.018) 0%, transparent 100%);
+  flex-shrink: 0;
 }
 .ms-modal-header h3 {
   font-size: 0.92em;
@@ -765,7 +773,13 @@ body {
   transition: color var(--t-fast), background var(--t-fast), border-color var(--t-fast);
 }
 .ms-modal-close:hover { color: var(--text); background: var(--bg-surface); border-color: var(--border); }
-.ms-modal-body { padding: 20px; }
+.ms-modal-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
 .ms-modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -773,6 +787,7 @@ body {
   padding: 12px 20px;
   border-top: 1px solid var(--border-dim);
   background: rgba(0,0,0,0.08);
+  flex-shrink: 0;
 }
 
 /* ── Status badges ── */
@@ -1383,6 +1398,19 @@ function msEmptyHTML(opts, colspan) {
   if (colspan) return '<tr><td colspan="' + colspan + '">' + h + '</td></tr>';
   return h;
 }
+
+/** Global Window Resize Handler — ensures all open windows, modals, drawers, and tabs update dynamically */
+(function setupGlobalResizeHandler() {
+  var resizeTimer;
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      document.dispatchEvent(new CustomEvent('ms:window-resized', {
+        detail: { width: window.innerWidth, height: window.innerHeight }
+      }));
+    }, 100);
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

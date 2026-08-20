@@ -1014,6 +1014,13 @@ var MS = (function() {
     });
     setupUpload();
     renderRunSummary();
+    document.addEventListener('ms:window-resized', function() {
+      if (currentSiemData) {
+        renderProjectAssetsChart(currentSiemData.projects || []);
+        renderVulnerabilityDonutChart(currentSiemData.summary ? currentSiemData.summary.global_severities : {});
+        renderProtocolVolumeChart(currentSiemData.summary ? currentSiemData.summary.global_protocols : {});
+      }
+    });
   }
 
   function setWorkspaceState(patch) {
