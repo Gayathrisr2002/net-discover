@@ -2446,6 +2446,9 @@ textarea.ms-input {
       <a class="ms-btn" href="/api/reports/{{ filename }}/stix{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.stix_tooltip') }}">{{ t('viewer.utilities.stix') }}</a>
       <a class="ms-btn" href="/api/reports/{{ filename }}/sigma{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.sigma_tooltip') }}">{{ t('viewer.utilities.sigma') }}</a>
       <button class="ms-btn" onclick="MS.exportFirewallRules()" title="Export Purdue Zero-Trust Firewall ACL Rules (Palo Alto, Fortinet, Cisco, iptables)">🛡️ Firewall Rules</button>
+      {% if viewer_context.project_id %}
+      <a class="ms-btn" href="/api/projects/{{ viewer_context.project_id }}/ansible/download" target="_blank" title="Export Automated Incident Response Ansible Playbook">⚡ Ansible Playbook</a>
+      {% endif %}
       <button class="ms-btn" onclick="MS.openCompareModal()" title="Compare this report with another PCAP run (Pre/Post-Patch Diff)">🔄 Compare PCAP</button>
       <button class="ms-btn" onclick="MS.exportPng()">{{ t('viewer.utilities.png') }}</button>
     </div>

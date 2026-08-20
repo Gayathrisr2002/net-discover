@@ -310,10 +310,11 @@
   <div class="panel">
     <div class="panel-header">
       <h2>{{ t('iocs.title') }} <span style="font-weight:400;font-size:0.85em;color:var(--text-dim)">{{ t('taxonomy.ioc_list.label_plural') }}</span></h2>
-      <div class="page-toolbar">
+      <div class="page-toolbar" style="display:flex;gap:10px;align-items:center;">
         <select id="ioc-project-filter" onchange="IOC.onProjectChange()">
           <option value="">{{ t('common.loading') }}</option>
         </select>
+        <button class="btn btn-sm" onclick="IOC.downloadStixBundle()" title="Export all project IOCs and threat observations as OASIS STIX 2.1 JSON Bundle">📦 Export STIX 2.1</button>
       </div>
     </div>
     <div class="panel-body">
@@ -953,6 +954,11 @@ var IOC = (function() {
     });
   }
 
+  function downloadStixBundle() {
+    if (pid == null) return;
+    window.location.href = '/api/projects/' + pid + '/stix/download';
+  }
+
   function init() {
     loadProjects().then(loadLists);
   }
@@ -965,6 +971,7 @@ var IOC = (function() {
     runScan: runScan,
     deleteList: deleteList,
     init: init,
+    downloadStixBundle: downloadStixBundle,
     setScanFilter: setScanFilter,
     clearScanFilters: clearScanFilters,
     focusReport: focusReport,

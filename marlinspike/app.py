@@ -4348,6 +4348,65 @@ def create_app():
         # round-trips the masked GET response and only sends "secret" when
         # the owner actually typed a new one); pass "secret": null to clear it.
         existing = _webhook.parse_config(proj.webhook_config)
+
+    # ── STIX 2.1 & Ansible Incident Response Export Routes ──
+    @app.route("/api/projects/<int:pid>/stix/download", methods=["GET"])
+    @login_required
+    def download_project_stix(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        rdir = user_reports_dir(pid)
+        reports = _load_project_report_files(rdir)
+        all_findings = []
+        all_iocs = []
+        for rp in reports:
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_findings.extend(data.get("findings", []))
+                    all_iocs.extend(data.get("iocs", []))
+            except Exception:
+                pass
+
+        from marlinspike.emit import stix as _stix
+        stix_content = _stix.export_stix_json(f"project-{pid}", findings=all_findings, iocs=all_iocs)
+
+        filename = f"marlinspike_stix21_project_{pid}.json"
+        response = make_response(stix_content)
+        response.headers["Content-Type"] = "application/stix+json"
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    @app.route("/api/projects/<int:pid>/ansible/download", methods=["GET"])
+    @login_required
+    def download_project_ansible(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        rdir = user_reports_dir(pid)
+        reports = _load_project_report_files(rdir)
+        all_findings = []
+        all_violations = []
+        for rp in reports:
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_findings.extend(data.get("findings", []))
+                    all_violations.extend(data.get("purdue_violations", []))
+            except Exception:
+                pass
+
+        from marlinspike.emit import ansible as _ansible
+        ansible_yaml = _ansible.export_ansible_playbook(f"project-{pid}", findings=all_findings, purdue_violations=all_violations)
+
+        filename = f"marlinspike_incident_response_playbook_project_{pid}.yml"
+        response = make_response(ansible_yaml)
+        response.headers["Content-Type"] = "application/x-yaml"
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
         merged = {**existing, **body}
 
         err = _webhook.validate_effective_config(merged)
