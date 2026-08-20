@@ -8,6 +8,7 @@ matches what you're trying to do.
 
 These cover *how to use* MarlinSpike during an engagement.
 
+- **[user-manual.md](user-manual.md)** — *COMPLETE USER MANUAL.* Detailed end-to-end guide covering all features, topology lenses, HP-HMI mode, threat hunting, CISA KEV correlation, and STIX 2.1 / Ansible exports with screenshots.
 - **[getting-started.md](getting-started.md)** — *NEW USER START
   HERE.* A 30-minute follow-along tutorial taking you from
   install through your first triage, asset tag, finding note,
