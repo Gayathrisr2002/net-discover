@@ -1855,10 +1855,12 @@ textarea.ms-input {
 #ms-report-pane {
   display: block;
   width: 100%;
+  max-width: 100vw;
   max-height: min(75vh, calc(100dvh - 80px));
   background: var(--panel);
   border-top: 1px solid var(--border);
   overflow-y: auto;
+  overflow-x: auto;
   padding: 0 20px 20px;
   box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
@@ -1921,6 +1923,9 @@ textarea.ms-input {
 
 .ms-report-tabs {
   display: flex;
+  flex-wrap: wrap;
+  overflow-x: auto;
+  max-width: 100%;
   gap: 0;
   margin-top: 10px;
   border-bottom: 1px solid var(--border);

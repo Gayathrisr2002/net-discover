@@ -550,7 +550,13 @@ body {
   letter-spacing: 0.15px;
   color: var(--text);
 }
-.panel-body { padding: var(--sp-4); }
+.panel-body {
+  padding: var(--sp-4);
+  overflow-x: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
 
 /* ── Tables ── */
 .ms-table { width: 100%; border-collapse: collapse; font-size: 0.92em; }

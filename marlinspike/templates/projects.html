@@ -361,7 +361,15 @@
   font-weight: 700;
   box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
 }
-.proj-tab-panel { display: none; padding: 16px 0; }
+.proj-tab-panel {
+  display: none;
+  padding: 16px 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
 .proj-tab-panel.active { display: block; }
 .proj-settings-row { margin-bottom: 14px; }
 .proj-settings-row label { display: block; margin-bottom: 4px; font-size: 0.85em; color: var(--text-dim); }
