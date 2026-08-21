@@ -965,6 +965,7 @@
           <!-- Tabs -->
           <div class="proj-tabs" id="proj-tabs" style="display:none;">
             <div class="proj-tab active" data-tab="overview" onclick="PROJ.setTab('overview')">{{ t('projects.tab_overview') }}</div>
+            <div class="proj-tab" data-tab="compliance" onclick="PROJ.setTab('compliance')">🛡️ Compliance &amp; Standards</div>
             <div class="proj-tab" data-tab="fleet" onclick="PROJ.setTab('fleet')">{{ t('fleet.title') }}</div>
             <div class="proj-tab" data-tab="reports" onclick="PROJ.setTab('reports')">{{ t('projects.tab_reports') }}</div>
             <div class="proj-tab" data-tab="history" onclick="PROJ.setTab('history')">{{ t('projects.tab_history') }}</div>
@@ -1161,7 +1162,84 @@
             </div>
           </div>
 
+          <!-- Compliance & Standards tab -->
+          <div class="proj-tab-panel" id="tab-compliance">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; padding:16px; background:var(--bg-surface); border:1px solid var(--border-dim); border-radius:8px;">
+              <div>
+                <h3 style="margin:0; font-size:1.15em; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px;">
+                  🛡️ OT Security Compliance &amp; Standards Benchmarking
+                </h3>
+                <div style="font-size:0.85em; color:var(--text-dim); margin-top:4px;">
+                  Automated gap assessment and security level scoring against IEC 62443, CISA Cross-Sector CPGs, and NIST SP 800-82 Rev 3.
+                </div>
+              </div>
+              <div>
+                <button class="btn btn-sm" onclick="PROJ.loadCompliance()"><svg style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Re-assess Compliance</button>
+              </div>
+            </div>
 
+            <!-- Score Summary Cards -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:16px;">
+              <div class="ov-kpi" style="border-left: 4px solid var(--color-primary, #3b82f6);">
+                <div class="ov-kpi-label">Overall Compliance Score</div>
+                <div class="ov-kpi-value" id="comp-overall-score">--%</div>
+                <div class="ov-kpi-detail" id="comp-overall-grade" style="font-weight:600; color:var(--text);">Calculating...</div>
+              </div>
+              <div class="ov-kpi" style="border-left: 4px solid #10b981;">
+                <div class="ov-kpi-label">IEC 62443 Score</div>
+                <div class="ov-kpi-value" id="comp-iec-score">--%</div>
+                <div class="ov-kpi-detail" id="comp-iec-detail">Target SL-2 / SL-3</div>
+              </div>
+              <div class="ov-kpi" style="border-left: 4px solid #f59e0b;">
+                <div class="ov-kpi-label">CISA CPG Score</div>
+                <div class="ov-kpi-value" id="comp-cisa-score">--%</div>
+                <div class="ov-kpi-detail" id="comp-cisa-detail">Performance Goals</div>
+              </div>
+              <div class="ov-kpi" style="border-left: 4px solid #8b5cf6;">
+                <div class="ov-kpi-label">NIST 800-82 Rev 3</div>
+                <div class="ov-kpi-value" id="comp-nist-score">--%</div>
+                <div class="ov-kpi-detail" id="comp-nist-detail">OT Security Controls</div>
+              </div>
+            </div>
+
+            <!-- Priority Hardening Roadmap -->
+            <div class="ov-panel" style="margin-bottom:16px;">
+              <div class="ov-panel-header">
+                <h3>🔧 Required Hardening Roadmap (To Reach Full Compliance)</h3>
+                <span class="meta" id="comp-roadmap-meta">0 Actions Required</span>
+              </div>
+              <div class="ov-panel-body" id="comp-roadmap-list" style="max-height: 400px; overflow-y: auto;">
+                <div class="ms-empty" style="padding:20px;"><div class="ms-empty-sub">Loading compliance recommendations...</div></div>
+              </div>
+            </div>
+
+            <!-- Detailed Control Matrix Table -->
+            <div class="ov-panel">
+              <div class="ov-panel-header">
+                <h3>📋 Compliance Control Evaluation Matrix</h3>
+                <span class="meta" id="comp-matrix-meta">Controls Evaluated</span>
+              </div>
+              <div class="ov-panel-body">
+                <div class="ov-table-scroll">
+                  <table class="ms-table" id="comp-matrix-table">
+                    <thead>
+                      <tr>
+                        <th>Standard</th>
+                        <th>Control ID</th>
+                        <th>Domain / Title</th>
+                        <th>Status</th>
+                        <th>Weight</th>
+                        <th>Hardening Guidance</th>
+                      </tr>
+                    </thead>
+                    <tbody id="comp-matrix-body">
+                      <tr><td colspan="6"><div class="ms-empty" style="padding:20px;"><div class="ms-empty-sub">Loading compliance evaluation...</div></div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <!-- Fleet Sensors tab -->
           <div class="proj-tab-panel" id="tab-fleet">
@@ -1823,6 +1901,7 @@ var PROJ = (function() {
       loadOverview();
       loadFiles();
     }
+    else if (currentTab === 'compliance') loadCompliance();
     else if (currentTab === 'fleet') loadProjectFleetAgents();
     else if (currentTab === 'reports') loadReports();
     else if (currentTab === 'history') loadHistory();
@@ -2145,6 +2224,84 @@ var PROJ = (function() {
           msToast(msT('projects.report_deleted', 'Report deleted'), 'success');
         } else {
           msToast(d.error || msT('projects.report_delete_failed', 'Delete failed'), true);
+        }
+      });
+  }
+
+  // ── Compliance ──
+
+  function loadCompliance() {
+    if (!currentProject) return;
+    fetch('/api/projects/' + currentProject.id + '/compliance')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok || !d.compliance) return;
+        var comp = d.compliance;
+
+        // Overall Score
+        setText('comp-overall-score', comp.overall_score + '%');
+        setText('comp-overall-grade', comp.security_level_grade);
+
+        // Standard Breakdown
+        var iec = (comp.breakdown_by_standard || {})['IEC 62443'] || {};
+        var cisa = (comp.breakdown_by_standard || {})['CISA CPG'] || {};
+        var nist = (comp.breakdown_by_standard || {})['NIST 800-82'] || {};
+
+        setText('comp-iec-score', (iec.score !== undefined ? iec.score : '--') + '%');
+        setText('comp-iec-detail', 'Status: ' + (iec.grade || 'PARTIAL'));
+
+        setText('comp-cisa-score', (cisa.score !== undefined ? cisa.score : '--') + '%');
+        setText('comp-cisa-detail', 'Status: ' + (cisa.grade || 'PARTIAL'));
+
+        setText('comp-nist-score', (nist.score !== undefined ? nist.score : '--') + '%');
+        setText('comp-nist-detail', 'Status: ' + (nist.grade || 'PARTIAL'));
+
+        // Roadmap List
+        var roadList = document.getElementById('comp-roadmap-list');
+        var roadmap = comp.hardening_roadmap || [];
+        setText('comp-roadmap-meta', roadmap.length + ' Hardening Actions Required');
+
+        if (roadmap.length === 0) {
+          roadList.innerHTML = '<div style="padding:16px; color:var(--color-success, #10b981); font-weight:600;">🎉 Full Compliance Achieved! No missing hardening recommendations identified for current network capture.</div>';
+        } else {
+          var html = '';
+          roadmap.forEach(function(item, idx) {
+            var badgeColor = item.priority === 'HIGH' ? 'var(--color-danger, #ef4444)' : 'var(--color-warning, #f59e0b)';
+            html += '<div style="padding:12px 14px; margin-bottom:8px; border:1px solid var(--border-dim); border-radius:6px; background:var(--bg);">'
+                 + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">'
+                 + '<div style="font-weight:700; font-size:0.95em; color:var(--text);">' + (idx + 1) + '. ' + esc(item.title) + ' <span class="dim" style="font-size:0.85em; font-weight:normal;">(' + esc(item.standard) + ' ' + esc(item.control_id) + ')</span></div>'
+                 + '<span style="font-size:0.75em; font-weight:700; padding:2px 8px; border-radius:4px; color:#fff; background:' + badgeColor + ';">' + esc(item.priority) + ' PRIORITY</span>'
+                 + '</div>'
+                 + '<div style="font-size:0.85em; color:var(--text-muted); margin-bottom:6px;">Domain: <b>' + esc(item.domain) + '</b> | Matched Findings: <b>' + item.findings_count + '</b></div>'
+                 + '<div style="font-size:0.88em; color:var(--text); background:var(--bg-surface); padding:8px 10px; border-left:3px solid ' + badgeColor + '; border-radius:4px;">'
+                 + '<b>Required Hardening Action:</b> ' + esc(item.hardening_recommendation)
+                 + '</div>'
+                 + '</div>';
+          });
+          roadList.innerHTML = html;
+        }
+
+        // Matrix Table
+        var tbody = document.getElementById('comp-matrix-body');
+        var matrix = comp.evaluated_controls || [];
+        setText('comp-matrix-meta', matrix.length + ' Controls Evaluated');
+
+        if (matrix.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6"><div class="ms-empty"><div class="ms-empty-sub">No control matrix data.</div></div></td></tr>';
+        } else {
+          var mHtml = '';
+          matrix.forEach(function(ctrl) {
+            var stColor = ctrl.status === 'PASS' ? '#10b981' : (ctrl.status === 'WARNING' ? '#f59e0b' : '#ef4444');
+            mHtml += '<tr>'
+                  + '<td><span class="mono" style="font-size:0.85em;">' + esc(ctrl.standard) + '</span></td>'
+                  + '<td><b>' + esc(ctrl.id) + '</b></td>'
+                  + '<td><div style="font-weight:600;">' + esc(ctrl.title) + '</div><div class="dim" style="font-size:0.8e;">' + esc(ctrl.domain) + '</div></td>'
+                  + '<td><span style="font-weight:700; color:' + stColor + ';">' + esc(ctrl.status) + '</span></td>'
+                  + '<td class="dim">' + ctrl.earned_weight + ' / ' + ctrl.weight + '</td>'
+                  + '<td style="font-size:0.85em;">' + esc(ctrl.hardening_recommendation) + '</td>'
+                  + '</tr>';
+          });
+          tbody.innerHTML = mHtml;
         }
       });
   }

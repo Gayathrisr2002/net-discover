@@ -116,6 +116,12 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **Automated Incident Response Ansible Playbooks:** Generates executable YAML Ansible Playbooks (`marlinspike_incident_response_playbook.yml`) to automate OT threat isolation across Palo Alto Networks firewalls, Cisco switches, and Linux `iptables`.
 - **Automated CISA KEV Vulnerability Matcher:** Real-time matching of discovered industrial firmware and PLC hardware models (Rockwell, Siemens, Schneider, ABB, SEL) against active CISA Known Exploited Vulnerabilities.
 
+## 19. OT Security Compliance & Benchmarking Engine
+- **Automated Framework Scoring:** Scores project capture data against **IEC 62443** (Security Levels SL 1 to SL 4), **CISA Cross-Sector CPGs**, and **NIST SP 800-82 Rev 3**.
+- **Security Level (SL) Target Grading:** Calculates overall compliance percentage (0–100%) and determines industrial Target Security Level resilience (SL-0 to SL-4).
+- **Missing Hardening Roadmap:** Automatically generates a prioritized step-by-step remediation roadmap with technical hardening guidance required to close identified compliance gaps.
+- **Interactive Control Matrix:** Interactive matrix detailing standard control IDs, domains, evaluation status (`PASS`, `WARNING`, `GAP`), earned point weights, and required hardening actions.
+
 ---
 
 *For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*

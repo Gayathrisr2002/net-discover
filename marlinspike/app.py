@@ -4430,6 +4430,51 @@ def create_app():
         response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
+    @app.route("/api/projects/<int:pid>/compliance", methods=["GET"])
+    @login_required
+    def get_project_compliance(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        rdir = user_reports_dir(pid)
+        reports = _load_project_report_files(rdir)
+        all_findings = []
+        all_nodes = {}
+        for rp in reports:
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_findings.extend(data.get("findings", []))
+                    for n in data.get("nodes", []):
+                        if isinstance(n, dict) and n.get("id"):
+                            all_nodes[n["id"]] = n
+            except Exception:
+                pass
+
+        from marlinspike import compliance as _compliance
+        result = _compliance.evaluate_compliance(all_findings, len(all_nodes))
+        return jsonify({"ok": True, "project_id": pid, "project_name": proj.name, "compliance": result})
+
+    @app.route("/api/reports/<filename>/compliance", methods=["GET"])
+    @login_required
+    def get_report_compliance(filename):
+        fpath = _find_user_report(filename)
+        if not fpath or not os.path.exists(fpath):
+            return jsonify({"ok": False, "error": "Report file not found"}), 404
+
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Failed to read report: {e}"}), 500
+
+        from marlinspike import compliance as _compliance
+        findings = data.get("findings", [])
+        nodes = data.get("nodes", [])
+        result = _compliance.evaluate_compliance(findings, len(nodes))
+        return jsonify({"ok": True, "filename": filename, "compliance": result})
+
     @app.route("/api/projects/<int:pid>/webhook/test", methods=["POST"])
     @login_required
     @limiter.limit("10 per minute")
