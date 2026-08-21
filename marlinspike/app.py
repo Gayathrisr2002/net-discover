@@ -1515,6 +1515,15 @@ def _is_primary_report_filename(filename: str) -> bool:
     return True
 
 
+def _load_project_report_files(rdir: str) -> list[str]:
+    reports = []
+    if rdir and os.path.isdir(rdir):
+        for fn in sorted(os.listdir(rdir)):
+            if _is_primary_report_filename(fn):
+                reports.append(os.path.join(rdir, fn))
+    return reports
+
+
 def _get_primary_report_filename(filename: str) -> str:
     safe_name = os.path.basename(str(filename or ""))
     lower_name = safe_name.lower()
