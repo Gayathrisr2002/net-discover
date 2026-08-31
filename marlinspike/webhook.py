@@ -383,9 +383,11 @@ def _existing_ticket_dedup_keys(project_id: int, platform: str) -> set[str]:
 
 def _record_ticket(project_id: int, dedup_key: str, platform: str, external_id: str | None) -> None:
     try:
-        row = WebhookTicket(
-            project_id=project_id, dedup_key=dedup_key, platform=platform, external_id=external_id,
-        )
+        row = WebhookTicket()
+        row.project_id = project_id
+        row.dedup_key = dedup_key
+        row.platform = platform
+        row.external_id = external_id
         db.session.add(row)
         db.session.commit()
     except Exception:
