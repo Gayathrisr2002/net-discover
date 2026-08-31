@@ -39,7 +39,7 @@ def _session_invalidated() -> bool:
     and it should be force-logged-out. Shared by login_required and
     admin_required so both actually enforce it identically."""
     if "session_version" in session and "user_id" in session:
-        user = User.query.get(session["user_id"])
+        user = db.session.get(User, session["user_id"])
         if user is None:
             # Account was deleted out from under this live session (e.g.
             # an admin removing a compromised user) — `if user and ...`
@@ -374,7 +374,7 @@ def use_reset_token(token, new_password):
     locked = PasswordResetToken.query.filter_by(id=token.id).with_for_update().first()
     if locked is None or locked.used_at is not None:
         return None
-    user = User.query.get(locked.user_id)
+    user = db.session.get(User, locked.user_id)
     user.password_hash = generate_password_hash(new_password)
     user.session_version = (user.session_version or 1) + 1
     locked.used_at = datetime.now(timezone.utc)

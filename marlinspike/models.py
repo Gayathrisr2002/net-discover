@@ -225,8 +225,8 @@ class AssetTag(db.Model):
     zone = db.Column(db.String(80))
     business_function = db.Column(db.String(120))
     free_text = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"))
 
     __table_args__ = (db.UniqueConstraint("project_id", "asset_key", name="uq_asset_tag"),)
@@ -242,8 +242,8 @@ class FindingNote(db.Model):
     status = db.Column(db.String(20), default="open", nullable=False)
     body = db.Column(db.Text)
     author_id = db.Column(db.Integer, db.ForeignKey("users.id"))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class AuditLog(db.Model):
@@ -275,8 +275,8 @@ class IocList(db.Model):
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)
     source = db.Column(db.String(64))  # 'manual' | 'csv' | 'misp' | 'stix'
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
 
     entries = db.relationship("IocEntry", backref="ioc_list", cascade="all, delete-orphan")

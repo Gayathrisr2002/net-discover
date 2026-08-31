@@ -111,7 +111,7 @@ def app_ctx(app):
 
 @pytest.fixture
 def owner(app_ctx):
-    u = User(username="sched-owner", password_hash="x", role="user")
+    u = User(username="sched-owner", password_hash="x", role="user")  # type: ignore
     db.session.add(u)
     db.session.commit()
     return u
@@ -119,7 +119,7 @@ def owner(app_ctx):
 
 @pytest.fixture
 def project(app_ctx, owner):
-    p = Project(user_id=owner.id, name="proj")
+    p = Project(user_id=owner.id, name="proj")  # type: ignore
     db.session.add(p)
     db.session.commit()
     return p
@@ -136,7 +136,7 @@ def _due_schedule_json():
 def test_run_due_schedules_starts_capture_on_online_agents(app, app_ctx, project, monkeypatch):
     project.capture_schedule = _due_schedule_json()
     db.session.commit()
-    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="online")
+    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="online")  # type: ignore
     db.session.add(agent)
     db.session.commit()
 
@@ -162,7 +162,8 @@ def test_run_due_schedules_starts_capture_on_online_agents(app, app_ctx, project
     assert calls[0]["agent_id"] == agent.id
     assert calls[0]["actor_username"] == "scheduler"
 
-    refreshed = Project.query.get(project.id)
+    refreshed = db.session.get(Project, project.id)
+    assert refreshed is not None
     assert refreshed.capture_schedule_last_triggered_at is not None
 
 
@@ -183,7 +184,7 @@ def test_run_due_schedules_no_online_agents_still_marks_slot_fired(app, app_ctx,
     grace window."""
     project.capture_schedule = _due_schedule_json()
     db.session.commit()
-    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="offline")
+    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="offline")  # type: ignore
     db.session.add(agent)
     db.session.commit()
 
@@ -192,7 +193,8 @@ def test_run_due_schedules_no_online_agents_still_marks_slot_fired(app, app_ctx,
                          lambda **kw: calls.append(kw))
     scheduler._run_due_schedules(app)
     assert calls == []
-    refreshed = Project.query.get(project.id)
+    refreshed = db.session.get(Project, project.id)
+    assert refreshed is not None
     assert refreshed.capture_schedule_last_triggered_at is not None
 
 
@@ -201,7 +203,7 @@ def test_run_due_schedules_not_due_yet_does_not_trigger(app, app_ctx, project, m
     project.capture_schedule = json.dumps({"enabled": True, "times_utc": [far_future],
                                             "duration_s": 300, "interface": "eth0"})
     db.session.commit()
-    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="online")
+    agent = Agent(agent_uuid="a1", project_id=project.id, name="agent-1", status="online")  # type: ignore
     db.session.add(agent)
     db.session.commit()
 
@@ -210,5 +212,6 @@ def test_run_due_schedules_not_due_yet_does_not_trigger(app, app_ctx, project, m
                          lambda **kw: calls.append(kw))
     scheduler._run_due_schedules(app)
     assert calls == []
-    refreshed = Project.query.get(project.id)
+    refreshed = db.session.get(Project, project.id)
+    assert refreshed is not None
     assert refreshed.capture_schedule_last_triggered_at is None

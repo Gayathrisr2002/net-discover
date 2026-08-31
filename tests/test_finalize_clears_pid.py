@@ -37,12 +37,22 @@ def app():
 def _seed_running(app, run_id, pid):
     from marlinspike.models import ScanHistory, User, db
     with app.app_context():
-        if User.query.get(1) is None:
-            db.session.add(User(id=1, username="pid_user", password_hash="x", role="admin"))
-        db.session.add(ScanHistory(
-            run_id=run_id, user_id=1, command="chain", scan_profile="full",
-            status="running", engine_pid=pid, report_path="",
-        ))
+        if db.session.get(User, 1) is None:
+            usr = User()
+            usr.id = 1
+            usr.username = "pid_user"
+            usr.password_hash = "x"
+            usr.role = "admin"
+            db.session.add(usr)
+        sh = ScanHistory()
+        sh.run_id = run_id
+        sh.user_id = 1
+        sh.command = "chain"
+        sh.scan_profile = "full"
+        sh.status = "running"
+        sh.engine_pid = pid
+        sh.report_path = ""
+        db.session.add(sh)
         db.session.commit()
 
 
@@ -59,6 +69,7 @@ def test_completed_run_clears_engine_pid(app):
 
     with app.app_context():
         rec = ScanHistory.query.filter_by(run_id="pid-complete").first()
+        assert rec is not None
         assert rec.status == "completed"
         assert rec.engine_pid is None, "engine_pid left stale on a terminal run"
 
@@ -72,4 +83,5 @@ def test_failed_run_clears_engine_pid(app):
 
     with app.app_context():
         rec = ScanHistory.query.filter_by(run_id="pid-failed").first()
+        assert rec is not None
         assert rec.engine_pid is None

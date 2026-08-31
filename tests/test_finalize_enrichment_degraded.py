@@ -77,12 +77,21 @@ def _write_report(tmp_path):
 def _seed_scan_row(app, run_id, report_path):
     from marlinspike.models import ScanHistory, User, db
     with app.app_context():
-        if User.query.get(1) is None:
-            db.session.add(User(id=1, username="fin_user", password_hash="x", role="admin"))
-        db.session.add(ScanHistory(
-            run_id=run_id, user_id=1, command="chain", scan_profile="full",
-            status="running", report_path=report_path,
-        ))
+        if db.session.get(User, 1) is None:
+            usr = User()
+            usr.id = 1
+            usr.username = "fin_user"
+            usr.password_hash = "x"
+            usr.role = "admin"
+            db.session.add(usr)
+        sh = ScanHistory()
+        sh.run_id = run_id
+        sh.user_id = 1
+        sh.command = "chain"
+        sh.scan_profile = "full"
+        sh.status = "running"
+        sh.report_path = report_path
+        db.session.add(sh)
         db.session.commit()
 
 
@@ -119,8 +128,9 @@ def test_plugin_exception_marks_run_degraded_not_clean_completed(app, tmp_path, 
     from marlinspike.models import ScanHistory
     with app.app_context():
         rec = ScanHistory.query.filter_by(run_id=run_id).first()
+        assert rec is not None
         assert rec.status == "completed"
-        assert rec.error_tail and "marlinspike-mitre" in rec.error_tail
+        assert rec.error_tail is not None and "marlinspike-mitre" in rec.error_tail
 
 
 def test_all_plugins_succeed_is_not_degraded(app, tmp_path, monkeypatch):

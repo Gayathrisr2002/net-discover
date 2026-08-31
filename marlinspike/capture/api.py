@@ -201,11 +201,11 @@ def _require_agent(agent_id, min_role: str = "viewer") -> Agent | None:
         aid = int(agent_id)
     except (TypeError, ValueError):
         return None
-    agent = Agent.query.get(aid)
+    agent = db.session.get(Agent, aid)
     if agent is None or agent.status == "revoked":
         return None
     uid = session["user_id"]
-    project = Project.query.get(agent.project_id)
+    project = db.session.get(Project, agent.project_id)
     if project is None:
         return None
     if project.user_id == uid:
@@ -244,7 +244,7 @@ def _require_project(project_id, min_role: str = "owner") -> Project | None:
         pid = int(project_id)
     except (ValueError, TypeError):
         return None
-    project = Project.query.get(pid)
+    project = db.session.get(Project, pid)
     if project is None:
         return None
     if project.user_id == session["user_id"]:
@@ -260,7 +260,7 @@ def _require_project(project_id, min_role: str = "owner") -> Project | None:
 def _require_project_admin_or_owner(pid: int) -> Project | None:
     """Return the project if the caller is admin OR the project owner."""
     is_admin = session.get("role") == "admin"
-    p = Project.query.get(pid)
+    p = db.session.get(Project, pid)
     if p is None:
         return None
     if is_admin or p.user_id == session["user_id"]:
@@ -718,7 +718,7 @@ def stop_session(sid: int):
     cs.status = "stopping"
     db.session.commit()
 
-    agent = Agent.query.get(cs.agent_id) if cs.agent_id is not None else None
+    agent = db.session.get(Agent, cs.agent_id) if cs.agent_id is not None else None
 
     try:
         resp = _client_for(agent).stop(cs.session_uuid)
@@ -1004,7 +1004,7 @@ def create_filter():
 @bp.route("/filters/<int:fid>", methods=["DELETE"])
 @login_required
 def delete_filter(fid: int):
-    f = SavedFilter.query.get(fid)
+    f = db.session.get(SavedFilter, fid)
     if f is None:
         return jsonify({"ok": False, "error": "not found"}), 404
     if _require_project(f.project_id) is None:

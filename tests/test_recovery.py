@@ -40,7 +40,10 @@ def app_ctx(app):
 
 @pytest.fixture
 def user(app_ctx):
-    u = User(username="recov", password_hash="x", role="admin")
+    u = User()
+    u.username = "recov"
+    u.password_hash = "x"
+    u.role = "admin"
     db.session.add(u)
     db.session.commit()
     return u
@@ -56,7 +59,8 @@ def test_pid_alive_self():
 def test_pid_alive_zero_and_negative():
     assert not recovery.pid_alive(0)
     assert not recovery.pid_alive(-1)
-    assert not recovery.pid_alive(None)
+    import typing
+    assert not recovery.pid_alive(typing.cast(int, None))
 
 
 def test_pid_alive_dead_process():
@@ -75,7 +79,7 @@ def test_pid_alive_dead_process():
 
 def test_pid_argv_matches_self():
     """The current Python process should match an argv naming Python."""
-    expected = [sys.executable, "-m", "pytest"]
+    expected = [sys.executable] + sys.argv
     # Self should be alive and (Python interpreter token should match)
     assert recovery.pid_argv_matches(os.getpid(), expected)
 
@@ -178,6 +182,7 @@ def test_reap_dead_pid_no_report_marks_failed(app, app_ctx, user, tmp_path):
     counters = recovery.reap_orphan_runs(app)
     assert counters["reaped_failed"] == 1
     rec = ScanHistory.query.filter_by(run_id="rec-dead").first()
+    assert rec is not None
     assert rec.status == "failed"
     assert rec.recovery_state == "reaped_failed"
     assert "engine crashed" in (rec.error_tail or "")
@@ -207,6 +212,7 @@ def test_reap_dead_pid_with_report_marks_completed(app, app_ctx, user, tmp_path)
     counters = recovery.reap_orphan_runs(app)
     assert counters["reaped_completed"] == 1
     rec = ScanHistory.query.filter_by(run_id="rec-finished").first()
+    assert rec is not None
     assert rec.status == "completed"
     assert rec.recovery_state == "reaped_completed"
     assert rec.node_count == 2
@@ -231,12 +237,14 @@ def test_reap_past_deadline_marks_abandoned(app, app_ctx, user, tmp_path):
     )
     # Force timeout_at to be in the past
     rec = ScanHistory.query.filter_by(run_id="rec-old").first()
+    assert rec is not None
     rec.timeout_at = datetime.now(timezone.utc) - timedelta(hours=1)
     db.session.commit()
 
     counters = recovery.reap_orphan_runs(app)
     assert counters["reaped_abandoned"] == 1
     rec = ScanHistory.query.filter_by(run_id="rec-old").first()
+    assert rec is not None
     assert rec.status == "failed"
     assert rec.recovery_state == "reaped_abandoned"
     assert "abandoned" in (rec.error_tail or "")
@@ -281,6 +289,7 @@ def test_reap_live_pid_with_correct_argv_reattaches(app, app_ctx, user, tmp_path
         assert counters["reattached"] == 1
         assert spawned == [("rec-live", long_running.pid)]
         rec = ScanHistory.query.filter_by(run_id="rec-live").first()
+        assert rec is not None
         assert rec.status == "running"  # left alone
     finally:
         long_running.terminate()
@@ -316,13 +325,12 @@ def test_reap_live_pid_argv_mismatch_treated_as_dead(app, app_ctx, user, tmp_pat
 
 def test_reap_run_with_no_pid(app, app_ctx, user, tmp_path):
     """engine_pid is NULL → can't reattach, treat as dead."""
-    rec = ScanHistory(
-        run_id="rec-nopid",
-        user_id=user.id,
-        command="chain",
-        status="running",
-        report_path=str(tmp_path / "r.json"),
-    )
+    rec = ScanHistory()
+    rec.run_id = "rec-nopid"
+    rec.user_id = user.id
+    rec.command = "chain"
+    rec.status = "running"
+    rec.report_path = str(tmp_path / "r.json")
     db.session.add(rec)
     db.session.commit()
     counters = recovery.reap_orphan_runs(app)
@@ -347,6 +355,7 @@ def test_reap_default_get_active_ignores_agent_rows(app, app_ctx, user, tmp_path
     counters = recovery.reap_orphan_runs(app)
     assert counters["checked"] == 0
     rec = ScanHistory.query.filter_by(run_id="rec-agent-owned").first()
+    assert rec is not None
     assert rec.status == "running"  # untouched
 
 
@@ -374,6 +383,8 @@ def test_reap_with_injected_agent_get_active_reaps_only_agent_rows(app, app_ctx,
     assert counters["checked"] == 1
     assert counters["reaped_failed"] == 1
     agent_rec = ScanHistory.query.filter_by(run_id="rec-agent-owned-2").first()
+    assert agent_rec is not None
     assert agent_rec.status == "failed"
     local_rec = ScanHistory.query.filter_by(run_id="rec-local-untouched").first()
+    assert local_rec is not None
     assert local_rec.status == "running"  # untouched — belongs to the OTHER reaper

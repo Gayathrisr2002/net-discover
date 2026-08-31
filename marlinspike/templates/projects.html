@@ -1470,6 +1470,7 @@
                 <option value="generic">{{ t('projects.webhook_platform_generic') }}</option>
                 <option value="zammad">Zammad</option>
                 <option value="jira">Jira</option>
+                <option value="wazuh">Wazuh</option>
               </select>
             </div>
             <div class="proj-settings-row">
@@ -1734,12 +1735,13 @@ var PROJ = (function() {
     var platform = document.getElementById('webhook-platform').value;
     var isZammad = platform === 'zammad';
     var isJira = platform === 'jira';
+    var isWazuh = platform === 'wazuh';
     document.getElementById('webhook-zammad-group-row').style.display = isZammad ? '' : 'none';
     document.getElementById('webhook-zammad-customer-row').style.display = isZammad ? '' : 'none';
     document.getElementById('webhook-jira-project-row').style.display = isJira ? '' : 'none';
     document.getElementById('webhook-jira-issue-type-row').style.display = isJira ? '' : 'none';
     document.getElementById('webhook-jira-email-row').style.display = isJira ? '' : 'none';
-    document.getElementById('webhook-generate-btn').style.display = (isZammad || isJira) ? 'none' : '';
+    document.getElementById('webhook-generate-btn').style.display = (isZammad || isJira || isWazuh) ? 'none' : '';
     var urlInput = document.getElementById('webhook-url');
     var urlLabel = document.getElementById('webhook-url-label');
     var urlHint = document.getElementById('webhook-url-hint');
@@ -1757,6 +1759,12 @@ var PROJ = (function() {
       urlHint.textContent = msT('projects.webhook_jira_url_hint', 'The root URL of your Jira instance (Cloud: https://yourcompany.atlassian.net; Server/Data Center: your own base URL).');
       secretLabel.textContent = msT('projects.webhook_jira_token', 'Jira API token / personal access token');
       secretHint.textContent = msT('projects.webhook_jira_token_hint', 'Jira Cloud: create an API token at id.atlassian.com/manage-profile/security/api-tokens and set the email below. Jira Server/Data Center: create a personal access token and leave the email blank.');
+    } else if (isWazuh) {
+      urlLabel.textContent = 'Wazuh Endpoint URL';
+      urlInput.placeholder = 'https://wazuh-manager.local:55000/alerts';
+      urlHint.textContent = 'The webhook endpoint URL for your Wazuh manager or Wazuh integration daemon.';
+      secretLabel.textContent = 'Wazuh Auth Token / Key (optional)';
+      secretHint.textContent = 'Auth token / header key for authenticating HTTP POST requests to the Wazuh endpoint.';
     } else {
       urlLabel.textContent = msT('projects.webhook_url', 'Webhook URL');
       urlInput.placeholder = 'https://example.com/hooks/marlinspike';

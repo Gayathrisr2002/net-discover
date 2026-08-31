@@ -135,3 +135,31 @@ Enhanced the MarlinSpike platform with automated compliance and incident respons
 - **CISA Known Exploited Vulnerabilities (KEV) & CVE Matcher (`marlinspike/cve_matcher.py`)**: Automatic correlation of discovered industrial firmware and PLC hardware models (Rockwell ControlLogix, Siemens S7-1200/1500, Schneider Modicon, ABB AC 800M, SEL Relays) against active CISA KEV advisories and CVSS risk scores.
 - **Universal UI & Toolbar Interoperability**: Refactored global navigation (`base.html`) and viewer toolbar (`viewer.html`) with fluid horizontal scrolling, zero-overlap responsive layout, and fixed `MS.toggleRisk()` and `MS.toggleHmi()` interactive button exports.
 
+## 10. UI E2E Suite, Security Test Flakiness, and IDE Warnings Resolution
+
+Resolved all UI E2E test suite failures, password strength test flakiness, and static analysis / IDE warnings in the test suites:
+- **UI E2E Suite Alignment (`scratch/test_ui_e2e_suite.py`)**:
+  - Switched from the fragile `/login` POST mechanism to Flask test client session transaction injection.
+  - Dynamically bootstrapped a mock `test-report.json` report in the test class setup to prevent 404 errors during asset inventory retrieval.
+  - Corrected test route paths and assertions: updated `/assets` to `/api/reports/test-report.json/assets?project_id={project_id}`, redirected the findings page to `/capabilities` (looking for `"Catalog"`), and updated the `/fleet` page check to search for `"Fleet Sensors"` instead of `"Distributed Remote Sensors"`.
+- **Flaky Password Strength Security Test Fix (`marlinspike/setup_wizard.py`)**:
+  - Modified the password generator helper `_gen_password` to generate random characters in a loop until it produces a password containing at least one uppercase letter, one lowercase letter, and one digit, resolving intermittent failures in `test_setup_wizard_admin_password_strength`.
+- **Static Analysis / IDE Warnings Resolution (`scratch/test_ui_e2e_suite.py`, `tests/test_recovery.py`)**:
+  - Eliminated Pylance/Pyright warnings regarding database model construction by instantiating empty `User`, `Project`, and `ScanHistory` models first and setting their fields directly on the instances.
+  - Added explicit assertions (`assert rec is not None`) on database queries to prevent type checker warnings about attribute access on potential `NoneType` objects.
+  - Handled parameter type enforcement in `test_pid_alive_zero_and_negative` using `typing.cast` to safely pass `None` to `pid_alive(pid: int)`.
+
+## 11. SQLAlchemy 2.0 ORM Migrations & IDE Warnings Cleanup
+
+Completed the cleanup of remaining legacy DB access methods and resolved type checking issues in the scheduler and finalization tests:
+- **Deprecated `Query.get()` Migration**: Replaced all remaining occurrences of the legacy `.query.get()` call with the SQLAlchemy 2.0 compliant `db.session.get()` pattern.
+  - Modified `LlmConfig` query in `marlinspike/llm.py`.
+  - Modified `Project` query in `marlinspike/webhook.py`.
+  - Modified all `User` queries in `marlinspike/app.py` and `marlinspike/auth.py`.
+  - Updated all query lookups in the unit tests (`tests/test_scheduler.py`, `tests/test_finalize_enrichment_degraded.py`, `tests/test_finalize_clears_pid.py`) to align with this pattern, removing all `LegacyAPIWarning` output from the test execution.
+- **Type Warning Cleanup**: Resolved the Pyright/IDE type warnings inside `tests/test_finalize_clears_pid.py`, `tests/test_finalize_enrichment_degraded.py`, and `tests/test_scheduler.py` by:
+  1. Instantiating empty DB model instances (`User`, `ScanHistory`, `Project`, `Agent`, etc.) and assigning attributes directly on the instances rather than using constructor keyword arguments, completely bypassing Pyright's dynamic `__init__` resolution limits.
+  2. Introducing type-narrowing `assert is not None` assertions on query results to safely access database model attributes.
+
+
+

@@ -75,7 +75,7 @@ def _header_safe(s: str) -> bool:
 
 def get_config() -> LlmConfig:
     """Return the singleton LlmConfig row, creating it (disabled, empty) if absent."""
-    cfg = LlmConfig.query.get(1)
+    cfg = db.session.get(LlmConfig, 1)
     if cfg is None:
         cfg = LlmConfig(id=1, enabled=False)
         db.session.add(cfg)

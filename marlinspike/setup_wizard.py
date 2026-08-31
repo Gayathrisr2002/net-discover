@@ -44,7 +44,12 @@ def _gen_secret_hex(n: int = 32) -> str:
 def _gen_password(n: int = 24) -> str:
     """Generate a strong password with mixed alphabet, no quote chars."""
     alphabet = string.ascii_letters + string.digits + "!#$%&*+-=?@^_~"
-    return "".join(secrets.choice(alphabet) for _ in range(n))
+    while True:
+        pw = "".join(secrets.choice(alphabet) for _ in range(n))
+        if (any(c.isupper() for c in pw) and
+                any(c.islower() for c in pw) and
+                any(c.isdigit() for c in pw)):
+            return pw
 
 
 def _prompt(label: str, default: str = "", auto: bool = False) -> str:

@@ -2281,6 +2281,139 @@ textarea.ms-input {
   .ms-toolbar-controls { grid-template-columns: 1fr; }
 }
 
+
+/* ── Firewall Simulator Panel Styles ── */
+.ms-fw-sim-panel {
+  position: fixed;
+  top: 75px;
+  right: 24px;
+  width: 400px;
+  max-width: 90vw;
+  background: rgba(13, 22, 37, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(50, 184, 198, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.7);
+  z-index: 9999;
+  padding: 18px;
+  color: #cdd8e3;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: var(--font-ui), sans-serif;
+  animation: msPanelSlideIn 0.2s ease-out;
+}
+@keyframes msPanelSlideIn {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.ms-fw-sim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+.ms-fw-sim-title {
+  font-weight: 700;
+  font-size: 1.05em;
+  color: #32b8c6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ms-fw-sim-close {
+  background: none;
+  border: none;
+  color: #6e7f96;
+  cursor: pointer;
+  font-size: 1.3em;
+  padding: 0 4px;
+  line-height: 1;
+}
+.ms-fw-sim-close:hover { color: #fff; }
+.ms-fw-sim-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.ms-fw-sim-item {
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 0.84em;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ms-fw-sim-item:hover {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(50, 184, 198, 0.2);
+}
+.ms-fw-sim-item input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: #32b8c6;
+  cursor: pointer;
+  transform: scale(1.1);
+}
+.ms-fw-sim-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ms-fw-sim-item-title {
+  font-weight: 600;
+  color: #fff;
+}
+.ms-fw-sim-item-desc {
+  color: #94a3b8;
+  font-size: 0.9em;
+}
+.ms-fw-sim-impact {
+  background: rgba(50, 184, 198, 0.08);
+  border: 1px solid rgba(50, 184, 198, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.85em;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ms-fw-sim-impact-header {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.82em;
+  letter-spacing: 0.05em;
+  color: #32b8c6;
+  border-bottom: 1px solid rgba(50, 184, 198, 0.15);
+  padding-bottom: 4px;
+}
+.ms-fw-sim-metric {
+  display: flex;
+  justify-content: space-between;
+  color: #94a3b8;
+}
+.ms-fw-sim-metric span:last-child {
+  font-weight: 600;
+  color: #fff;
+}
+.ms-fw-sim-rules-export {
+  background: #060b13;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #5b8af0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78em;
+  padding: 10px;
+  height: 90px;
+  overflow: auto;
+  white-space: pre-wrap;
+  user-select: all;
+}
+
 /* ── Code Viewer Interactive Modal ── */
 .ms-code-modal-backdrop {
   position: fixed;
@@ -2570,6 +2703,9 @@ textarea.ms-input {
       <button class="ms-btn" onclick="MS.viewStix()" title="View STIX 2.1 Threat Intel Bundle">📦 STIX 2.1</button>
       <button class="ms-btn" onclick="MS.viewSigma()" title="View Sigma Rules Stream">🎯 Sigma</button>
       <button class="ms-btn" onclick="MS.viewFirewallRules()" title="View & Filter Purdue Zero-Trust Firewall ACL Rules">🛡️ Firewall Rules</button>
+      <button class="ms-btn" onclick="MS.openFirewallSimulator()" title="Interactive Firewall Rule Simulator & Topology Impact Analyzer" style="border-color: #32b8c6; color: #32b8c6;">🔌 FW Simulator</button>
+      <button class="ms-btn" onclick="MS.calculateAttackPath()" title="Automatic Attack Path Analysis & Pivot Visualization" style="border-color: #ef4444; color: #ef4444;">⚔️ Attack Path</button>
+      <button class="ms-btn" onclick="MS.openSimulatedCompliance()" title="Simulated View IEC 62443 Compliance & Standards Auditor" style="border-color: #10b981; color: #10b981;">📋 Compliance Audit</button>
       <button class="ms-btn" onclick="MS.viewAnsiblePlaybook()" title="View Automated Incident Response Ansible Playbook">⚡ Ansible Playbook</button>
       <button class="ms-btn" onclick="MS.openCompareModal()" title="Compare this report with another PCAP run (Pre/Post-Patch Diff)">🔄 Compare PCAP</button>
       <button class="ms-btn" onclick="MS.exportPng()">{{ t('viewer.utilities.png') }}</button>
@@ -2766,7 +2902,13 @@ textarea.ms-input {
             <div class="ms-section-body">
               {% if viewer_context.purdue_violations %}
                 {% for violation in viewer_context.purdue_violations %}
-                <div class="ms-purdue-item">{{ violation }}</div>
+                <div class="ms-purdue-item">
+                  {% if violation is mapping %}
+                    <strong>{{ violation.src }}</strong> (Level {{ violation.src_level }}) ──[{{ violation.protocol }}]──&gt; <strong>{{ violation.dst }}</strong> (Level {{ violation.dst_level }}) : {{ violation.description }}
+                  {% else %}
+                    {{ violation }}
+                  {% endif %}
+                </div>
                 {% endfor %}
               {% else %}
               <div style="color:var(--text-dim);padding:8px 0;">{{ t('viewer.report.no_violations') }}</div>
@@ -4008,7 +4150,12 @@ var MS = (function() {
     queueBody += '<div class="ms-service-item"><strong>' + esc(String(getQueueNodes('writes').length)) + '</strong> assets sit on writable or programming-capable paths.</div>';
     queueBody += '<div class="ms-service-item"><strong>' + esc(String(getQueueNodes('auth-gap').length)) + '</strong> assets did not show authentication in captured traffic.</div>';
     toArray(VIEWER_CONTEXT.purdue_violations).slice(0, 5).forEach(function(item) {
-      queueBody += '<div class="ms-purdue-item">' + esc(typeof item === 'string' ? item : JSON.stringify(item)) + '</div>';
+      if (item && typeof item === 'object') {
+        var desc = '<strong>' + esc(item.src) + '</strong> (Level ' + esc(item.src_level) + ') ──[' + esc(item.protocol) + ']──&gt; <strong>' + esc(item.dst) + '</strong> (Level ' + esc(item.dst_level) + '): ' + esc(item.description);
+        queueBody += '<div class="ms-purdue-item">' + desc + '</div>';
+      } else {
+        queueBody += '<div class="ms-purdue-item">' + esc(item) + '</div>';
+      }
     });
     queueBody += '</div>';
 
@@ -4721,7 +4868,12 @@ var MS = (function() {
     if (purdue.length) {
       right += '<div class="ms-section-label">Purdue Violations</div>';
       purdue.slice(0, 6).forEach(function(item) {
-        right += '<div class="ms-purdue-item">' + esc(typeof item === 'string' ? item : JSON.stringify(item)) + '</div>';
+        if (item && typeof item === 'object') {
+          var desc = '<strong>' + esc(item.src) + '</strong> (Level ' + esc(item.src_level) + ') ──[' + esc(item.protocol) + ']──&gt; <strong>' + esc(item.dst) + '</strong> (Level ' + esc(item.dst_level) + '): ' + esc(item.description);
+          right += '<div class="ms-purdue-item">' + desc + '</div>';
+        } else {
+          right += '<div class="ms-purdue-item">' + esc(item) + '</div>';
+        }
       });
     }
     if (!writePaths.length && !authGaps.length && !purdue.length) {
@@ -5668,6 +5820,10 @@ var MS = (function() {
           el: path,
           src: e.src,
           dst: e.dst,
+          protocol: e.protocol,
+          includes_writes: e.includes_writes,
+          includes_program_access: e.includes_program_access,
+          port: e.port,
           baseWidth: strokeW,
           baseOpacity: strokeOpacity
         });
@@ -6253,6 +6409,214 @@ var MS = (function() {
     msToast('File downloaded: ' + filename, 'success');
   }
 
+  function openFirewallSimulator() {
+    // If panel already exists, remove it
+    var existing = document.getElementById('ms-fw-sim-panel');
+    if (existing) {
+      existing.remove();
+      // Restore all edges
+      applyFirewallSimulation();
+      return;
+    }
+
+    var panel = document.createElement('div');
+    panel.id = 'ms-fw-sim-panel';
+    panel.className = 'ms-fw-sim-panel';
+
+    var html = '<div class="ms-fw-sim-header">';
+    html += '  <div class="ms-fw-sim-title">🔌 Firewall Simulator & Impact Analyzer</div>';
+    html += '  <button class="ms-fw-sim-close" onclick="MS.openFirewallSimulator()">✕</button>';
+    html += '</div>';
+
+    html += '<div style="font-size: 0.82em; color: #94a3b8; line-height: 1.4;">';
+    html += '  Select policies to simulate blocking traffic on the network topology. Matching edges will be highlighted and risk findings recalculated.';
+    html += '</div>';
+
+    html += '<div class="ms-fw-sim-list">';
+    
+    // Policy 1: Cross-Purdue Boundary block
+    html += '  <label class="ms-fw-sim-item">';
+    html += '    <input type="checkbox" id="fw-sim-purdue" onchange="MS.applyFirewallSimulation()">';
+    html += '    <div class="ms-fw-sim-item-text">';
+    html += '      <span class="ms-fw-sim-item-title">Block Cross-Purdue Violations</span>';
+    html += '      <span class="ms-fw-sim-item-desc">Deny direct sessions between Corporate (Level 3+) and Control (Level 0/1) zones.</span>';
+    html += '    </div>';
+    html += '  </label>';
+
+    // Policy 2: Non-Adjacent level block (IEC 62443 Conduits)
+    html += '  <label class="ms-fw-sim-item">';
+    html += '    <input type="checkbox" id="fw-sim-conduits" onchange="MS.applyFirewallSimulation()">';
+    html += '    <div class="ms-fw-sim-item-text">';
+    html += '      <span class="ms-fw-sim-item-title">Enforce Zone Conduits (IEC 62443)</span>';
+    html += '      <span class="ms-fw-sim-item-desc">Deny direct communication across non-adjacent Purdue levels.</span>';
+    html += '    </div>';
+    html += '  </label>';
+
+    // Policy 3: Modbus Writes block
+    html += '  <label class="ms-fw-sim-item">';
+    html += '    <input type="checkbox" id="fw-sim-writes" onchange="MS.applyFirewallSimulation()">';
+    html += '    <div class="ms-fw-sim-item-text">';
+    html += '      <span class="ms-fw-sim-item-title">Restrict Modbus / Control Writes</span>';
+    html += '      <span class="ms-fw-sim-item-desc">Block Modbus TCP/S7 program write command operations from non-Engineering hosts.</span>';
+    html += '    </div>';
+    html += '  </label>';
+
+    // Policy 4: OT Malware Threat Signatures block
+    html += '  <label class="ms-fw-sim-item">';
+    html += '    <input type="checkbox" id="fw-sim-threats" onchange="MS.applyFirewallSimulation()">';
+    html += '    <div class="ms-fw-sim-item-text">';
+    html += '      <span class="ms-fw-sim-item-title">Block Malware Threat Signatures</span>';
+    html += '      <span class="ms-fw-sim-item-desc">Block Industroyer (S7 Stop/Start) and Triton (TriStation) command signatures.</span>';
+    html += '    </div>';
+    html += '  </label>';
+
+    html += '</div>';
+
+    // Impact section
+    html += '<div class="ms-fw-sim-impact">';
+    html += '  <div class="ms-fw-sim-impact-header">Topology Impact Analysis</div>';
+    html += '  <div class="ms-fw-sim-metric"><span>Active Links Blocked</span><span id="fw-sim-blocked-count">0 / 0</span></div>';
+    html += '  <div class="ms-fw-sim-metric"><span>Mitigated Risk Findings</span><span id="fw-sim-mitigated-count">0 / 0</span></div>';
+    html += '  <div class="ms-fw-sim-metric"><span>Remaining Risk Level</span><span id="fw-sim-risk-rating" style="color: #ef4444;">HIGH</span></div>';
+    html += '</div>';
+
+    // Rule export preview
+    html += '<div style="font-size: 0.8em; font-weight: 700; color: #32b8c6; margin-top: 4px;">Palo Alto / Fortinet CLI Rule Preview:</div>';
+    html += '<div class="ms-fw-sim-rules-export" id="fw-sim-rules-export"># Enable checkboxes above to generate simulator rules.</div>';
+
+    panel.innerHTML = html;
+    document.body.appendChild(panel);
+
+    applyFirewallSimulation();
+  }
+
+  function applyFirewallSimulation() {
+    var hasPurdue = document.getElementById('fw-sim-purdue') && document.getElementById('fw-sim-purdue').checked;
+    var hasConduits = document.getElementById('fw-sim-conduits') && document.getElementById('fw-sim-conduits').checked;
+    var hasWrites = document.getElementById('fw-sim-writes') && document.getElementById('fw-sim-writes').checked;
+    var hasThreats = document.getElementById('fw-sim-threats') && document.getElementById('fw-sim-threats').checked;
+
+    var nodeMap = {};
+    nodes.forEach(function(n) {
+      nodeMap[n._ip] = n;
+      if (n.mac) nodeMap[n.mac] = n;
+    });
+
+    var blockedEdges = 0;
+    var totalEdges = edgeEls.length;
+
+    // Generate firewall rule snippets in real-time
+    var firewallRulesText = [];
+
+    edgeEls.forEach(function(entry) {
+      var isBlocked = false;
+      var srcNode = nodeMap[entry.src] || {};
+      var dstNode = nodeMap[entry.dst] || {};
+      var srcLvl = srcNode._level != null ? srcNode._level : -1;
+      var dstLvl = dstNode._level != null ? dstNode._level : -1;
+      var proto = (entry.protocol || '').toLowerCase();
+
+      // Check Purdue violation: Level 0/1 <=> Level 3+
+      if (hasPurdue) {
+        if ((srcLvl >= 3 && dstLvl <= 1) || (srcLvl <= 1 && dstLvl >= 3)) {
+          isBlocked = true;
+          firewallRulesText.push("set security rules \"DENY_L" + srcLvl + "_TO_L" + dstLvl + "\" from Corporate to OT source " + entry.src + " destination " + entry.dst + " action drop");
+        }
+      }
+
+      // Check Conduit violation: non-adjacent Purdue levels
+      if (hasConduits && !isBlocked) {
+        if (srcLvl >= 0 && dstLvl >= 0 && Math.abs(srcLvl - dstLvl) > 1) {
+          isBlocked = true;
+          firewallRulesText.push("config firewall policy\n  edit " + (200 + blockedEdges) + "\n    set name \"DENY_CONDUIT_" + srcLvl + "_" + dstLvl + "\"\n    set srcaddr \"" + entry.src + "\"\n    set dstaddr \"" + entry.dst + "\"\n    set action deny\n  next\nend");
+        }
+      }
+
+      // Check Writes: Modbus or S7 writes from HMI/Workstations that are not Engineering
+      if (hasWrites && !isBlocked) {
+        if (entry.includes_writes || entry.includes_program_access) {
+          isBlocked = true;
+          firewallRulesText.push("iptables -A FORWARD -s " + entry.src + " -d " + entry.dst + " -p tcp --dport 502 -j DROP");
+        }
+      }
+
+      // Check Threats: Triton / Industroyer indicators
+      if (hasThreats && !isBlocked) {
+        var isThreatPort = entry.port === 1502 || entry.port === 102;
+        if (isThreatPort || proto.indexOf('tristation') >= 0) {
+          isBlocked = true;
+          firewallRulesText.push("access-list OT_THREAT_ACL extended deny tcp host " + entry.src + " host " + entry.dst);
+        }
+      }
+
+      // Save original stroke if not already done
+      if (!entry.el.getAttribute('data-original-stroke')) {
+        entry.el.setAttribute('data-original-stroke', entry.el.getAttribute('stroke'));
+      }
+
+      if (isBlocked) {
+        blockedEdges++;
+        entry.el.setAttribute('stroke', '#ef4444');
+        entry.el.setAttribute('stroke-dasharray', '4,4');
+        entry.el.setAttribute('stroke-opacity', '0.25');
+      } else {
+        // Restore original styles
+        entry.el.setAttribute('stroke', entry.el.getAttribute('data-original-stroke') || '#334155');
+        entry.el.removeAttribute('stroke-dasharray');
+        entry.el.setAttribute('stroke-opacity', String(entry.baseOpacity || 0.5));
+      }
+    });
+
+    // Update UI counters in panel
+    if (document.getElementById('fw-sim-blocked-count')) {
+      document.getElementById('fw-sim-blocked-count').innerText = blockedEdges + ' / ' + totalEdges;
+    }
+
+    // Calculate mitigated risks
+    var risks = toArray(REPORT.risk_findings);
+    var totalRisks = risks.length;
+    var mitigatedRisks = 0;
+
+    risks.forEach(function(r) {
+      var cat = r.category;
+      if (hasPurdue && cat === 'CROSS_PURDUE') mitigatedRisks++;
+      else if (hasConduits && cat === 'IEC62443_CONDUIT_VIOLATION') mitigatedRisks++;
+      else if (hasWrites && (cat === 'MODBUS_WRITE_COIL' || cat === 'MODBUS_WRITE_ANON' || cat === 'BASELINE_DEVIATION')) mitigatedRisks++;
+      else if (hasThreats && cat === 'OT_THREAT_SIGNATURE') mitigatedRisks++;
+    });
+
+    if (document.getElementById('fw-sim-mitigated-count')) {
+      document.getElementById('fw-sim-mitigated-count').innerText = mitigatedRisks + ' / ' + totalRisks;
+    }
+
+    var remainingRisks = totalRisks - mitigatedRisks;
+    var ratingEl = document.getElementById('fw-sim-risk-rating');
+    if (ratingEl) {
+      if (remainingRisks === 0) {
+        ratingEl.innerText = 'SECURE';
+        ratingEl.style.color = '#10b981';
+      } else if (remainingRisks <= 2) {
+        ratingEl.innerText = 'LOW';
+        ratingEl.style.color = '#3b82f6';
+      } else if (remainingRisks <= 5) {
+        ratingEl.innerText = 'MEDIUM';
+        ratingEl.style.color = '#f59e0b';
+      } else {
+        ratingEl.innerText = 'HIGH';
+        ratingEl.style.color = '#ef4444';
+      }
+    }
+
+    var exportEl = document.getElementById('fw-sim-rules-export');
+    if (exportEl) {
+      if (firewallRulesText.length === 0) {
+        exportEl.innerText = '# Enable checkboxes above to generate simulator rules.';
+      } else {
+        exportEl.innerText = firewallRulesText.slice(0, 15).join('\n') + (firewallRulesText.length > 15 ? '\n# ... [+ ' + (firewallRulesText.length - 15) + ' more rules]' : '');
+      }
+    }
+  }
+
   function viewFirewallRules() {
     var convs = toArray(REPORT.conversations);
     var nodeMap = {};
@@ -6824,7 +7188,12 @@ var MS = (function() {
       pvHtml = '<div style="color:var(--text-dim);padding:8px 0;">' + esc(tjs('viewer.report.no_violations')) + '</div>';
     } else {
       pvs.forEach(function(v) {
-        pvHtml += '<div class="ms-purdue-item">' + esc(typeof v === 'string' ? v : JSON.stringify(v)) + '</div>';
+        if (v && typeof v === 'object') {
+          var desc = '<strong>' + esc(v.src) + '</strong> (Level ' + esc(v.src_level) + ') ──[' + esc(v.protocol) + ']──&gt; <strong>' + esc(v.dst) + '</strong> (Level ' + esc(v.dst_level) + '): ' + esc(v.description);
+          pvHtml += '<div class="ms-purdue-item">' + desc + '</div>';
+        } else {
+          pvHtml += '<div class="ms-purdue-item">' + esc(v) + '</div>';
+        }
       });
     }
     document.getElementById('ms-rpt-purdue').innerHTML = sectionHtml('ms-rpt-purdue', tjs('viewer.report.purdue_violations_label'), pvs.length, pvHtml);
@@ -7800,6 +8169,7 @@ var MS = (function() {
     html += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px;">';
     html += '<button class="ms-mini-btn" onclick="MS.centerOnSelected()">' + esc(tjs('viewer.sel.center')) + '</button>';
     html += '<button class="ms-mini-btn" onclick="MS.deselectNode()">' + esc(tjs('viewer.sel.clear')) + '</button>';
+    html += '<button class="ms-mini-btn" style="background-color:#ef4444;color:white;border:none;" onclick="MS.calculateAttackPath()">' + esc('Attack Path') + '</button>';
     html += '</div>';
 
     // Properties
@@ -8223,16 +8593,331 @@ var MS = (function() {
       .replace(/\n/g, '<br>');
     container.innerHTML = '<div style="max-height:220px;overflow-y:auto;padding-right:4px;">' + formatted + '</div>';
   }
+    
+  function calculateAttackPath() {
+    var sourceIp = null;
+    var targetIp = null;
 
-  function renderLlmFallback(container, ip, reason) {
-    container.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.22);border-radius:6px;padding:8px;margin-top:4px;">'
-      + '<div style="color:#f87171;font-weight:700;font-size:0.82em;margin-bottom:4px;">⚠️ Recommended Remediation Playbook</div>'
-      + '<div style="font-size:0.79em;color:var(--text-dim);line-height:1.4;">'
-      + '<strong>Phase 1 Containment:</strong> Enforce Layer 2/3 micro-segmentation for host <code>' + esc(ip) + '</code>. Block unauthorized cross-Purdue communications at the supervisory boundary firewall.'
-      + '<br><br><strong>Phase 2 Hardening:</strong> Validate PLC/HMI firmware integrity, disable unused discovery protocols (CDP/LLDP), and enable deep-packet-inspection (DPI) alert logging.'
+    if (selectedNode) {
+      var node = selectedNode;
+      var isSource = (node._level >= 3 || node._role === 'External Host');
+      if (isSource) {
+        sourceIp = node._ip;
+      } else {
+        targetIp = node._ip;
+      }
+    }
+
+    var queue = [];
+    var visited = {};
+    var parent = {};
+
+    if (sourceIp) {
+      // Find path from sourceIp to any PLC/Level <= 1 controller
+      queue.push(sourceIp);
+      visited[sourceIp] = true;
+      var foundTargetIp = null;
+
+      while (queue.length > 0) {
+        var curr = queue.shift();
+        var currNode = nodeByIp[curr];
+        if (currNode && (currNode._level <= 1 || currNode._role === 'Programmable Logic Controller')) {
+          foundTargetIp = curr;
+          break;
+        }
+
+        var neighbors = getNeighborsOf(curr);
+        for (var i = 0; i < neighbors.length; i++) {
+          var nbr = neighbors[i];
+          if (!visited[nbr]) {
+            visited[nbr] = true;
+            parent[nbr] = curr;
+            queue.push(nbr);
+          }
+        }
+      }
+
+      if (foundTargetIp) {
+        var path = [];
+        var curr = foundTargetIp;
+        while (curr) {
+          path.unshift(curr);
+          curr = parent[curr];
+        }
+        highlightAttackPath(path);
+      } else {
+        msToast('No attack path found from this source node to any PLC/controller.', true);
+      }
+    } else if (targetIp) {
+      // Find path from any Level 4/5/External node to targetIp
+      queue.push(targetIp);
+      visited[targetIp] = true;
+      var foundSourceIp = null;
+
+      while (queue.length > 0) {
+        var curr = queue.shift();
+        var currNode = nodeByIp[curr];
+        if (currNode && (currNode._level >= 4 || currNode._role === 'External Host')) {
+          foundSourceIp = curr;
+          break;
+        }
+
+        var neighbors = getNeighborsOf(curr);
+        for (var i = 0; i < neighbors.length; i++) {
+          var nbr = neighbors[i];
+          if (!visited[nbr]) {
+            visited[nbr] = true;
+            parent[nbr] = curr;
+            queue.push(nbr);
+          }
+        }
+      }
+
+      if (foundSourceIp) {
+        var path = [];
+        var curr = foundSourceIp;
+        while (curr) {
+          path.push(curr);
+          curr = parent[curr];
+        }
+        highlightAttackPath(path);
+      } else {
+        msToast('No path from external/IT zones to this node was found.', true);
+      }
+    } else {
+      // Automatic global search: find the first path from any external/IT node to any PLC
+      var extNodes = nodes.filter(function(n) { return n._level >= 4 || n._role === 'External Host'; });
+      var plcNodes = nodes.filter(function(n) { return n._level <= 1 || n._role === 'Programmable Logic Controller'; });
+
+      if (!extNodes.length || !plcNodes.length) {
+        msToast('Cannot perform attack path analysis: missing external entry points or PLC controllers in topology.', true);
+        return;
+      }
+
+      var foundPath = null;
+      for (var s = 0; s < extNodes.length; s++) {
+        var startIp = extNodes[s]._ip;
+        queue = [startIp];
+        visited = {};
+        visited[startIp] = true;
+        parent = {};
+        var foundPlc = null;
+
+        while (queue.length > 0) {
+          var curr = queue.shift();
+          var currNode = nodeByIp[curr];
+          if (currNode && (currNode._level <= 1 || currNode._role === 'Programmable Logic Controller')) {
+            foundPlc = curr;
+            break;
+          }
+
+          var neighbors = getNeighborsOf(curr);
+          for (var i = 0; i < neighbors.length; i++) {
+            var nbr = neighbors[i];
+            if (!visited[nbr]) {
+              visited[nbr] = true;
+              parent[nbr] = curr;
+              queue.push(nbr);
+            }
+          }
+        }
+
+        if (foundPlc) {
+          var path = [];
+          var curr = foundPlc;
+          while (curr) {
+            path.unshift(curr);
+            curr = parent[curr];
+          }
+          if (!foundPath || path.length < foundPath.length) {
+            foundPath = path;
+          }
+        }
+      }
+
+      if (foundPath) {
+        highlightAttackPath(foundPath);
+      } else {
+        msToast('No cross-zone attack paths (IT to PLC) found in current topology.', true);
+      }
+    }
+  }
+
+  function getNeighborsOf(ip) {
+    var list = [];
+    edges.forEach(function(e) {
+      if (e.src === ip && list.indexOf(e.dst) === -1) list.push(e.dst);
+      if (e.dst === ip && list.indexOf(e.src) === -1) list.push(e.src);
+    });
+    return list;
+  }
+
+  function highlightAttackPath(path) {
+    highlightedIps = path;
+    SVG2D.syncState();
+
+    var names = path.map(function(ip) {
+      var n = nodeByIp[ip];
+      return ip + ' (' + (n ? (n._role || 'Asset') : 'Unknown') + ')';
+    });
+    msToast('Visualized Attack Pivot Path:\n' + names.join(' ➔ '), 'info');
+  }
+
+  function openSimulatedCompliance() {
+    var existing = document.getElementById('ms-compliance-modal-bg');
+    if (existing) existing.remove();
+
+    var hasPurdue = document.getElementById('fw-sim-purdue') && document.getElementById('fw-sim-purdue').checked;
+    var hasConduits = document.getElementById('fw-sim-conduits') && document.getElementById('fw-sim-conduits').checked;
+    var hasWrites = document.getElementById('fw-sim-writes') && document.getElementById('fw-sim-writes').checked;
+    var hasThreats = document.getElementById('fw-sim-threats') && document.getElementById('fw-sim-threats').checked;
+
+    var risks = toArray(REPORT.risk_findings);
+    var totalRisks = risks.length;
+    var mitigatedList = [];
+    var remainingList = [];
+
+    risks.forEach(function(r) {
+      var cat = r.category;
+      var isMitigated = false;
+      if (hasPurdue && cat === 'CROSS_PURDUE') isMitigated = true;
+      else if (hasConduits && cat === 'IEC62443_CONDUIT_VIOLATION') isMitigated = true;
+      else if (hasWrites && (cat === 'MODBUS_WRITE_COIL' || cat === 'MODBUS_WRITE_ANON' || cat === 'BASELINE_DEVIATION' || cat === 'MODBUS_WRITE_PLC' || cat === 'CIP_LADDER_LOGIC_CHANGE' || cat === 'DNP3_CONFIG_CHANGE' || cat === 'OT_CONFIG_WRITE')) isMitigated = true;
+      else if (hasThreats && cat === 'OT_THREAT_SIGNATURE') isMitigated = true;
+
+      if (isMitigated) {
+        mitigatedList.push(r);
+      } else {
+        remainingList.push(r);
+      }
+    });
+
+    var mitigatedRisks = mitigatedList.length;
+    var remainingRisks = remainingList.length;
+    var complianceStatus = remainingRisks === 0 ? "FULLY_COMPLIANT" : (remainingRisks <= 2 ? "MINOR_DEVIATIONS" : "NON_COMPLIANT");
+    var statusColor = remainingRisks === 0 ? "#10b981" : (remainingRisks <= 2 ? "#3b82f6" : "#ef4444");
+
+    var bg = document.createElement('div');
+    bg.id = 'ms-compliance-modal-bg';
+    bg.className = 'ms-modal-backdrop';
+    
+    var html = '<div class="ms-modal-content" style="max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+      + '<h3 style="margin:0;font-size:1.2em;color:var(--text);display:flex;align-items:center;gap:8px">📋 Simulated View: IEC 62443 Compliance Auditor</h3>'
+      + '<button class="ms-mini-btn" onclick="document.getElementById(\'ms-compliance-modal-bg\').remove()">✕ Close</button>'
       + '</div>'
-      + '<div style="font-size:0.74em;color:var(--text-muted);margin-top:6px;font-style:italic;">Note: ' + esc(reason) + ' (Configure LLM credentials in Admin System settings for custom AI generation).</div>'
+      
+      + '<div style="background:rgba(255,255,255,0.03);border:1px solid var(--border-dim);border-radius:6px;padding:12px;margin-bottom:16px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+      + '<span style="font-weight:700;font-size:0.9em;color:var(--text-dim);">Compliance Status:</span>'
+      + '<span style="font-weight:700;padding:4px 8px;border-radius:4px;color:white;background-color:' + statusColor + '">' + complianceStatus.replace('_', ' ') + '</span>'
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;margin-top:10px;">'
+      + '<div style="background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;"><strong>' + totalRisks + '</strong><br><span style="font-size:0.75em;color:var(--text-dim)">Total Risks</span></div>'
+      + '<div style="background:rgba(16,185,129,0.1);padding:8px;border-radius:4px;color:#10b981;"><strong>' + mitigatedRisks + '</strong><br><span style="font-size:0.75em;color:var(--text-dim)">Simulated Mitigated</span></div>'
+      + '<div style="background:rgba(239,68,68,0.1);padding:8px;border-radius:4px;color:#ef4444;"><strong>' + remainingRisks + '</strong><br><span style="font-size:0.75em;color:var(--text-dim)">Remaining Risks</span></div>'
+      + '</div>'
+      + '</div>'
+
+      + '<div style="margin-bottom:16px;">'
+      + '<div style="font-size:0.85em;font-weight:700;color:var(--text);margin-bottom:6px;">Active Simulation Policies:</div>'
+      + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+      + '<span class="ms-chip" style="' + (hasPurdue ? 'color:#10b981;border-color:#10b981' : 'color:var(--text-dim);opacity:0.5') + '">✔ Purdue Zones</span>'
+      + '<span class="ms-chip" style="' + (hasConduits ? 'color:#10b981;border-color:#10b981' : 'color:var(--text-dim);opacity:0.5') + '">✔ IEC 62443 Conduits</span>'
+      + '<span class="ms-chip" style="' + (hasWrites ? 'color:#10b981;border-color:#10b981' : 'color:var(--text-dim);opacity:0.5') + '">✔ Restrict Writes</span>'
+      + '<span class="ms-chip" style="' + (hasThreats ? 'color:#10b981;border-color:#10b981' : 'color:var(--text-dim);opacity:0.5') + '">✔ Block Threat Sigs</span>'
+      + '</div>'
+      + '</div>'
+
+      + '<div style="margin-bottom:16px;">'
+      + '<div style="font-size:0.85em;font-weight:700;color:var(--text);margin-bottom:6px;">Simulated Mitigation Details:</div>'
+      + '<div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,0.15);border:1px solid var(--border-dim);border-radius:6px;padding:8px;">>';
+
+    if (mitigatedList.length === 0) {
+      html += '<div style="font-size:0.8em;color:var(--text-dim);text-align:center;padding:12px;">No findings mitigated under active simulation. Enable firewall policies in the FW Simulator panel.</div>';
+    } else {
+      mitigatedList.forEach(function(r) {
+        html += '<div style="font-size:0.8em;border-bottom:1px solid var(--border-dim);padding:6px 0;display:flex;justify-content:space-between;">'
+          + '<span><strong>[' + esc(r.severity) + ']</strong> ' + esc(findingTitle(r)) + '</span>'
+          + '<span style="color:#10b981">● Mitigated</span>'
+          + '</div>';
+      });
+    }
+
+    html += '</div></div>'
+
+      + '<div style="margin-bottom:16px;">'
+      + '<div style="font-size:0.85em;font-weight:700;color:var(--text);margin-bottom:6px;">Remaining Unmitigated Risks:</div>'
+      + '<div style="max-height:220px;overflow-y:auto;background:rgba(0,0,0,0.15);border:1px solid var(--border-dim);border-radius:6px;padding:8px;">';
+
+    if (remainingList.length === 0) {
+      html += '<div style="font-size:0.8em;color:#10b981;text-align:center;padding:12px;">Fully Compliant! No remaining unmitigated risks.</div>';
+    } else {
+      remainingList.forEach(function(r) {
+        html += '<div style="font-size:0.8em;border-bottom:1px solid var(--border-dim);padding:6px 0;display:flex;justify-content:space-between;">'
+          + '<span><strong>[' + esc(r.severity) + ']</strong> ' + esc(findingTitle(r)) + '</span>'
+          + '<span style="color:#ef4444">● Unmitigated</span>'
+          + '</div>';
+      });
+    }
+
+    html += '</div></div>'
+
+      + '<div style="display:flex;gap:10px;">'
+      + '<button class="ms-btn" style="background:#10b981;color:white;border:none;" onclick="MS.exportSimulatedCompliance(' 
+      + hasPurdue + ',' + hasConduits + ',' + hasWrites + ',' + hasThreats + ')">💾 Export Simulated Report (.json)</button>'
+      + '</div>'
       + '</div>';
+
+    bg.innerHTML = html;
+    document.body.appendChild(bg);
+  }
+
+  function exportSimulatedCompliance(hasPurdue, hasConduits, hasWrites, hasThreats) {
+    var risks = toArray(REPORT.risk_findings);
+    var mitigatedList = [];
+    var remainingList = [];
+
+    risks.forEach(function(r) {
+      var cat = r.category;
+      var isMitigated = false;
+      if (hasPurdue && cat === 'CROSS_PURDUE') isMitigated = true;
+      else if (hasConduits && cat === 'IEC62443_CONDUIT_VIOLATION') isMitigated = true;
+      else if (hasWrites && (cat === 'MODBUS_WRITE_COIL' || cat === 'MODBUS_WRITE_ANON' || cat === 'BASELINE_DEVIATION' || cat === 'MODBUS_WRITE_PLC' || cat === 'CIP_LADDER_LOGIC_CHANGE' || cat === 'DNP3_CONFIG_CHANGE' || cat === 'OT_CONFIG_WRITE')) isMitigated = true;
+      else if (hasThreats && cat === 'OT_THREAT_SIGNATURE') isMitigated = true;
+
+      if (isMitigated) {
+        mitigatedList.push(r);
+      } else {
+        remainingList.push(r);
+      }
+    });
+
+    var reportData = {
+      report_name: "Simulated IEC 62443 Compliance Report",
+      timestamp: new Date().toISOString(),
+      active_simulated_policies: {
+        block_cross_purdue: hasPurdue,
+        enforce_zone_conduits: hasConduits,
+        restrict_modbus_writes: hasWrites,
+        block_threat_signatures: hasThreats
+      },
+      original_findings_count: risks.length,
+      mitigated_findings_count: mitigatedList.length,
+      remaining_findings_count: remainingList.length,
+      mitigated_findings: mitigatedList,
+      remaining_findings: remainingList,
+      compliance_status: remainingList.length === 0 ? "FULLY_COMPLIANT" : (remainingList.length <= 2 ? "MINOR_DEVIATIONS" : "NON_COMPLIANT")
+    };
+
+    var blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json;charset=utf-8' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'simulated_compliance_report.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    msToast('Simulated compliance report exported as simulated_compliance_report.json', 'success');
   }
 
   return {
@@ -8248,6 +8933,11 @@ var MS = (function() {
     exportCsvFindings: exportCsvFindings,
     exportFirewallRules: exportFirewallRules,
     viewFirewallRules: viewFirewallRules,
+    openFirewallSimulator: openFirewallSimulator,
+    applyFirewallSimulation: applyFirewallSimulation,
+    calculateAttackPath: calculateAttackPath,
+    openSimulatedCompliance: openSimulatedCompliance,
+    exportSimulatedCompliance: exportSimulatedCompliance,
     viewAnsiblePlaybook: viewAnsiblePlaybook,
     viewStix: viewStix,
     viewSigma: viewSigma,

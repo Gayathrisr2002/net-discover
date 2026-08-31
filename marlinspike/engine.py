@@ -4433,6 +4433,13 @@ class RiskSurface:
         "CIP_IDENTITY_OPEN": ("INFO", "CIP Identity Object responds — full device info exposed"),
         "OPC_NO_SECURITY": ("HIGH", "OPC-UA session established with SecurityMode=None"),
         "S7_PROGRAM_ACCESS": ("CRITICAL", "S7comm program upload/download observed — logic exposed"),
+        "BACNET_UNAUTH_WRITE": ("HIGH", "BACnet unauthenticated write or control command"),
+        "PROFINET_DCP_SET": ("HIGH", "PROFINET DCP configuration modification command"),
+        "DNP3_UNAUTH_CONTROL": ("HIGH", "DNP3 control or write command without authentication"),
+        "CIP_LADDER_LOGIC_CHANGE": ("CRITICAL", "CIP logic modification or programming command"),
+        "MODBUS_WRITE_PLC": ("HIGH", "Modbus TCP write command observed on PLC"),
+        "DNP3_CONFIG_CHANGE": ("HIGH", "DNP3 configuration change command"),
+        "OT_CONFIG_WRITE": ("HIGH", "OT protocol configuration or parameter write command"),
     }
 
     def __init__(self, topology: dict, conversations: list[Conversation], skip_c2: bool = False):
@@ -4451,6 +4458,7 @@ class RiskSurface:
         self.edges = topology["edges"]
         self.skip_c2 = skip_c2
         self.findings: list[RiskFinding] = []
+        self.purdue_violations = []
 
     def score(self) -> dict:
         """Main entry point — score topology and generate findings."""
@@ -4467,6 +4475,11 @@ class RiskSurface:
         self._check_program_access()
         self._check_port_analysis()
         self._check_conduit_and_command_anomalies()
+        self._check_baseline_deviations()
+        self._check_plc_integrity()
+        self._check_ot_threat_signatures()
+        self._check_eol_status()
+        self._check_advanced_protocols()
         c2_indicators = [] if self.skip_c2 else self._check_c2_indicators()
 
         print(f"\n  Risk Summary:")
@@ -4489,6 +4502,7 @@ class RiskSurface:
             "findings": [asdict(f) for f in self.findings],
             "attack_targets": targets,
             "c2_indicators": c2_indicators,
+            "purdue_violations": self.purdue_violations,
         }
 
     def _check_external_comms(self):
@@ -4590,10 +4604,17 @@ class RiskSurface:
             dst_level = dst.get("purdue_level", -1)
 
             # Level 0/1 should never directly talk to Level 3+
-            if src_level in (0, 1) and dst_level >= 3:
+            if (src_level in (0, 1) and dst_level >= 3) or (src_level >= 3 and dst_level in (0, 1)):
                 violations.append((edge["src"], edge["dst"]))
-            elif src_level >= 3 and dst_level in (0, 1):
-                violations.append((edge["src"], edge["dst"]))
+                self.purdue_violations.append({
+                    "src": edge["src"],
+                    "dst": edge["dst"],
+                    "src_level": src_level,
+                    "dst_level": dst_level,
+                    "protocol": edge.get("protocol", "Unknown"),
+                    "bytes_total": edge.get("bytes_total", 0),
+                    "description": f"Purdue Level {src_level} direct communication to Level {dst_level} (zone bypass)"
+                })
 
         if violations:
             finding = RiskFinding(
@@ -4621,6 +4642,15 @@ class RiskSurface:
             if src_lvl >= 0 and dst_lvl >= 0 and abs(src_lvl - dst_lvl) > 1:
                 # Direct communication across non-adjacent Purdue zones without DMZ isolation
                 conduit_violations.append((edge["src"], edge["dst"], src_lvl, dst_lvl))
+                self.purdue_violations.append({
+                    "src": edge["src"],
+                    "dst": edge["dst"],
+                    "src_level": src_lvl,
+                    "dst_level": dst_lvl,
+                    "protocol": edge.get("protocol", "Unknown"),
+                    "bytes_total": edge.get("bytes_total", 0),
+                    "description": f"Direct link crossing non-adjacent Purdue levels {src_lvl} -> {dst_lvl} (IEC 62443 violation)"
+                })
 
         if conduit_violations:
             nodes_affected = list(set([item[0] for item in conduit_violations] + [item[1] for item in conduit_violations]))
@@ -4687,6 +4717,232 @@ class RiskSurface:
             )
             self.findings.append(finding)
             print(f"  [MEDIUM] Multiple Modbus write sources: {len(write_sources)}")
+
+    def _check_baseline_deviations(self):
+        """Flag protocol operations that deviate from expected OT traffic patterns."""
+        for conv in self.conversations:
+            src_node = self.nodes.get(conv.src_ip or conv.src_mac)
+            dst_node = self.nodes.get(conv.dst_ip or conv.dst_mac)
+            if not src_node or not dst_node:
+                continue
+            
+            src_role = src_node.get("role", "Unknown")
+            dst_role = dst_node.get("role", "Unknown")
+            
+            # Case A: HMI or operator workstation initiating program/logic alterations.
+            if src_role == "Human-Machine Interface" and (conv.s7_program_access or conv.modbus_writes > 0):
+                self.findings.append(RiskFinding(
+                    severity="HIGH",
+                    category="BASELINE_DEVIATION",
+                    description=f"HMI ({conv.src_ip or conv.src_mac}) observed executing program logic changes on PLC ({conv.dst_ip or conv.dst_mac}), violating role baseline",
+                    affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                    affected_edges=[f"{conv.src_ip or conv.src_mac} → {conv.dst_ip or conv.dst_mac}"],
+                    remediation="Logic modifications must only be initiated by authorized Engineering Workstations. Update HMI authorization profile.",
+                ))
+            
+            # Case B: Standard PLC initiating connections to supervisory layers (PLCs should generally respond, not pull connection setups to HMI).
+            if src_role == "Programmable Logic Controller" and dst_role == "Human-Machine Interface" and conv.protocol in ("Modbus", "S7comm", "CIP"):
+                self.findings.append(RiskFinding(
+                    severity="MEDIUM",
+                    category="BASELINE_DEVIATION",
+                    description=f"PLC ({conv.src_ip or conv.src_mac}) initiating connection back to HMI ({conv.dst_ip or conv.dst_mac}), violating unidirectional poll baseline",
+                    affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                    affected_edges=[f"{conv.src_ip or conv.src_mac} → {conv.dst_ip or conv.dst_mac}"],
+                    remediation="Configure PLC firewall settings to drop outbound socket connections to supervisory nodes.",
+                ))
+
+    def _check_plc_integrity(self):
+        """Audit PLC configuration parameters and firmware consistency, plus tracking logic/configuration changes."""
+        plc_nodes = [n for n in self.nodes.values() if n.get("role") == "Programmable Logic Controller"]
+        
+        for node in plc_nodes:
+            node_ip = node.get("ip")
+            if not node_ip:
+                continue
+            for conv in self.conversations:
+                # Direct check if conversation involves this PLC
+                is_plc_conv = (conv.src_ip == node_ip or conv.dst_ip == node_ip)
+                if not is_plc_conv:
+                    continue
+                
+                # Original firmware/serial checks
+                if conv.cip_identity:
+                    serial = conv.cip_identity.get("serial_number")
+                    rev = conv.cip_identity.get("revision")
+                    
+                    if serial == 0 or serial == "0" or serial == "00000000":
+                        self.findings.append(RiskFinding(
+                            severity="HIGH",
+                            category="PLC_INTEGRITY",
+                            description=f"PLC ({node_ip}) has default or empty serial number ({serial}), indicating unprovisioned or spoofed hardware",
+                            affected_nodes=[node_ip],
+                            remediation="Provision a unique hardware security identifier and lock the controller configuration chassis.",
+                        ))
+                    
+                    if rev and isinstance(rev, str) and (rev.startswith("1.") or rev.startswith("2.")):
+                        self.findings.append(RiskFinding(
+                            severity="HIGH",
+                            category="PLC_INTEGRITY",
+                            description=f"PLC ({node_ip}) runs legacy firmware ({rev}) which contains critical unpatched remote code execution vulnerabilities",
+                            affected_nodes=[node_ip],
+                            remediation="Upgrade the firmware of the controller to the latest vendor-approved LTS version.",
+                        ))
+
+                # Logic Change & Configuration Tracking Checks (Option 3)
+                proto = conv.protocol.lower()
+                
+                # CIP Logic/Ladder Logic Modificaton
+                if "cip" in proto or "enip" in proto:
+                    for op in (conv.operations_seen or []):
+                        if any(w in op.lower() for w in ("set_attribute", "restore", "download", "forward_open", "write")):
+                            self.findings.append(RiskFinding(
+                                severity="CRITICAL",
+                                category="CIP_LADDER_LOGIC_CHANGE",
+                                description=f"CIP logic modification / chassis programming command ({op}) observed targeting PLC {node_ip} from {conv.src_ip or conv.src_mac}",
+                                affected_nodes=[node_ip],
+                                remediation="Restrict CIP programming paths to designated engineering workstations only, and enable the hardware run/key switch lock.",
+                            ))
+
+                # Modbus Write Command targeting field PLC
+                if "modbus" in proto and conv.modbus_writes > 0:
+                    self.findings.append(RiskFinding(
+                        severity="HIGH",
+                        category="MODBUS_WRITE_PLC",
+                        description=f"Modbus TCP write command observed on PLC {node_ip} from {conv.src_ip or conv.src_mac}",
+                        affected_nodes=[node_ip],
+                        remediation="Disable anonymous write registers and segment the Modbus TCP network to authorized hosts only.",
+                    ))
+
+                # DNP3 Direct Operate or Outstation Configuration
+                if "dnp3" in proto:
+                    for op in (conv.operations_seen or []):
+                        if any(w in op.lower() for w in ("write", "direct_operate", "select", "cold_restart")):
+                            self.findings.append(RiskFinding(
+                                severity="HIGH",
+                                category="DNP3_CONFIG_CHANGE",
+                                description=f"DNP3 direct control or configuration write command ({op}) observed targeting outstation {node_ip} from {conv.src_ip or conv.src_mac}",
+                                affected_nodes=[node_ip],
+                                remediation="Enforce DNP3 Secure Authentication (SAv5) or filter control commands using an inline industrial IPS.",
+                            ))
+
+                # BACnet / PROFINET parameterization writes
+                if "bacnet" in proto or "profinet" in proto or "pn_dcp" in proto:
+                    for op in (conv.operations_seen or []):
+                        if any(w in op.lower() for w in ("write", "reinitialize", "set", "reset")):
+                            self.findings.append(RiskFinding(
+                                severity="HIGH",
+                                category="OT_CONFIG_WRITE",
+                                description=f"{conv.protocol} parameter modification or configuration write command ({op}) observed targeting device {node_ip} from {conv.src_ip or conv.src_mac}",
+                                affected_nodes=[node_ip],
+                                remediation="Filter configuration parameters using inline industrial firewalls or enable secure communications mode.",
+                            ))
+
+    def _check_advanced_protocols(self):
+        """Flag unauthenticated/insecure control traffic for advanced OT protocols (OPC UA, BACnet/IP, PROFINET, DNP3)."""
+        for conv in self.conversations:
+            proto = conv.protocol.lower()
+            
+            # 1. OPC UA Sessions
+            if "opc" in proto or "opcua" in proto:
+                if conv.opc_no_security:
+                    # OPC_NO_SECURITY is already generated by _check_opc_security, but we can verify here as well
+                    pass
+
+            # 2. BACnet unauthenticated write commands
+            if "bacnet" in proto:
+                for op in (conv.operations_seen or []):
+                    if any(w in op.lower() for w in ("write", "reinitialize", "create", "delete")):
+                        self.findings.append(RiskFinding(
+                            severity="HIGH",
+                            category="BACNET_UNAUTH_WRITE",
+                            description=f"BACnet unauthenticated write/control command ({op}) observed targeting device {conv.dst_ip or conv.dst_mac}",
+                            affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                            remediation="Implement network layer segmentation or transition to BACnet/SC (Secure Connect) to enforce encryption and signature authentication.",
+                        ))
+
+            # 3. PROFINET DCP configuration modification commands
+            if "profinet" in proto or "pn_dcp" in proto:
+                for op in (conv.operations_seen or []):
+                    if any(w in op.lower() for w in ("set", "reset", "flash")):
+                        self.findings.append(RiskFinding(
+                            severity="HIGH",
+                            category="PROFINET_DCP_SET",
+                            description=f"PROFINET DCP configuration set/reset command ({op}) observed targeting device {conv.dst_ip or conv.dst_mac}",
+                            affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                            remediation="Restrict L2 network access to authorized segments and block PROFINET DCP multicast commands via smart switches.",
+                        ))
+
+            # 4. DNP3 unauthenticated command routing
+            if "dnp3" in proto:
+                for op in (conv.operations_seen or []):
+                    if any(w in op.lower() for w in ("write", "direct_operate", "select", "restart")):
+                        self.findings.append(RiskFinding(
+                            severity="HIGH",
+                            category="DNP3_UNAUTH_CONTROL",
+                            description=f"DNP3 control command ({op}) routed to outstation {conv.dst_ip or conv.dst_mac} without secure authentication",
+                            affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                            remediation="Enable DNP3 Secure Authentication (SAv5) or tunnel the DNP3 serial/IP connections over IPsec.",
+                        ))
+
+    def _check_ot_threat_signatures(self):
+        """Match traffic indicators against known OT threat/malware signatures (Triton, Industroyer, PipeDream)."""
+        for conv in self.conversations:
+            if conv.protocol == "S7comm":
+                if "STOP" in conv.s7_functions or "CPU Control" in conv.s7_functions:
+                    self.findings.append(RiskFinding(
+                        severity="CRITICAL",
+                        category="OT_THREAT_SIGNATURE",
+                        description=f"Detected S7 CPU Control STOP sequence targeting PLC ({conv.dst_ip or conv.dst_mac}) resembling Industroyer / CrashOverride behavior",
+                        affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                        remediation="Isolate engineering networks immediately, roll back logic verification, and check physical key switches.",
+                    ))
+            
+            if conv.port == 1502 or "TriStation" in conv.protocol:
+                self.findings.append(RiskFinding(
+                    severity="CRITICAL",
+                    category="OT_THREAT_SIGNATURE",
+                    description=f"Detected TriStation protocol communication on port {conv.port} matching Triton/HatMan malware controller interaction",
+                    affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                    remediation="Perform forensic analysis of TriStation memory key registers and isolate the Safety Instrumented System (SIS).",
+                ))
+                
+            if "Modbus" in conv.protocol:
+                if 8 in conv.modbus_functions:
+                    self.findings.append(RiskFinding(
+                        severity="HIGH",
+                        category="OT_THREAT_SIGNATURE",
+                        description=f"Observed Modbus Diagnostic Command (Function Code 8) query targeting PLC ({conv.dst_ip or conv.dst_mac}), often used for reconnaissance/recon scanning",
+                        affected_nodes=[conv.src_ip or conv.src_mac, conv.dst_ip or conv.dst_mac],
+                        remediation="Disable Modbus Diagnostic function support in PLC firmware settings and block port 502 at boundary firewall.",
+                    ))
+
+    def _check_eol_status(self):
+        """Check if fingerprinted OT assets are EOL (End of Life) / EOS (End of Support)."""
+        eol_product_lines = {
+            "s7-300": "Siemens SIMATIC S7-300 (EOL - limited support)",
+            "s7-400": "Siemens SIMATIC S7-400 (Legacy - transition phase)",
+            "slc 500": "Allen-Bradley SLC 500 (EOL - discontinued)",
+            "microLogix": "Allen-Bradley MicroLogix 1000/1500 (EOL - discontinued)",
+            "modicon quantum": "Schneider Electric Modicon Quantum (EOL - discontinued)",
+            "ac800m": "ABB AC 800M (Legacy version - update required)",
+        }
+        
+        for ip, node in self.nodes.items():
+            product_line = node.get("product_line", "")
+            vendor = node.get("vendor", "")
+            
+            if not product_line:
+                continue
+                
+            for k, val in eol_product_lines.items():
+                if k.lower() in product_line.lower():
+                    self.findings.append(RiskFinding(
+                        severity="MEDIUM",
+                        category="ASSET_EOL",
+                        description=f"Asset ({ip}) fingerprinted as EOL/EOS product line: {val}. Manufacturer: {vendor}",
+                        affected_nodes=[ip],
+                        remediation="Migrate legacy PLC infrastructure to active product families (e.g. S7-1500 or ControlLogix 5580). Apply strict segmentation.",
+                    ))
 
     # Protocols that inherently lack authentication — suppress NO_AUTH_OBSERVED
     _AUTH_EXEMPT_PROTOCOLS = frozenset({
@@ -5790,6 +6046,7 @@ def run_chain(args):
     report.risk_findings = risk_report["findings"]
     report.attack_targets = risk_report["attack_targets"]
     report.c2_indicators = risk_report.get("c2_indicators", [])
+    report.purdue_violations = risk_report.get("purdue_violations", [])
 
     # ── Stage 4b: Malware IOC Matching ────────────────────────────
     capture_id_for_malware = (
@@ -6179,6 +6436,7 @@ def run_risk(args):
         edges=topology_data.get("edges", []),
         risk_findings=risk_report["findings"],
         attack_targets=risk_report["attack_targets"],
+        purdue_violations=risk_report.get("purdue_violations", []),
     )
     report.timestamp_end = datetime.now(timezone.utc).isoformat()
     report.save(args.output)
@@ -6271,6 +6529,7 @@ def run_chain_from_conversations(args):
     report.risk_findings = risk_report["findings"]
     report.attack_targets = risk_report["attack_targets"]
     report.c2_indicators = risk_report.get("c2_indicators", [])
+    report.purdue_violations = risk_report.get("purdue_violations", [])
 
     # ── Stage 4b: Malware IOC Matching ────────────────────────────
     # Mirror run_chain: the chunked / large-PCAP pipeline reaches topology+risk

@@ -3920,7 +3920,7 @@ def create_app():
         if criticality is not None and criticality not in _VALID_CRITICALITIES:
             return jsonify({"error": f"criticality must be one of {sorted(_VALID_CRITICALITIES)}"}), 400
         tag = AssetTag.query.filter_by(project_id=pid, asset_key=asset_key).first()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if tag is None:
             tag = AssetTag(
                 project_id=pid,
@@ -3982,7 +3982,7 @@ def create_app():
         note = FindingNote.query.filter_by(
             project_id=pid, finding_signature=finding_signature
         ).first()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if note is None:
             note = FindingNote(
                 project_id=pid,
@@ -4878,7 +4878,7 @@ def create_app():
             return jsonify({"ok": False, "error": "No file selected"}), 400
 
         # Per-user upload limit (falls back to global default)
-        _uploader = User.query.get(session["user_id"])
+        _uploader = db.session.get(User, session["user_id"])
         _limit_mb = (
             _uploader.upload_limit_mb
             if _uploader and _uploader.upload_limit_mb
@@ -6966,7 +6966,7 @@ def create_app():
     @app.route("/api/profile", methods=["GET"])
     @login_required
     def api_profile_get():
-        user = User.query.get(session["user_id"])
+        user = db.session.get(User, session["user_id"])
         scan_count = ScanHistory.query.filter_by(user_id=user.id).count()
         project_count = Project.query.filter_by(user_id=user.id).count()
         return jsonify({
@@ -6988,7 +6988,7 @@ def create_app():
     @login_required
     def api_profile_update():
         body = request.get_json(silent=True) or {}
-        user = User.query.get(session["user_id"])
+        user = db.session.get(User, session["user_id"])
         for field in ("full_name", "company", "phone", "address"):
             if field in body:
                 raw = body[field]
