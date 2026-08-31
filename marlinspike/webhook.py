@@ -220,7 +220,7 @@ def finding_dedup_key(project_id: int, finding: dict) -> str:
 
 def _qualifying_findings(report: dict, min_severity: str | None) -> list[dict]:
     findings = report.get("risk_findings") or []
-    floor = SEVERITY_ORDER.index(min_severity) if min_severity in SEVERITY_ORDER else 0
+    floor = SEVERITY_ORDER.index(min_severity) if (min_severity and min_severity in SEVERITY_ORDER) else 0
     out = []
     for f in findings:
         sev = str(f.get("severity") or "INFO").upper()
@@ -324,7 +324,7 @@ def _zammad_priority_map(base_url: str, token: str) -> dict[str, int]:
 
 
 def _zammad_priority_bucket(severity: str) -> str:
-    sev = str(severity or "INFO").upper()
+    sev = (severity or "INFO").upper()
     if sev in ("HIGH", "CRITICAL"):
         return "high"
     if sev == "MEDIUM":
@@ -423,7 +423,7 @@ def deliver_to_zammad(project: Project, cfg: dict, findings: list[dict]) -> dict
     for f in new_findings:
         dedup_key = finding_dedup_key(project.id, f)
         payload = {**_finding_payload(project.id, f), "_project_name": project.name}
-        priority_id = priority_map.get(_zammad_priority_bucket(f.get("severity")))
+        priority_id = priority_map.get(_zammad_priority_bucket(f.get("severity") or "INFO"))
         result = _zammad_create_ticket(base_url, token, group, cfg.get("zammad_customer"), payload, priority_id)
         if result["ok"]:
             _record_ticket(project.id, dedup_key, "zammad", result["external_id"])
@@ -505,7 +505,7 @@ def _jira_priority_names(base_url: str, secret: str, email: str | None) -> dict[
 
 
 def _jira_priority_bucket(severity: str) -> str:
-    sev = str(severity or "INFO").upper()
+    sev = (severity or "INFO").upper()
     if sev in ("HIGH", "CRITICAL"):
         return "high"
     if sev == "MEDIUM":
@@ -582,7 +582,7 @@ def deliver_to_jira(project: Project, cfg: dict, findings: list[dict]) -> dict:
     for f in new_findings:
         dedup_key = finding_dedup_key(project.id, f)
         payload = {**_finding_payload(project.id, f), "_project_name": project.name}
-        priority_name = priority_names.get(_jira_priority_bucket(f.get("severity")))
+        priority_name = priority_names.get(_jira_priority_bucket(f.get("severity") or "INFO"))
         result = _jira_create_issue(base_url, token, email, project_key, issue_type, payload, priority_name)
         if result["ok"]:
             _record_ticket(project.id, dedup_key, "jira", result["external_id"])
