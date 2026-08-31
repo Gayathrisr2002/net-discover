@@ -6351,27 +6351,27 @@ var MS = (function() {
   }
 
   function viewAnsiblePlaybook() {
-    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/ansible' + pidQuery, '⚡ Incident Response Ansible Playbook', REPORT_FILENAME.replace('.json', '.ansible.yml'));
   }
 
   function viewStix() {
-    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/stix' + pidQuery, '📦 OASIS STIX 2.1 Threat Intel Bundle', REPORT_FILENAME.replace('.json', '.stix.json'));
   }
 
   function viewSigma() {
-    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/sigma' + pidQuery, '🎯 Sigma Rules Stream', REPORT_FILENAME.replace('.json', '.sigma.yml'));
   }
 
   function viewOcsf() {
-    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/ocsf' + pidQuery, '📊 OCSF Detection Findings Telemetry', REPORT_FILENAME.replace('.json', '.ocsf.ndjson'));
   }
 
   function viewNavigator() {
-    var pidQuery = viewer_context && viewer_context.project_id ? '&project_id=' + viewer_context.project_id : '';
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '&project_id=' + VIEWER_CONTEXT.project_id : '';
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/navigator?domain=ics-attack' + pidQuery, '🗺️ ATT&CK Navigator ICS Layer', REPORT_FILENAME.replace('.json', '.navigator.ics.json'));
   }
 
