@@ -23,6 +23,130 @@
   overflow: hidden;
 }
 .proj-sidebar .panel-body { padding: 0; }
+
+/* ── Code Viewer Interactive Modal ── */
+.ms-code-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 17, 0.88);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ms-code-modal-card {
+  width: 94vw;
+  max-width: 1060px;
+  height: 88vh;
+  background: #0d1624;
+  border: 1px solid var(--border, #1f3048);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+  animation: msModalPop 0.18s ease-out;
+}
+@keyframes msModalPop {
+  from { transform: scale(0.97); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.ms-code-modal-header {
+  padding: 14px 20px;
+  background: #121c2c;
+  border-bottom: 1px solid #1f3048;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ms-code-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.05em;
+  font-weight: 700;
+  color: var(--text, #cdd8e3);
+}
+.ms-code-modal-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78em;
+  background: rgba(91, 138, 240, 0.12);
+  border: 1px solid rgba(91, 138, 240, 0.3);
+  color: #5b8af0;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.ms-code-modal-toolbar {
+  padding: 8px 20px;
+  background: #0a111c;
+  border-bottom: 1px solid #182639;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ms-code-modal-tabs {
+  display: flex;
+  gap: 6px;
+}
+.ms-code-tab {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-dim, #6e7f96);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 0.78em;
+  font-family: var(--font-mono, monospace);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ms-code-tab:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.ms-code-tab.active {
+  background: rgba(91, 138, 240, 0.2);
+  border-color: #5b8af0;
+  color: #fff;
+  font-weight: 600;
+}
+.ms-code-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ms-code-modal-body {
+  flex: 1;
+  overflow: auto;
+  background: #060b13;
+  display: flex;
+}
+.ms-code-lines {
+  padding: 16px 12px;
+  background: #04070d;
+  color: #3b4d66;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84em;
+  line-height: 1.5;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid #131d2b;
+}
+.ms-code-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84em;
+  line-height: 1.5;
+  color: #d1d5db;
+  white-space: pre;
+  margin: 0;
+}
 .proj-list { list-style: none; margin: 0; padding: 6px; }
 .proj-list li {
   padding: 12px 16px;
@@ -2198,7 +2322,10 @@ var PROJ = (function() {
           + '<td class="dim">' + formatDate(r.modified) + '</td>'
           + '<td class="proj-report-actions">'
           + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?project_id=' + currentProject.id + '" target="_blank">👁 ' + msT('projects.btn_view', 'View') + '</a>'
-          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '">⬇ ' + msT('projects.btn_download', 'Download') + '</a>'
+          + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'ansible\')" style="margin-left:4px;" title="View Incident Response Ansible Playbook">⚡ Ansible</button>'
+          + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'stix\')" style="margin-left:4px;" title="View STIX 2.1 Threat Intel Bundle">📦 STIX</button>'
+          + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'sigma\')" style="margin-left:4px;" title="View Sigma Rules Stream">🎯 Sigma</button>'
+          + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '" style="margin-left:4px;">⬇ ' + msT('projects.btn_download', 'Download') + '</a>'
           + deleteBtn
           + '</td>';
         tbody.appendChild(tr);
@@ -2225,6 +2352,136 @@ var PROJ = (function() {
         } else {
           msToast(d.error || msT('projects.report_delete_failed', 'Delete failed'), true);
         }
+      });
+  }
+
+  // ── Code Viewer Modal Engine ──
+  function openCodeViewerModal(opts) {
+    var existing = document.getElementById('ms-code-modal-backdrop');
+    if (existing) existing.remove();
+
+    var codeText = opts.code || '';
+    var lines = codeText.split('\n');
+    var lineNums = lines.map(function(_, i) { return i + 1; }).join('\n');
+
+    var tabsHtml = '';
+    if (opts.tabs && opts.tabs.length) {
+      tabsHtml = '<div class="ms-code-modal-tabs">';
+      opts.tabs.forEach(function(tb) {
+        var active = (tb.id === (opts.defaultTab || opts.tabs[0].id)) ? ' active' : '';
+        tabsHtml += '<button class="ms-code-tab' + active + '" onclick="PROJ.switchCodeModalTab(this, \'' + tb.id + '\')">' + esc(tb.label) + '</button>';
+      });
+      tabsHtml += '</div>';
+    }
+
+    var bg = document.createElement('div');
+    bg.id = 'ms-code-modal-backdrop';
+    bg.className = 'ms-code-modal-backdrop';
+    bg.innerHTML = '<div class="ms-code-modal-card">'
+      + '<div class="ms-code-modal-header">'
+      + '<div class="ms-code-modal-title">' + esc(opts.title) + ' <span class="ms-code-modal-badge">' + esc(opts.filename) + '</span></div>'
+      + '<div class="ms-code-modal-actions">'
+      + '<button class="ms-mini-btn" onclick="PROJ.copyModalCode(this)" style="background:var(--accent,#5b8af0);color:#fff;border:none;">📋 Copy Code</button>'
+      + '<button class="ms-mini-btn" onclick="PROJ.downloadModalCode(\'' + escjs(opts.filename) + '\')" style="background:rgba(255,255,255,0.08);color:var(--text);border:1px solid var(--border);">⬇ Download File</button>'
+      + '<button class="ms-mini-btn" onclick="document.getElementById(\'ms-code-modal-backdrop\').remove()" style="background:none;color:var(--text-dim);border:1px solid var(--border-dim);font-size:1.1em;cursor:pointer;">✕</button>'
+      + '</div>'
+      + '</div>'
+      + (tabsHtml ? '<div class="ms-code-modal-toolbar">' + tabsHtml + '</div>' : '')
+      + '<div class="ms-code-modal-body">'
+      + '<div class="ms-code-lines" id="ms-modal-line-nums">' + lineNums + '</div>'
+      + '<pre class="ms-code-content" id="ms-modal-code-content">' + esc(codeText) + '</pre>'
+      + '</div>'
+      + '</div>';
+
+    document.body.appendChild(bg);
+    if (opts.tabMap) {
+      window._msCodeModalTabMap = opts.tabMap;
+    }
+  }
+
+  function switchCodeModalTab(btn, tabId) {
+    var parent = btn.parentElement;
+    parent.querySelectorAll('.ms-code-tab').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+
+    if (window._msCodeModalTabMap && window._msCodeModalTabMap[tabId]) {
+      var newText = window._msCodeModalTabMap[tabId];
+      var lines = newText.split('\n');
+      document.getElementById('ms-modal-line-nums').textContent = lines.map(function(_, i) { return i + 1; }).join('\n');
+      document.getElementById('ms-modal-code-content').textContent = newText;
+    }
+  }
+
+  function copyModalCode(btn) {
+    var codeEl = document.getElementById('ms-modal-code-content');
+    if (!codeEl) return;
+    var text = codeEl.textContent;
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = btn.innerHTML;
+      btn.innerHTML = '✓ Copied!';
+      btn.style.background = '#10b981';
+      setTimeout(function() {
+        btn.innerHTML = orig;
+        btn.style.background = 'var(--accent,#5b8af0)';
+      }, 2000);
+    }).catch(function() {
+      msToast('Copy failed', true);
+    });
+  }
+
+  function downloadModalCode(filename) {
+    var codeEl = document.getElementById('ms-modal-code-content');
+    if (!codeEl) return;
+    var blob = new Blob([codeEl.textContent], { type: 'text/plain;charset=utf-8' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename || 'export.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    msToast('File downloaded: ' + filename, 'success');
+  }
+
+  function viewReportCode(filename, type) {
+    if (!currentProject) return;
+    var title = 'Report Export';
+    var url = '';
+    var outFilename = filename;
+
+    if (type === 'ansible') {
+      title = '⚡ Incident Response Ansible Playbook';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/ansible?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.ansible.yml');
+    } else if (type === 'stix') {
+      title = '📦 OASIS STIX 2.1 Threat Intel Bundle';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/stix?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.stix.json');
+    } else if (type === 'sigma') {
+      title = '🎯 Sigma Rules Stream';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/sigma?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.sigma.yml');
+    } else if (type === 'ocsf') {
+      title = '📊 OCSF Telemetry Findings';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/ocsf?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.ocsf.ndjson');
+    }
+
+    fetch(url)
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function(text) {
+        var formatted = text;
+        try {
+          if (outFilename.endsWith('.json')) {
+            formatted = JSON.stringify(JSON.parse(text), null, 2);
+          }
+        } catch(e){}
+        openCodeViewerModal({ title: title, filename: outFilename, code: formatted });
+      })
+      .catch(function(e) {
+        msToast('Failed to load file: ' + e.message, true);
       });
   }
 
@@ -2850,6 +3107,11 @@ var PROJ = (function() {
     showIssueToken: showIssueToken,
     showSchedule: showSchedule,
     revokeAgent: revokeAgent,
+    viewReportCode: viewReportCode,
+    openCodeViewerModal: openCodeViewerModal,
+    switchCodeModalTab: switchCodeModalTab,
+    copyModalCode: copyModalCode,
+    downloadModalCode: downloadModalCode,
   };
 })();
 </script>

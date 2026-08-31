@@ -2281,6 +2281,130 @@ textarea.ms-input {
   .ms-toolbar-controls { grid-template-columns: 1fr; }
 }
 
+/* ── Code Viewer Interactive Modal ── */
+.ms-code-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 17, 0.88);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ms-code-modal-card {
+  width: 94vw;
+  max-width: 1060px;
+  height: 88vh;
+  background: #0d1624;
+  border: 1px solid var(--border, #1f3048);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+  animation: msModalPop 0.18s ease-out;
+}
+@keyframes msModalPop {
+  from { transform: scale(0.97); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.ms-code-modal-header {
+  padding: 14px 20px;
+  background: #121c2c;
+  border-bottom: 1px solid #1f3048;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ms-code-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.05em;
+  font-weight: 700;
+  color: var(--text, #cdd8e3);
+}
+.ms-code-modal-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78em;
+  background: rgba(91, 138, 240, 0.12);
+  border: 1px solid rgba(91, 138, 240, 0.3);
+  color: #5b8af0;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.ms-code-modal-toolbar {
+  padding: 8px 20px;
+  background: #0a111c;
+  border-bottom: 1px solid #182639;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ms-code-modal-tabs {
+  display: flex;
+  gap: 6px;
+}
+.ms-code-tab {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-dim, #6e7f96);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 0.78em;
+  font-family: var(--font-mono, monospace);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ms-code-tab:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.ms-code-tab.active {
+  background: rgba(91, 138, 240, 0.2);
+  border-color: #5b8af0;
+  color: #fff;
+  font-weight: 600;
+}
+.ms-code-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ms-code-modal-body {
+  flex: 1;
+  overflow: auto;
+  background: #060b13;
+  display: flex;
+}
+.ms-code-lines {
+  padding: 16px 12px;
+  background: #04070d;
+  color: #3b4d66;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84em;
+  line-height: 1.5;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid #131d2b;
+}
+.ms-code-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84em;
+  line-height: 1.5;
+  color: #d1d5db;
+  white-space: pre;
+  margin: 0;
+}
+
 @media print {
   body {
     background: #fff;
@@ -2441,12 +2565,12 @@ textarea.ms-input {
       <a class="ms-btn" href="/api/reports/{{ filename }}/assets{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank">{{ t('viewer.utilities.assets') }}</a>
       <button class="ms-btn" onclick="MS.exportCsvAssets()">{{ t('viewer.utilities.csv_assets') }}</button>
       <button class="ms-btn" onclick="MS.exportCsvFindings()">{{ t('viewer.utilities.csv_findings') }}</button>
-      <a class="ms-btn" href="/api/reports/{{ filename }}/ocsf{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.ocsf_tooltip') }}">{{ t('viewer.utilities.ocsf') }}</a>
-      <a class="ms-btn" href="/api/reports/{{ filename }}/navigator?domain=ics-attack{% if viewer_context.project_id %}&project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.navigator_tooltip') }}">{{ t('viewer.utilities.navigator') }}</a>
-      <a class="ms-btn" href="/api/reports/{{ filename }}/stix{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.stix_tooltip') }}">{{ t('viewer.utilities.stix') }}</a>
-      <a class="ms-btn" href="/api/reports/{{ filename }}/sigma{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="{{ t('viewer.utilities.sigma_tooltip') }}">{{ t('viewer.utilities.sigma') }}</a>
-      <button class="ms-btn" onclick="MS.exportFirewallRules()" title="Export Purdue Zero-Trust Firewall ACL Rules (Palo Alto, Fortinet, Cisco, iptables)">🛡️ Firewall Rules</button>
-      <a class="ms-btn" href="/api/reports/{{ filename }}/ansible{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank" title="Export Automated Incident Response Ansible Playbook">⚡ Ansible Playbook</a>
+      <button class="ms-btn" onclick="MS.viewOcsf()" title="View OCSF Telemetry JSON">📊 OCSF</button>
+      <button class="ms-btn" onclick="MS.viewNavigator()" title="View ATT&CK Navigator Layer">🗺️ Navigator</button>
+      <button class="ms-btn" onclick="MS.viewStix()" title="View STIX 2.1 Threat Intel Bundle">📦 STIX 2.1</button>
+      <button class="ms-btn" onclick="MS.viewSigma()" title="View Sigma Rules Stream">🎯 Sigma</button>
+      <button class="ms-btn" onclick="MS.viewFirewallRules()" title="View & Filter Purdue Zero-Trust Firewall ACL Rules">🛡️ Firewall Rules</button>
+      <button class="ms-btn" onclick="MS.viewAnsiblePlaybook()" title="View Automated Incident Response Ansible Playbook">⚡ Ansible Playbook</button>
       <button class="ms-btn" onclick="MS.openCompareModal()" title="Compare this report with another PCAP run (Pre/Post-Patch Diff)">🔄 Compare PCAP</button>
       <button class="ms-btn" onclick="MS.exportPng()">{{ t('viewer.utilities.png') }}</button>
     </div>
@@ -6042,6 +6166,215 @@ var MS = (function() {
     msToast("Exported Purdue Zero-Trust Firewall ACL rules file!", "success");
   }
 
+  // ── Code Viewer Modal Engine ──
+  function openCodeViewerModal(opts) {
+    var existing = document.getElementById('ms-code-modal-backdrop');
+    if (existing) existing.remove();
+
+    var codeText = opts.code || '';
+    var lines = codeText.split('\n');
+    var lineNums = lines.map(function(_, i) { return i + 1; }).join('\n');
+
+    var tabsHtml = '';
+    if (opts.tabs && opts.tabs.length) {
+      tabsHtml = '<div class="ms-code-modal-tabs">';
+      opts.tabs.forEach(function(tb) {
+        var active = (tb.id === (opts.defaultTab || opts.tabs[0].id)) ? ' active' : '';
+        tabsHtml += '<button class="ms-code-tab' + active + '" onclick="MS.switchCodeModalTab(this, \'' + tb.id + '\')">' + esc(tb.label) + '</button>';
+      });
+      tabsHtml += '</div>';
+    }
+
+    var bg = document.createElement('div');
+    bg.id = 'ms-code-modal-backdrop';
+    bg.className = 'ms-code-modal-backdrop';
+    bg.innerHTML = '<div class="ms-code-modal-card">'
+      + '<div class="ms-code-modal-header">'
+      + '<div class="ms-code-modal-title">' + esc(opts.title) + ' <span class="ms-code-modal-badge">' + esc(opts.filename) + '</span></div>'
+      + '<div class="ms-code-modal-actions">'
+      + '<button class="ms-mini-btn" onclick="MS.copyModalCode(this)" style="background:var(--accent,#5b8af0);color:#fff;border:none;">📋 Copy Code</button>'
+      + '<button class="ms-mini-btn" onclick="MS.downloadModalCode(\'' + escjs(opts.filename) + '\')" style="background:rgba(255,255,255,0.08);color:var(--text);border:1px solid var(--border);">⬇ Download File</button>'
+      + '<button class="ms-mini-btn" onclick="document.getElementById(\'ms-code-modal-backdrop\').remove()" style="background:none;color:var(--text-dim);border:1px solid var(--border-dim);font-size:1.1em;cursor:pointer;">✕</button>'
+      + '</div>'
+      + '</div>'
+      + (tabsHtml ? '<div class="ms-code-modal-toolbar">' + tabsHtml + '</div>' : '')
+      + '<div class="ms-code-modal-body">'
+      + '<div class="ms-code-lines" id="ms-modal-line-nums">' + lineNums + '</div>'
+      + '<pre class="ms-code-content" id="ms-modal-code-content">' + esc(codeText) + '</pre>'
+      + '</div>'
+      + '</div>';
+
+    document.body.appendChild(bg);
+    if (opts.tabMap) {
+      window._msCodeModalTabMap = opts.tabMap;
+    }
+  }
+
+  function switchCodeModalTab(btn, tabId) {
+    var parent = btn.parentElement;
+    parent.querySelectorAll('.ms-code-tab').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+
+    if (window._msCodeModalTabMap && window._msCodeModalTabMap[tabId]) {
+      var newText = window._msCodeModalTabMap[tabId];
+      var lines = newText.split('\n');
+      document.getElementById('ms-modal-line-nums').textContent = lines.map(function(_, i) { return i + 1; }).join('\n');
+      document.getElementById('ms-modal-code-content').textContent = newText;
+    }
+  }
+
+  function copyModalCode(btn) {
+    var codeEl = document.getElementById('ms-modal-code-content');
+    if (!codeEl) return;
+    var text = codeEl.textContent;
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = btn.innerHTML;
+      btn.innerHTML = '✓ Copied!';
+      btn.style.background = '#10b981';
+      setTimeout(function() {
+        btn.innerHTML = orig;
+        btn.style.background = 'var(--accent,#5b8af0)';
+      }, 2000);
+    }).catch(function() {
+      msToast('Copy failed', true);
+    });
+  }
+
+  function downloadModalCode(filename) {
+    var codeEl = document.getElementById('ms-modal-code-content');
+    if (!codeEl) return;
+    var blob = new Blob([codeEl.textContent], { type: 'text/plain;charset=utf-8' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename || 'export.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    msToast('File downloaded: ' + filename, 'success');
+  }
+
+  function viewFirewallRules() {
+    var convs = toArray(REPORT.conversations);
+    var nodeMap = {};
+    nodes.forEach(function(n) { nodeMap[n._ip] = n; if (n.mac) nodeMap[n.mac] = n; });
+
+    var crossPurdueBlocks = [];
+    convs.forEach(function(c) {
+      var srcIp = c.src_ip || c.src_mac || 'any';
+      var dstIp = c.dst_ip || c.dst_mac || 'any';
+      var srcNode = nodeMap[srcIp] || {};
+      var dstNode = nodeMap[dstIp] || {};
+      var srcLvl = srcNode._level != null ? srcNode._level : 3;
+      var dstLvl = dstNode._level != null ? dstNode._level : 1;
+      var proto = (c.protocol || 'TCP').toUpperCase();
+      var port = c.port || 'any';
+      if (srcLvl >= 3 && dstLvl <= 1) {
+        crossPurdueBlocks.push({ src: srcIp, srcLvl: srcLvl, dst: dstIp, dstLvl: dstLvl, proto: proto, port: port });
+      }
+    });
+
+    var paloAlto = ["# SECTION 1: PALO ALTO NETWORKS (PAN-OS CLI)"];
+    if (!crossPurdueBlocks.length) paloAlto.push("# No cross-Purdue violations observed.");
+    else crossPurdueBlocks.forEach(function(b, idx) {
+      paloAlto.push("set security rules \"BLOCK_CROSS_PURDUE_L" + b.srcLvl + "_TO_L" + b.dstLvl + "_" + (idx+1) + "\" from Corporate to OT-Zone source " + b.src + " destination " + b.dst + " service " + (b.proto.toLowerCase() + "-" + b.port) + " action drop log-end yes");
+    });
+
+    var fortinet = ["# SECTION 2: FORTINET FORTIGATE (CLI CONFIG)", "config firewall policy"];
+    if (!crossPurdueBlocks.length) fortinet.push("    # No cross-Purdue violations observed.");
+    else crossPurdueBlocks.forEach(function(b, idx) {
+      fortinet.push("    edit " + (100 + idx) + "\n        set name \"DENY_L" + b.srcLvl + "_L" + b.dstLvl + "_VIOLATION\"\n        set srcintf \"port1\"\n        set dstintf \"port2\"\n        set srcaddr \"" + b.src + "\"\n        set dstaddr \"" + b.dst + "\"\n        set action deny\n        set logtraffic all\n    next");
+    });
+    fortinet.push("end");
+
+    var cisco = ["# SECTION 3: CISCO ASA / FIREPOWER (ACLs)"];
+    if (!crossPurdueBlocks.length) cisco.push("access-list OT_PURDUE_ACL remark No cross-Purdue violations.");
+    else crossPurdueBlocks.forEach(function(b) {
+      cisco.push("access-list OT_PURDUE_ACL extended deny " + b.proto.toLowerCase() + " host " + b.src + " host " + b.dst + (b.port !== 'any' ? " eq " + b.port : ""));
+    });
+    cisco.push("access-list OT_PURDUE_ACL extended permit ip any any");
+
+    var iptables = ["# SECTION 4: LINUX IPTABLES (RULES)"];
+    if (!crossPurdueBlocks.length) iptables.push("# No cross-Purdue violations.");
+    else crossPurdueBlocks.forEach(function(b) {
+      iptables.push("iptables -A FORWARD -s " + b.src + " -d " + b.dst + " -p " + b.proto.toLowerCase() + (b.port !== 'any' ? " --dport " + b.port : "") + " -j DROP -m comment --comment \"Block L" + b.srcLvl + " -> L" + b.dstLvl + " OT Violation\"");
+    });
+
+    var header = "=========================================================================\n"
+      + " MARLINSPIKE ZERO-TRUST PURDUE FIREWALL POLICY & ACL EXPORTER\n"
+      + " Report: " + (REPORT_FILENAME || "marlinspike-assessment") + "\n"
+      + " Generated: " + (new Date()).toISOString() + "\n"
+      + " Description: RECOMMENDED Zero-Trust micro-segmentation ACL rules\n"
+      + "=========================================================================\n\n";
+
+    var allRules = header + paloAlto.join("\n") + "\n\n" + fortinet.join("\n") + "\n\n" + cisco.join("\n") + "\n\n" + iptables.join("\n");
+
+    openCodeViewerModal({
+      title: '🛡️ Purdue Zero-Trust Firewall ACL Rules',
+      filename: 'marlinspike-purdue-firewall-rules.txt',
+      code: allRules,
+      tabs: [
+        { id: 'all', label: 'All Vendors' },
+        { id: 'palo', label: 'Palo Alto (PAN-OS)' },
+        { id: 'forti', label: 'Fortinet FortiGate' },
+        { id: 'cisco', label: 'Cisco ASA' },
+        { id: 'iptables', label: 'Linux iptables' }
+      ],
+      defaultTab: 'all',
+      tabMap: {
+        all: allRules,
+        palo: header + paloAlto.join("\n"),
+        forti: header + fortinet.join("\n"),
+        cisco: header + cisco.join("\n"),
+        iptables: header + iptables.join("\n")
+      }
+    });
+  }
+
+  function fetchAndShowModal(url, title, filename) {
+    fetch(url)
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function(text) {
+        var formatted = text;
+        try {
+          if (filename.endsWith('.json')) {
+            formatted = JSON.stringify(JSON.parse(text), null, 2);
+          }
+        } catch(e){}
+        openCodeViewerModal({ title: title, filename: filename, code: formatted });
+      })
+      .catch(function(e) {
+        msToast('Failed to load file: ' + e.message, true);
+      });
+  }
+
+  function viewAnsiblePlaybook() {
+    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/ansible' + pidQuery, '⚡ Incident Response Ansible Playbook', REPORT_FILENAME.replace('.json', '.ansible.yml'));
+  }
+
+  function viewStix() {
+    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/stix' + pidQuery, '📦 OASIS STIX 2.1 Threat Intel Bundle', REPORT_FILENAME.replace('.json', '.stix.json'));
+  }
+
+  function viewSigma() {
+    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/sigma' + pidQuery, '🎯 Sigma Rules Stream', REPORT_FILENAME.replace('.json', '.sigma.yml'));
+  }
+
+  function viewOcsf() {
+    var pidQuery = viewer_context && viewer_context.project_id ? '?project_id=' + viewer_context.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/ocsf' + pidQuery, '📊 OCSF Detection Findings Telemetry', REPORT_FILENAME.replace('.json', '.ocsf.ndjson'));
+  }
+
+  function viewNavigator() {
+    var pidQuery = viewer_context && viewer_context.project_id ? '&project_id=' + viewer_context.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/navigator?domain=ics-attack' + pidQuery, '🗺️ ATT&CK Navigator ICS Layer', REPORT_FILENAME.replace('.json', '.navigator.ics.json'));
+  }
+
   // ── Vulnerability Lifecycle & Status Management ──
   var findingStatuses = {};
   try {
@@ -7914,6 +8247,16 @@ var MS = (function() {
     exportCsvAssets: exportCsvAssets,
     exportCsvFindings: exportCsvFindings,
     exportFirewallRules: exportFirewallRules,
+    viewFirewallRules: viewFirewallRules,
+    viewAnsiblePlaybook: viewAnsiblePlaybook,
+    viewStix: viewStix,
+    viewSigma: viewSigma,
+    viewOcsf: viewOcsf,
+    viewNavigator: viewNavigator,
+    openCodeViewerModal: openCodeViewerModal,
+    switchCodeModalTab: switchCodeModalTab,
+    copyModalCode: copyModalCode,
+    downloadModalCode: downloadModalCode,
     setFindingStatus: setFindingStatus,
     getFindingStatus: getFindingStatus,
     openCompareModal: openCompareModal,
