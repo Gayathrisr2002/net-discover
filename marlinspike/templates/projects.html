@@ -1774,9 +1774,24 @@ var PROJ = (function() {
     }
   }
 
+  function safeFetchJson(url, options) {
+    return fetch(url, options).then(function(r) {
+      return r.text().then(function(text) {
+        try {
+          return JSON.parse(text);
+        } catch(e) {
+          if (r.redirected || text.indexOf('<!DOCTYPE') !== -1 || text.indexOf('<html') !== -1) {
+            return { ok: false, error: 'Session expired or login required. Please refresh page.' };
+          }
+          return { ok: false, error: 'HTTP ' + r.status + ': ' + (text.slice(0, 120) || r.statusText) };
+        }
+      });
+    });
+  }
+
   function loadWebhookConfig() {
     if (!currentProject || !isOwnerProject()) return;
-    fetch('/api/projects/' + currentProject.id + '/webhook').then(function(r) { return r.json(); }).then(function(d) {
+    safeFetchJson('/api/projects/' + currentProject.id + '/webhook').then(function(d) {
       if (!d.ok) { msToast(d.error || msT('common.error', 'Error'), true); return; }
       var cfg = d.config || {};
       document.getElementById('webhook-enabled').checked = !!cfg.enabled;
@@ -1816,11 +1831,11 @@ var PROJ = (function() {
     }
     var secret = document.getElementById('webhook-secret').value.trim();
     if (secret) body.secret = secret;
-    fetch('/api/projects/' + currentProject.id + '/webhook', {
+    safeFetchJson('/api/projects/' + currentProject.id + '/webhook', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }).then(function(r) { return r.json(); }).then(function(d) {
+    }).then(function(d) {
       if (d.ok) {
         msToast(msT('projects.webhook_saved', 'Webhook settings saved'), 'success');
         loadWebhookConfig();
@@ -1834,8 +1849,8 @@ var PROJ = (function() {
     if (!currentProject) return;
     var status = document.getElementById('webhook-status');
     status.textContent = msT('projects.webhook_testing', 'Sending test delivery…');
-    fetch('/api/projects/' + currentProject.id + '/webhook/test', { method: 'POST' })
-      .then(function(r) { return r.json(); }).then(function(d) {
+    safeFetchJson('/api/projects/' + currentProject.id + '/webhook/test', { method: 'POST' })
+      .then(function(d) {
         if (d.ok) {
           status.style.color = 'var(--color-success)';
           status.textContent = d.detail
