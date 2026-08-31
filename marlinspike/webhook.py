@@ -43,7 +43,7 @@ ALLOWED_KEYS = frozenset({
     "zammad_group", "zammad_customer",
     "jira_email", "jira_project_key", "jira_issue_type",
 })
-PLATFORMS = frozenset({"generic", "zammad", "jira", "wazuh"})
+PLATFORMS = frozenset({"generic", "zammad", "jira"})
 SEVERITY_ORDER = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 _TIMEOUT_S = 8
 _MAX_FINDINGS_PER_DELIVERY = 200
@@ -596,60 +596,6 @@ def deliver_to_jira(project: Project, cfg: dict, findings: list[dict]) -> dict:
     return {"created": created, "skipped": skipped, "failed": failed}
 
 
-def deliver_to_wazuh(project: Project, cfg: dict, findings: list[dict]) -> dict:
-    """Send findings formatted as Wazuh integration events to the configured manager/receiver endpoint."""
-    url, secret = cfg.get("url"), cfg.get("secret")
-    if not url:
-        log.warning("wazuh delivery skipped project_id=%s: missing url", project.id)
-        return {"created": 0, "skipped": 0, "failed": 0}
-
-    already = _existing_ticket_dedup_keys(project.id, "wazuh")
-    new_findings = [f for f in findings if finding_dedup_key(project.id, f) not in already]
-    skipped = len(findings) - len(new_findings)
-    if not new_findings:
-        return {"created": 0, "skipped": skipped, "failed": 0}
-
-    if len(new_findings) > _MAX_TICKETS_PER_DELIVERY:
-        new_findings = new_findings[:_MAX_TICKETS_PER_DELIVERY]
-
-    created = failed = 0
-    import datetime
-    for f in new_findings:
-        dedup_key = finding_dedup_key(project.id, f)
-        severity = f.get("severity", "INFO")
-        severity_index = SEVERITY_ORDER.index(severity) if severity in SEVERITY_ORDER else 0
-        payload = {
-            "integration": "marlinspike",
-            "project_id": project.id,
-            "project_name": project.name,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "rule": {
-                "id": 100100 + severity_index,
-                "level": 3 + (severity_index * 3),
-                "description": f"MarlinSpike OT Security Finding: {f.get('category')}"
-            },
-            "data": {
-                "category": f.get("category"),
-                "severity": severity,
-                "description": f.get("description"),
-                "remediation": f.get("remediation"),
-                "affected_nodes": f.get("affected_nodes", []),
-                "affected_edges": f.get("affected_edges", []),
-            }
-        }
-        result = _post(url, secret, payload)
-        if result["ok"]:
-            _record_ticket(project.id, dedup_key, "wazuh", f.get("category"))
-            created += 1
-        else:
-            failed += 1
-            log.warning(
-                "wazuh event posting failed project_id=%s dedup_key=%s error=%s",
-                project.id, dedup_key, result["error"],
-            )
-    return {"created": created, "skipped": skipped, "failed": failed}
-
-
 def deliver_for_scan(project_id: int | None, report_path: str | None, run_id: str | None) -> None:
     """Best-effort webhook/ticket delivery for one completed scan. Never raises.
 
@@ -682,12 +628,6 @@ def deliver_for_scan(project_id: int | None, report_path: str | None, run_id: st
             summary = deliver_to_jira(project, cfg, findings)
             log.info(
                 "jira delivery project_id=%s run_id=%s created=%d skipped=%d failed=%d",
-                project_id, run_id, summary["created"], summary["skipped"], summary["failed"],
-            )
-        elif platform == "wazuh":
-            summary = deliver_to_wazuh(project, cfg, findings)
-            log.info(
-                "wazuh delivery project_id=%s run_id=%s created=%d skipped=%d failed=%d",
                 project_id, run_id, summary["created"], summary["skipped"], summary["failed"],
             )
         else:
@@ -757,29 +697,6 @@ def send_test(project: Project) -> dict:
         if result["ok"]:
             return {"ok": True, "status_code": 201, "error": None, "detail": f"created issue {result['external_id']}"}
         return {"ok": False, "status_code": None, "error": result["error"]}
-
-    if (cfg.get("platform") or "generic") == "wazuh":
-        import datetime
-        payload = {
-            "integration": "marlinspike",
-            "project_id": project.id,
-            "project_name": project.name,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "rule": {
-                "id": 100100,
-                "level": 3,
-                "description": "MarlinSpike OT Security Test Alert"
-            },
-            "data": {
-                "category": "MarlinSpike test",
-                "severity": "INFO",
-                "description": "Test event from MarlinSpike to verify Wazuh integration is reachable.",
-                "remediation": None,
-                "affected_nodes": [],
-                "affected_edges": [],
-            }
-        }
-        return _post(url, secret, payload)
 
     payload = {
         "event": "webhook.test",
