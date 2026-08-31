@@ -2514,6 +2514,7 @@ textarea.ms-input {
   overflow: auto;
   background: #060b13;
   display: flex;
+  min-height: 0;
 }
 .ms-code-lines {
   padding: 16px 12px;
@@ -2525,17 +2526,21 @@ textarea.ms-input {
   text-align: right;
   user-select: none;
   border-right: 1px solid #131d2b;
+  white-space: pre;
+  flex-shrink: 0;
+  min-width: 48px;
 }
 .ms-code-content {
   flex: 1;
   padding: 16px 20px;
-  overflow-x: auto;
+  overflow: auto;
   font-family: var(--font-mono, monospace);
   font-size: 0.84em;
   line-height: 1.5;
   color: #d1d5db;
   white-space: pre;
   margin: 0;
+  min-width: 0;
 }
 
 @media print {
