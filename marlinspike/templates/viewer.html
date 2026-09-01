@@ -2706,6 +2706,8 @@ textarea.ms-input {
       <button class="ms-btn" onclick="MS.viewOcsf()" title="View OCSF Telemetry JSON">📊 OCSF</button>
       <button class="ms-btn" onclick="MS.viewNavigator()" title="View ATT&CK Navigator Layer">🗺️ Navigator</button>
       <button class="ms-btn" onclick="MS.viewStix()" title="View STIX 2.1 Threat Intel Bundle">📦 STIX 2.1</button>
+      <button class="ms-btn" onclick="MS.viewSbom()" title="View CycloneDX 1.5 Industrial SBOM">📦 SBOM</button>
+      <button class="ms-btn" onclick="MS.viewSwitchAcl()" title="View L2 Industrial Switch Hardening ACL">🔌 Switch ACL</button>
       <button class="ms-btn" onclick="MS.viewSigma()" title="View Sigma Rules Stream">🎯 Sigma</button>
       <button class="ms-btn" onclick="MS.viewFirewallRules()" title="View & Filter Purdue Zero-Trust Firewall ACL Rules">🛡️ Firewall Rules</button>
       <button class="ms-btn" onclick="MS.openFirewallSimulator()" title="Interactive Firewall Rule Simulator & Topology Impact Analyzer" style="border-color: #32b8c6; color: #32b8c6;">🔌 FW Simulator</button>
@@ -6744,6 +6746,16 @@ var MS = (function() {
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/navigator?domain=ics-attack' + pidQuery, '🗺️ ATT&CK Navigator ICS Layer', REPORT_FILENAME.replace('.json', '.navigator.ics.json'));
   }
 
+  function viewSbom() {
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/sbom' + pidQuery, '📦 CycloneDX 1.5 Industrial SBOM', REPORT_FILENAME.replace('.json', '.sbom.json'));
+  }
+
+  function viewSwitchAcl() {
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/switch-acl' + pidQuery, '🔌 L2 Industrial Switch Hardening ACL', REPORT_FILENAME.replace('.json', '.switch-acl.txt'));
+  }
+
   // ── Vulnerability Lifecycle & Status Management ──
   var findingStatuses = {};
   try {
@@ -8945,6 +8957,8 @@ var MS = (function() {
     exportSimulatedCompliance: exportSimulatedCompliance,
     viewAnsiblePlaybook: viewAnsiblePlaybook,
     viewStix: viewStix,
+    viewSbom: viewSbom,
+    viewSwitchAcl: viewSwitchAcl,
     viewSigma: viewSigma,
     viewOcsf: viewOcsf,
     viewNavigator: viewNavigator,
