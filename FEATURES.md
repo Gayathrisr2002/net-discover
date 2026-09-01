@@ -139,6 +139,10 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **Attack Storyboard & Chronological Incident Timeline (`report.timeline`):** Reconstructs a chronologically ordered sequence map of all PCAP-observed risk findings and lateral movement events.
 - **Protocol Conformance & Malformed Frame Detector (`MALFORMED_INDUSTRIAL_FRAME`):** Passively inspects protocol headers for fuzzing signatures, truncated PDU headers, and bad CRCs.
 
+## 23. Snort 3 & Suricata Industrial IDS Rule Exporter
+- **Automated Snort 3 / Suricata Passive Signature Exporter:** Converts PCAP-observed Purdue boundary leaks, PLC mode changes, and protocol fuzzing events into deployable Snort 3 and Suricata IDS rules (`/api/reports/<filename>/snort`, `/api/projects/<pid>/snort/download`).
+- **Interactive Code Viewer Integration:** Includes direct **`🐽 Snort 3`** code viewer action buttons on project report list cards and the Report Viewer toolbar.
+
 ---
 
 *For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*

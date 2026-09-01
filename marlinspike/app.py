@@ -4503,6 +4503,34 @@ def create_app():
         response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
+    @app.route("/api/projects/<int:pid>/snort/download", methods=["GET"])
+    @login_required
+    def download_project_snort(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        rdir = user_reports_dir(pid)
+        reports = _load_project_report_files(rdir)
+        all_findings = []
+        all_violations = []
+        for rp in reports:
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_findings.extend(data.get("findings", []))
+                    all_violations.extend(data.get("purdue_violations", []))
+            except Exception:
+                pass
+
+        from marlinspike.emit import snort as _snort
+        snort_text = _snort.export_snort_rules({"findings": all_findings, "purdue_violations": all_violations})
+        filename = f"marlinspike_snort3_rules_project_{pid}.rules"
+        response = make_response(snort_text)
+        response.headers["Content-Type"] = "text/plain"
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
     @app.route("/api/projects/<int:pid>/compliance", methods=["GET"])
     @login_required
     def get_project_compliance(pid):
@@ -6143,6 +6171,32 @@ def create_app():
             mimetype="text/plain",
             headers={
                 "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".switch-acl.txt")}"',
+            },
+        )
+
+    @app.route("/api/reports/<filename>/snort")
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_report_snort(filename):
+        safe_name = os.path.basename(filename)
+        project_id = request.args.get("project_id", None, type=int)
+        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        if not os.path.isfile(json_path):
+            return jsonify({"error": "Report not found"}), 404
+        try:
+            from marlinspike.emit import snort as _snort_emit
+            with open(json_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            snort_text = _snort_emit.export_snort_rules(report)
+        except Exception as exc:
+            log.warning("Snort rule render failed for %s: %s", safe_name, exc)
+            return jsonify({"error": "Snort rule emit failed"}), 500
+        from flask import Response
+        return Response(
+            snort_text + "\n",
+            mimetype="text/plain",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".snort.rules")}"',
             },
         )
 

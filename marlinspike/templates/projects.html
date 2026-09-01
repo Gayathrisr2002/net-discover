@@ -2346,6 +2346,7 @@ var PROJ = (function() {
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'stix\')" style="margin-left:4px;" title="View STIX 2.1 Threat Intel Bundle">📦 STIX</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'sbom\')" style="margin-left:4px;" title="View CycloneDX Industrial SBOM">📦 SBOM</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'switch-acl\')" style="margin-left:4px;" title="View Switch ACL Hardening Script">🔌 Switch ACL</button>'
+          + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'snort\')" style="margin-left:4px;" title="View Snort 3 / Suricata IDS Rules">🐽 Snort 3</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'sigma\')" style="margin-left:4px;" title="View Sigma Rules Stream">🎯 Sigma</button>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '" style="margin-left:4px;">⬇ ' + msT('projects.btn_download', 'Download') + '</a>'
           + deleteBtn
@@ -2494,6 +2495,10 @@ var PROJ = (function() {
       title = '🔌 L2 Industrial Switch Hardening ACL';
       url = '/api/reports/' + encodeURIComponent(filename) + '/switch-acl?project_id=' + currentProject.id;
       outFilename = filename.replace('.json', '.switch-acl.txt');
+    } else if (type === 'snort') {
+      title = '🐽 Snort 3 / Suricata IDS Rules';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/snort?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.snort.rules');
     }
 
     fetch(url)

@@ -2708,6 +2708,7 @@ textarea.ms-input {
       <button class="ms-btn" onclick="MS.viewStix()" title="View STIX 2.1 Threat Intel Bundle">📦 STIX 2.1</button>
       <button class="ms-btn" onclick="MS.viewSbom()" title="View CycloneDX 1.5 Industrial SBOM">📦 SBOM</button>
       <button class="ms-btn" onclick="MS.viewSwitchAcl()" title="View L2 Industrial Switch Hardening ACL">🔌 Switch ACL</button>
+      <button class="ms-btn" onclick="MS.viewSnort()" title="View Snort 3 / Suricata IDS Rules">🐽 Snort 3</button>
       <button class="ms-btn" onclick="MS.viewSigma()" title="View Sigma Rules Stream">🎯 Sigma</button>
       <button class="ms-btn" onclick="MS.viewFirewallRules()" title="View & Filter Purdue Zero-Trust Firewall ACL Rules">🛡️ Firewall Rules</button>
       <button class="ms-btn" onclick="MS.openFirewallSimulator()" title="Interactive Firewall Rule Simulator & Topology Impact Analyzer" style="border-color: #32b8c6; color: #32b8c6;">🔌 FW Simulator</button>
@@ -6756,6 +6757,11 @@ var MS = (function() {
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/switch-acl' + pidQuery, '🔌 L2 Industrial Switch Hardening ACL', REPORT_FILENAME.replace('.json', '.switch-acl.txt'));
   }
 
+  function viewSnort() {
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '?project_id=' + VIEWER_CONTEXT.project_id : '';
+    fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/snort' + pidQuery, '🐽 Snort 3 / Suricata IDS Rules', REPORT_FILENAME.replace('.json', '.snort.rules'));
+  }
+
   // ── Vulnerability Lifecycle & Status Management ──
   var findingStatuses = {};
   try {
@@ -8959,6 +8965,7 @@ var MS = (function() {
     viewStix: viewStix,
     viewSbom: viewSbom,
     viewSwitchAcl: viewSwitchAcl,
+    viewSnort: viewSnort,
     viewSigma: viewSigma,
     viewOcsf: viewOcsf,
     viewNavigator: viewNavigator,
