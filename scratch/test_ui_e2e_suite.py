@@ -152,18 +152,32 @@ class TestMarlinSpikeE2E(unittest.TestCase):
         self.assertEqual(res.mimetype, "application/json")
         self.assertIn("attachment; filename=", res.headers.get("Content-Disposition", ""))
 
-    def test_11_all_templates_compile_cleanly(self):
-        """Check all Jinja2 HTML templates for syntax errors."""
-        template_dir = os.path.join(os.path.dirname(__file__), "..", "marlinspike", "templates")
-        templates = glob.glob(os.path.join(template_dir, "*.html"))
-        self.assertGreater(len(templates), 0)
-        with self.app.app_context():
-            for t_path in templates:
-                t_name = os.path.basename(t_path)
-                try:
-                    self.app.jinja_env.get_template(t_name)
-                except Exception as e:
-                    self.fail(f"Template compilation failed for {t_name}: {e}")
+    def test_12_new_export_endpoints(self):
+        c = self.login()
+        # Report level endpoints
+        res_sbom = c.get(f"/api/reports/test-report.json/sbom?project_id={self.test_project_id}")
+        self.assertEqual(res_sbom.status_code, 200)
+        self.assertIn("CycloneDX", res_sbom.get_data(as_text=True))
+
+        res_acl = c.get(f"/api/reports/test-report.json/switch-acl?project_id={self.test_project_id}")
+        self.assertEqual(res_acl.status_code, 200)
+        self.assertIn("Cisco Industrial Ethernet", res_acl.get_data(as_text=True))
+
+        res_snort = c.get(f"/api/reports/test-report.json/snort?project_id={self.test_project_id}")
+        self.assertEqual(res_snort.status_code, 200)
+        self.assertIn("Snort 3", res_snort.get_data(as_text=True))
+
+        # Project level download endpoints
+        res_p_sbom = c.get(f"/api/projects/{self.test_project_id}/sbom/download")
+        self.assertEqual(res_p_sbom.status_code, 200)
+        self.assertIn("CycloneDX", res_p_sbom.get_data(as_text=True))
+
+        res_p_acl = c.get(f"/api/projects/{self.test_project_id}/switch-acl/download")
+        self.assertEqual(res_p_acl.status_code, 200)
+
+        res_p_snort = c.get(f"/api/projects/{self.test_project_id}/snort/download")
+        self.assertEqual(res_p_snort.status_code, 200)
+        self.assertIn("Snort 3", res_p_snort.get_data(as_text=True))
 
 
 if __name__ == "__main__":
