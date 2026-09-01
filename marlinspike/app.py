@@ -6127,13 +6127,16 @@ def create_app():
     def api_report_sbom(filename):
         safe_name = os.path.basename(filename)
         project_id = request.args.get("project_id", None, type=int)
-        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        r_dir = user_reports_dir(project_id)
+        primary_name = _get_primary_report_filename(safe_name)
+        json_path = os.path.join(r_dir, primary_name)
         if not os.path.isfile(json_path):
-            return jsonify({"error": "Report not found"}), 404
+            json_path = os.path.join(r_dir, safe_name)
+            if not os.path.isfile(json_path):
+                return jsonify({"error": "Report not found"}), 404
         try:
             from marlinspike.emit import sbom as _sbom_emit
-            with open(json_path, "r", encoding="utf-8") as f:
-                report = json.load(f)
+            report = _load_report_with_extensions(json_path, ensure_mitre=False)
             sbom_data = _sbom_emit.generate_cyclonedx_sbom(report)
         except Exception as exc:
             log.warning("SBOM render failed for %s: %s", safe_name, exc)
@@ -6154,13 +6157,16 @@ def create_app():
         safe_name = os.path.basename(filename)
         project_id = request.args.get("project_id", None, type=int)
         vendor = request.args.get("vendor", "cisco_ie")
-        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        r_dir = user_reports_dir(project_id)
+        primary_name = _get_primary_report_filename(safe_name)
+        json_path = os.path.join(r_dir, primary_name)
         if not os.path.isfile(json_path):
-            return jsonify({"error": "Report not found"}), 404
+            json_path = os.path.join(r_dir, safe_name)
+            if not os.path.isfile(json_path):
+                return jsonify({"error": "Report not found"}), 404
         try:
             from marlinspike.emit import switch_acl as _switch_acl_emit
-            with open(json_path, "r", encoding="utf-8") as f:
-                report = json.load(f)
+            report = _load_report_with_extensions(json_path, ensure_mitre=False)
             acl_text = _switch_acl_emit.generate_switch_acl(report, vendor=vendor)
         except Exception as exc:
             log.warning("Switch ACL render failed for %s: %s", safe_name, exc)
@@ -6180,13 +6186,16 @@ def create_app():
     def api_report_snort(filename):
         safe_name = os.path.basename(filename)
         project_id = request.args.get("project_id", None, type=int)
-        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        r_dir = user_reports_dir(project_id)
+        primary_name = _get_primary_report_filename(safe_name)
+        json_path = os.path.join(r_dir, primary_name)
         if not os.path.isfile(json_path):
-            return jsonify({"error": "Report not found"}), 404
+            json_path = os.path.join(r_dir, safe_name)
+            if not os.path.isfile(json_path):
+                return jsonify({"error": "Report not found"}), 404
         try:
             from marlinspike.emit import snort as _snort_emit
-            with open(json_path, "r", encoding="utf-8") as f:
-                report = json.load(f)
+            report = _load_report_with_extensions(json_path, ensure_mitre=False)
             snort_text = _snort_emit.export_snort_rules(report)
         except Exception as exc:
             log.warning("Snort rule render failed for %s: %s", safe_name, exc)
