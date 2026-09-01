@@ -4439,6 +4439,70 @@ def create_app():
         response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
+    @app.route("/api/projects/<int:pid>/sbom/download", methods=["GET"])
+    @login_required
+    def download_project_sbom(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        rdir = user_reports_dir(pid)
+        reports = _load_project_report_files(rdir)
+        all_nodes = {}
+        for rp in reports:
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for n in data.get("nodes", []):
+                        if isinstance(n, dict) and (n.get("ip") or n.get("mac")):
+                            key = n.get("ip") or n.get("mac")
+                            all_nodes[key] = n
+            except Exception:
+                pass
+
+        from marlinspike.emit import sbom as _sbom
+        sbom_data = _sbom.generate_cyclonedx_sbom({"nodes": list(all_nodes.values()), "project_name": proj.name})
+        filename = f"marlinspike_cyclonedx_sbom_project_{pid}.json"
+        response = make_response(json.dumps(sbom_data, indent=2))
+        response.headers["Content-Type"] = "application/json"
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    @app.route("/api/projects/<int:pid>/switch-acl/download", methods=["GET"])
+    @login_required
+    def download_project_switch_acl(pid):
+        proj = _get_project_for_user(pid)
+        if not proj:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+
+        vendor = request.args.get("vendor", "cisco_ie")
+        rdir = user_reports_dir(pid)
+        reports = _load_project_report_files(rdir)
+        all_nodes = {}
+        all_violations = []
+        for rp in reports:
+            try:
+                with open(rp, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_violations.extend(data.get("purdue_violations", []))
+                    for n in data.get("nodes", []):
+                        if isinstance(n, dict) and (n.get("ip") or n.get("mac")):
+                            key = n.get("ip") or n.get("mac")
+                            all_nodes[key] = n
+            except Exception:
+                pass
+
+        from marlinspike.emit import switch_acl as _switch_acl
+        acl_text = _switch_acl.generate_switch_acl(
+            {"nodes": list(all_nodes.values()), "purdue_violations": all_violations},
+            vendor=vendor,
+        )
+        filename = f"marlinspike_switch_acl_{vendor}_project_{pid}.txt"
+        response = make_response(acl_text)
+        response.headers["Content-Type"] = "text/plain"
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
     @app.route("/api/projects/<int:pid>/compliance", methods=["GET"])
     @login_required
     def get_project_compliance(pid):
@@ -6026,6 +6090,59 @@ def create_app():
             mimetype="application/x-yaml",
             headers={
                 "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".ansible.yml")}"',
+            },
+        )
+
+    @app.route("/api/reports/<filename>/sbom")
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_report_sbom(filename):
+        safe_name = os.path.basename(filename)
+        project_id = request.args.get("project_id", None, type=int)
+        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        if not os.path.isfile(json_path):
+            return jsonify({"error": "Report not found"}), 404
+        try:
+            from marlinspike.emit import sbom as _sbom_emit
+            with open(json_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            sbom_data = _sbom_emit.generate_cyclonedx_sbom(report)
+        except Exception as exc:
+            log.warning("SBOM render failed for %s: %s", safe_name, exc)
+            return jsonify({"error": "SBOM emit failed"}), 500
+        from flask import Response
+        return Response(
+            json.dumps(sbom_data, indent=2) + "\n",
+            mimetype="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".sbom.json")}"',
+            },
+        )
+
+    @app.route("/api/reports/<filename>/switch-acl")
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_report_switch_acl(filename):
+        safe_name = os.path.basename(filename)
+        project_id = request.args.get("project_id", None, type=int)
+        vendor = request.args.get("vendor", "cisco_ie")
+        json_path = os.path.join(user_reports_dir(project_id), safe_name)
+        if not os.path.isfile(json_path):
+            return jsonify({"error": "Report not found"}), 404
+        try:
+            from marlinspike.emit import switch_acl as _switch_acl_emit
+            with open(json_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            acl_text = _switch_acl_emit.generate_switch_acl(report, vendor=vendor)
+        except Exception as exc:
+            log.warning("Switch ACL render failed for %s: %s", safe_name, exc)
+            return jsonify({"error": "Switch ACL emit failed"}), 500
+        from flask import Response
+        return Response(
+            acl_text + "\n",
+            mimetype="text/plain",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name.replace(".json", ".switch-acl.txt")}"',
             },
         )
 

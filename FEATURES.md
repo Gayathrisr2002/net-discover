@@ -133,6 +133,12 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **Passive OT Polling Jitter & Burst Anomaly Engine (`OT_POLLING_BURST_ANOMALY`):** Analyzes cyclic OT telemetry polling rates to flag sudden traffic spikes and potential PLC queue exhaustion attacks.
 - **Passive TLS/SSL Certificate & Cipher Weakness Auditor (`WEAK_TLS_CIPHER_OBSERVED`, `EXPIRED_TLS_CERTIFICATE`, `SELF_SIGNED_TLS_CERTIFICATE`):** Passively inspects TLS handshakes in industrial gateways for deprecated ciphers (SSLv3, TLS 1.0, RC4) and expired/self-signed certificates.
 
+## 22. PCAP-Derived Passive Exporters & Attack Storyboard Engine
+- **CycloneDX 1.5 Industrial SBOM Exporter:** Passively extracts CIP identities, S7 SZL modules, and BACnet descriptors from PCAP files to build CycloneDX v1.5 JSON Software Bill of Materials reports (`/api/reports/<filename>/sbom`, `/api/projects/<pid>/sbom/download`).
+- **L2 Industrial Switch Hardening ACL Generator:** Generates native port-security and VLAN isolation scripts for Siemens SCALANCE, Hirschmann HiOS, and Cisco IE switches based on passive PCAP MAC/VLAN observations (`/api/reports/<filename>/switch-acl`, `/api/projects/<pid>/switch-acl/download`).
+- **Attack Storyboard & Chronological Incident Timeline (`report.timeline`):** Reconstructs a chronologically ordered sequence map of all PCAP-observed risk findings and lateral movement events.
+- **Protocol Conformance & Malformed Frame Detector (`MALFORMED_INDUSTRIAL_FRAME`):** Passively inspects protocol headers for fuzzing signatures, truncated PDU headers, and bad CRCs.
+
 ---
 
 *For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*

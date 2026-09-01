@@ -4450,6 +4450,7 @@ class RiskSurface:
         "WEAK_TLS_CIPHER_OBSERVED": ("MEDIUM", "Deprecated TLS cipher or protocol version observed"),
         "EXPIRED_TLS_CERTIFICATE": ("HIGH", "Expired TLS certificate detected in passive handshake"),
         "SELF_SIGNED_TLS_CERTIFICATE": ("MEDIUM", "Self-signed or unverified TLS certificate observed"),
+        "MALFORMED_INDUSTRIAL_FRAME": ("HIGH", "Malformed protocol frame or invalid PDU header observed in PCAP"),
     }
 
     def __init__(self, topology: dict, conversations: list[Conversation], skip_c2: bool = False):
@@ -4495,6 +4496,7 @@ class RiskSurface:
         self._check_purdue_leak_and_lateral_movement()
         self._check_polling_jitter_and_bursts()
         self._check_passive_tls_security()
+        self._check_protocol_conformance()
         c2_indicators = [] if self.skip_c2 else self._check_c2_indicators()
 
         print(f"\n  Risk Summary:")
@@ -4512,12 +4514,14 @@ class RiskSurface:
 
         # Rank targets
         targets = self._rank_targets()
+        timeline = self._build_incident_timeline()
 
         return {
             "findings": [asdict(f) for f in self.findings],
             "attack_targets": targets,
             "c2_indicators": c2_indicators,
             "purdue_violations": self.purdue_violations,
+            "timeline": timeline,
         }
 
     def _check_external_comms(self):
@@ -5628,6 +5632,38 @@ class RiskSurface:
                         affected_nodes=[dst_key],
                         remediation="Deploy internal CA-signed certificates for OT endpoints.",
                     ))
+
+    def _check_protocol_conformance(self):
+        """Passively detect malformed protocol frames or protocol fuzzing attempts."""
+        for conv in self.conversations:
+            notes = str(getattr(conv, "notes", "") or "").upper()
+            proto = str(conv.protocol or "").upper()
+            src_key = conv.src_ip or conv.src_mac
+            dst_key = conv.dst_ip or conv.dst_mac
+
+            if any(k in notes for k in ("MALFORMED", "BAD_CRC", "INVALID_LENGTH", "FUZZING")):
+                self.findings.append(RiskFinding(
+                    severity="HIGH",
+                    category="MALFORMED_INDUSTRIAL_FRAME",
+                    description=f"Malformed {proto} frame or invalid header observed between {src_key} and {dst_key}:{conv.port}",
+                    affected_nodes=[src_key, dst_key],
+                    remediation=f"Inspect capture for protocol fuzzing or corrupted network interfaces transmitting malformed {proto} packets.",
+                ))
+
+    def _build_incident_timeline(self) -> list:
+        """Build a chronologically ordered attack storyboard timeline from passive PCAP findings."""
+        timeline = []
+        for idx, finding in enumerate(self.findings):
+            event = {
+                "step": idx + 1,
+                "category": finding.category,
+                "severity": finding.severity,
+                "summary": finding.description,
+                "nodes": finding.affected_nodes,
+                "remediation": finding.remediation,
+            }
+            timeline.append(event)
+        return timeline
 
 
 # ---------------------------------------------------------------------------

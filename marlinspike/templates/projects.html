@@ -2344,6 +2344,8 @@ var PROJ = (function() {
           + '<a class="view-link" href="/api/reports/' + encodeURIComponent(r.filename) + '/viewer?project_id=' + currentProject.id + '" target="_blank">👁 ' + msT('projects.btn_view', 'View') + '</a>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'ansible\')" style="margin-left:4px;" title="View Incident Response Ansible Playbook">⚡ Ansible</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'stix\')" style="margin-left:4px;" title="View STIX 2.1 Threat Intel Bundle">📦 STIX</button>'
+          + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'sbom\')" style="margin-left:4px;" title="View CycloneDX Industrial SBOM">📦 SBOM</button>'
+          + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'switch-acl\')" style="margin-left:4px;" title="View Switch ACL Hardening Script">🔌 Switch ACL</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'sigma\')" style="margin-left:4px;" title="View Sigma Rules Stream">🎯 Sigma</button>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '" style="margin-left:4px;">⬇ ' + msT('projects.btn_download', 'Download') + '</a>'
           + deleteBtn
@@ -2484,6 +2486,14 @@ var PROJ = (function() {
       title = '📊 OCSF Telemetry Findings';
       url = '/api/reports/' + encodeURIComponent(filename) + '/ocsf?project_id=' + currentProject.id;
       outFilename = filename.replace('.json', '.ocsf.ndjson');
+    } else if (type === 'sbom') {
+      title = '📦 CycloneDX 1.5 Industrial SBOM';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/sbom?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.sbom.json');
+    } else if (type === 'switch-acl') {
+      title = '🔌 L2 Industrial Switch Hardening ACL';
+      url = '/api/reports/' + encodeURIComponent(filename) + '/switch-acl?project_id=' + currentProject.id;
+      outFilename = filename.replace('.json', '.switch-acl.txt');
     }
 
     fetch(url)
