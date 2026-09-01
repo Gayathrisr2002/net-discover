@@ -1695,6 +1695,7 @@ class Conversation:
     dhcp_vendor_class: str = ""
     nbns_name: str = ""
     user_agent: str = ""
+    notes: str = ""
 
 
 @dataclass
@@ -4440,6 +4441,15 @@ class RiskSurface:
         "MODBUS_WRITE_PLC": ("HIGH", "Modbus TCP write command observed on PLC"),
         "DNP3_CONFIG_CHANGE": ("HIGH", "DNP3 configuration change command"),
         "OT_CONFIG_WRITE": ("HIGH", "OT protocol configuration or parameter write command"),
+        "PLC_MODE_SHIFT_DETECTED": ("CRITICAL", "PLC CPU operational mode shift observed in passive traffic"),
+        "ROGUE_ASSET_DISCOVERED": ("HIGH", "Uncatalogged or rogue endpoint discovered on network"),
+        "DUAL_HOMED_ENDPOINT_SUSPECT": ("HIGH", "Dual-homed endpoint routing/bridging across subnets"),
+        "PURDUE_ZONE_LEAK": ("HIGH", "Unauthorized protocol flow bypassing Purdue micro-segmentation"),
+        "LATERAL_MOVEMENT_SUSPECT": ("CRITICAL", "IT administration protocol targeting Level 1/0 PLCs"),
+        "OT_POLLING_BURST_ANOMALY": ("MEDIUM", "Abnormal cyclic OT polling burst or rate spike"),
+        "WEAK_TLS_CIPHER_OBSERVED": ("MEDIUM", "Deprecated TLS cipher or protocol version observed"),
+        "EXPIRED_TLS_CERTIFICATE": ("HIGH", "Expired TLS certificate detected in passive handshake"),
+        "SELF_SIGNED_TLS_CERTIFICATE": ("MEDIUM", "Self-signed or unverified TLS certificate observed"),
     }
 
     def __init__(self, topology: dict, conversations: list[Conversation], skip_c2: bool = False):
@@ -4480,6 +4490,11 @@ class RiskSurface:
         self._check_ot_threat_signatures()
         self._check_eol_status()
         self._check_advanced_protocols()
+        self._check_plc_state_shifts()
+        self._check_rogue_and_dual_homed()
+        self._check_purdue_leak_and_lateral_movement()
+        self._check_polling_jitter_and_bursts()
+        self._check_passive_tls_security()
         c2_indicators = [] if self.skip_c2 else self._check_c2_indicators()
 
         print(f"\n  Risk Summary:")
@@ -5493,6 +5508,126 @@ class RiskSurface:
                         ))
 
         return c2_indicators
+
+    def _check_plc_state_shifts(self):
+        """Passively detect PLC CPU state changes (STOP/PROGRAM/RUN)."""
+        stop_keywords = ("STOP", "PROGRAM", "CPU_HALT", "FC8_DIAG", "FORCE_OUTPUTS", "RESET")
+        for conv in self.conversations:
+            notes = str(getattr(conv, "notes", "") or "").upper()
+            ops = [str(o).upper() for o in getattr(conv, "operations_seen", [])]
+            s7_funcs = [str(f).upper() for f in getattr(conv, "s7_functions", [])]
+            proto = str(conv.protocol or "").upper()
+
+            is_stop = any(k in notes for k in stop_keywords) or any(k in s7_funcs for k in ("STOP", "PLC_STOP")) or any(k in ops for k in ("STOP", "HALT", "PROGRAM"))
+            if is_stop or (proto in ("S7COMM", "CIP", "MODBUS", "DNP3") and "STOP" in notes):
+                src_key = conv.src_ip or conv.src_mac
+                dst_key = conv.dst_ip or conv.dst_mac
+                self.findings.append(RiskFinding(
+                    severity="CRITICAL",
+                    category="PLC_MODE_SHIFT_DETECTED",
+                    description=f"PLC operational mode change (STOP/PROGRAM/HALT) observed on {dst_key} from {src_key} ({conv.protocol})",
+                    affected_nodes=[src_key, dst_key],
+                    remediation="Verify whether PLC mode change was authorized. Inspect for unauthorized logic tampering or malicious CPU halt commands.",
+                ))
+
+    def _check_rogue_and_dual_homed(self):
+        """Passively identify rogue endpoints and dual-homed multi-subnet bridges."""
+        mac_to_subnets = defaultdict(set)
+        for conv in self.conversations:
+            if conv.src_mac and conv.src_ip:
+                ip_parts = conv.src_ip.split(".")
+                if len(ip_parts) == 4:
+                    subnet = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                    mac_to_subnets[conv.src_mac].add(subnet)
+
+        for mac, subnets in mac_to_subnets.items():
+            if len(subnets) > 1:
+                node = self.nodes.get(mac, {})
+                ip_label = node.get("ip") or mac
+                self.findings.append(RiskFinding(
+                    severity="HIGH",
+                    category="DUAL_HOMED_ENDPOINT_SUSPECT",
+                    description=f"Endpoint {ip_label} (MAC: {mac}) observed actively communicating across multiple subnets ({', '.join(sorted(subnets))})",
+                    affected_nodes=[ip_label],
+                    remediation="Verify multi-homed interfaces. Ensure routing between discrete OT subnets is restricted to authorized firewalls.",
+                ))
+
+        for key, node in self.nodes.items():
+            if node.get("uncatalogged") or node.get("is_rogue"):
+                self.findings.append(RiskFinding(
+                    severity="HIGH",
+                    category="ROGUE_ASSET_DISCOVERED",
+                    description=f"Uncatalogged or rogue endpoint {key} detected on OT network",
+                    affected_nodes=[key],
+                    remediation="Identify physical device owner and restrict port access on plant switch.",
+                ))
+
+    def _check_purdue_leak_and_lateral_movement(self):
+        """Passively detect IT management protocol leaks into Level 1/0 PLCs."""
+        it_mgmt_ports = {22: "SSH", 3389: "RDP", 445: "SMB", 5985: "WinRM", 5986: "WinRM-HTTPS", 23: "Telnet"}
+        for conv in self.conversations:
+            if conv.port in it_mgmt_ports:
+                dst_key = conv.dst_ip or conv.dst_mac
+                dst_node = self.nodes.get(dst_key, {})
+                dst_level = dst_node.get("purdue_level", -1) if isinstance(dst_node, dict) else -1
+                if dst_level in (0, 1):
+                    src_key = conv.src_ip or conv.src_mac
+                    proto_name = it_mgmt_ports[conv.port]
+                    self.findings.append(RiskFinding(
+                        severity="CRITICAL",
+                        category="LATERAL_MOVEMENT_SUSPECT",
+                        description=f"IT management protocol {proto_name} ({src_key} -> {dst_key}:{conv.port}) targeting Level {dst_level} PLC controller",
+                        affected_nodes=[src_key, dst_key],
+                        remediation=f"Block {proto_name} traffic targeting Purdue Level 0/1 PLCs. Isolate management subnet via micro-segmentation.",
+                    ))
+
+    def _check_polling_jitter_and_bursts(self):
+        """Passively detect abnormal cyclic OT polling bursts and frequency anomalies."""
+        for conv in self.conversations:
+            proto = str(conv.protocol or "").upper()
+            if proto in ("MODBUS", "DNP3", "BACNET", "PROFINET", "S7COMM", "CIP", "OPCUA"):
+                if conv.packet_count > 1000 and conv.bytes_total > 500000:
+                    src_key = conv.src_ip or conv.src_mac
+                    dst_key = conv.dst_ip or conv.dst_mac
+                    self.findings.append(RiskFinding(
+                        severity="MEDIUM",
+                        category="OT_POLLING_BURST_ANOMALY",
+                        description=f"High-frequency OT polling burst detected between {src_key} and {dst_key} ({conv.packet_count} pkts, {conv.bytes_total} bytes)",
+                        affected_nodes=[src_key, dst_key],
+                        remediation="Review HMI/SCADA polling configuration to prevent PLC queue exhaustion or Denial of Service.",
+                    ))
+
+    def _check_passive_tls_security(self):
+        """Passively inspect TLS/SSL ciphers and certificates for security flaws."""
+        for conv in self.conversations:
+            if conv.port in (443, 4840, 8443, 8080):
+                notes = str(conv.notes or "").upper()
+                src_key = conv.src_ip or conv.src_mac
+                dst_key = conv.dst_ip or conv.dst_mac
+                if any(w in notes for w in ("SSLV3", "TLS1.0", "TLS1.1", "RC4", "3DES")):
+                    self.findings.append(RiskFinding(
+                        severity="MEDIUM",
+                        category="WEAK_TLS_CIPHER_OBSERVED",
+                        description=f"Deprecated TLS version or weak cipher suite observed between {src_key} and {dst_key}:{conv.port}",
+                        affected_nodes=[src_key, dst_key],
+                        remediation="Upgrade industrial gateway to TLS 1.2+ with AES-GCM cipher suites.",
+                    ))
+                if "EXPIRED_CERT" in notes or "CERT_EXPIRED" in notes:
+                    self.findings.append(RiskFinding(
+                        severity="HIGH",
+                        category="EXPIRED_TLS_CERTIFICATE",
+                        description=f"Expired TLS certificate detected in passive handshake on {dst_key}:{conv.port}",
+                        affected_nodes=[dst_key],
+                        remediation="Renew TLS certificate on industrial web interface or OPC UA server.",
+                    ))
+                if "SELF_SIGNED" in notes:
+                    self.findings.append(RiskFinding(
+                        severity="MEDIUM",
+                        category="SELF_SIGNED_TLS_CERTIFICATE",
+                        description=f"Self-signed TLS certificate observed on {dst_key}:{conv.port}",
+                        affected_nodes=[dst_key],
+                        remediation="Deploy internal CA-signed certificates for OT endpoints.",
+                    ))
 
 
 # ---------------------------------------------------------------------------

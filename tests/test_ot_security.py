@@ -274,6 +274,115 @@ class TestOTSecurityEngine(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "MEDIUM")
         self.assertIn("SIMATIC S7-300", findings[0]["description"])
 
+    def test_passive_plc_mode_shift(self):
+        self.conversations.append(Conversation(
+            src_ip="10.10.10.10",
+            dst_ip="192.168.1.50",
+            src_mac="aa:bb:cc:dd:ee:01",
+            dst_mac="aa:bb:cc:dd:ee:03",
+            protocol="S7comm",
+            port=102,
+            packet_count=5,
+            bytes_total=400,
+            first_seen="",
+            last_seen="",
+            notes="CPU_STOP_COMMAND_ISSUED",
+        ))
+        rs = self._get_risk_surface()
+        res = rs.score()
+        findings = [f for f in res["findings"] if f["category"] == "PLC_MODE_SHIFT_DETECTED"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "CRITICAL")
+
+    def test_passive_dual_homed_endpoint(self):
+        self.conversations.append(Conversation(
+            src_ip="192.168.1.10",
+            dst_ip="192.168.2.20",
+            src_mac="aa:bb:cc:dd:ee:88",
+            dst_mac="aa:bb:cc:dd:ee:99",
+            protocol="TCP",
+            port=80,
+            packet_count=10,
+            bytes_total=1000,
+            first_seen="",
+            last_seen="",
+        ))
+        self.conversations.append(Conversation(
+            src_ip="10.0.0.5",
+            dst_ip="10.0.0.1",
+            src_mac="aa:bb:cc:dd:ee:88",
+            dst_mac="10:00:00:00:00:01",
+            protocol="TCP",
+            port=80,
+            packet_count=10,
+            bytes_total=1000,
+            first_seen="",
+            last_seen="",
+        ))
+        rs = self._get_risk_surface()
+        res = rs.score()
+        findings = [f for f in res["findings"] if f["category"] == "DUAL_HOMED_ENDPOINT_SUSPECT"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "HIGH")
+
+    def test_passive_lateral_movement(self):
+        self.conversations.append(Conversation(
+            src_ip="10.10.10.10",
+            dst_ip="192.168.1.50",
+            src_mac="aa:bb:cc:dd:ee:01",
+            dst_mac="aa:bb:cc:dd:ee:03",
+            protocol="RDP",
+            port=3389,
+            packet_count=20,
+            bytes_total=5000,
+            first_seen="",
+            last_seen="",
+        ))
+        rs = self._get_risk_surface()
+        res = rs.score()
+        findings = [f for f in res["findings"] if f["category"] == "LATERAL_MOVEMENT_SUSPECT"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "CRITICAL")
+
+    def test_passive_polling_burst(self):
+        self.conversations.append(Conversation(
+            src_ip="10.10.10.10",
+            dst_ip="192.168.1.50",
+            src_mac="aa:bb:cc:dd:ee:01",
+            dst_mac="aa:bb:cc:dd:ee:03",
+            protocol="Modbus",
+            port=502,
+            packet_count=1200,
+            bytes_total=600000,
+            first_seen="",
+            last_seen="",
+        ))
+        rs = self._get_risk_surface()
+        res = rs.score()
+        findings = [f for f in res["findings"] if f["category"] == "OT_POLLING_BURST_ANOMALY"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "MEDIUM")
+
+    def test_passive_tls_security(self):
+        self.conversations.append(Conversation(
+            src_ip="10.10.10.10",
+            dst_ip="192.168.1.50",
+            src_mac="aa:bb:cc:dd:ee:01",
+            dst_mac="aa:bb:cc:dd:ee:03",
+            protocol="HTTPS",
+            port=443,
+            packet_count=10,
+            bytes_total=2000,
+            first_seen="",
+            last_seen="",
+            notes="EXPIRED_CERT TLS1.0",
+        ))
+        rs = self._get_risk_surface()
+        res = rs.score()
+        categories = [f["category"] for f in res["findings"]]
+        self.assertIn("EXPIRED_TLS_CERTIFICATE", categories)
+        self.assertIn("WEAK_TLS_CIPHER_OBSERVED", categories)
+
 
 if __name__ == "__main__":
     unittest.main()

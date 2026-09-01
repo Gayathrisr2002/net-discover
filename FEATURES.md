@@ -126,6 +126,13 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **PLC Configuration & Ladder Logic Change Tracking:** Automated tracking for PLC program block modifications (`CIP_LADDER_LOGIC_CHANGE`, `DNP3_CONFIG_CHANGE`, `BACNET_UNAUTH_WRITE`, `MODBUS_DIAGNOSTIC_FC8`).
 - **Integrated Code Viewer Modals:** Interactive document viewer for inspecting STIX 2.1 bundles, Ansible playbooks, firewall ACLs, and compliance reports with line numbers, copy-to-clipboard, and download actions.
 
+## 21. Passive Industrial Network Analysis Engine
+- **Passive PLC Operating Mode Shift Detector (`PLC_MODE_SHIFT_DETECTED`):** Passively inspects protocol command payloads (S7comm, CIP, Modbus FC8, DNP3) for unauthorized CPU `STOP`, `PROGRAM`, or `HALT` mode transitions.
+- **Passive Rogue Asset & Dual-Homed Endpoint Detector (`ROGUE_ASSET_DISCOVERED`, `DUAL_HOMED_ENDPOINT_SUSPECT`):** Identifies uncatalogged endpoints and dual-homed MAC addresses bridging discrete OT subnets without prior baseline presence.
+- **Passive Purdue Zone Boundary Leak & Lateral Movement Tracker (`PURDUE_ZONE_LEAK`, `LATERAL_MOVEMENT_SUSPECT`):** Flags IT management protocols (SSH, RDP, SMB, WinRM) directly breaching Purdue Level 1/0 PLC controllers.
+- **Passive OT Polling Jitter & Burst Anomaly Engine (`OT_POLLING_BURST_ANOMALY`):** Analyzes cyclic OT telemetry polling rates to flag sudden traffic spikes and potential PLC queue exhaustion attacks.
+- **Passive TLS/SSL Certificate & Cipher Weakness Auditor (`WEAK_TLS_CIPHER_OBSERVED`, `EXPIRED_TLS_CERTIFICATE`, `SELF_SIGNED_TLS_CERTIFICATE`):** Passively inspects TLS handshakes in industrial gateways for deprecated ciphers (SSLv3, TLS 1.0, RC4) and expired/self-signed certificates.
+
 ---
 
 *For deeper docs on any capability, see the [`docs/`](docs/) directory (getting-started, cli-and-headless, workbench-guide, mitre-attack-guide, ioc-threat-hunting, live-capture, ocsf-emit, taxonomy, webhook-and-recommendations, and more).*
