@@ -120,7 +120,11 @@ Authentication + sessions, RBAC project sharing, CSRF (full-origin), CSP / secur
 - **Automated Framework Scoring:** Scores project capture data against **IEC 62443** (Security Levels SL 1 to SL 4), **CISA Cross-Sector CPGs**, and **NIST SP 800-82 Rev 3**.
 - **Security Level (SL) Target Grading:** Calculates overall compliance percentage (0–100%) and determines industrial Target Security Level resilience (SL-0 to SL-4).
 - **Missing Hardening Roadmap:** Automatically generates a prioritized step-by-step remediation roadmap with technical hardening guidance required to close identified compliance gaps.
-- **Interactive Control Matrix:** Interactive matrix detailing standard control IDs, domains, evaluation status (`PASS`, `WARNING`, `GAP`), earned point weights, and required hardening actions.
+## 20. Advanced OT Security & Threat Analysis Engine
+- **Attack Vector Path Analysis (`calculateAttackPath`):** Dynamic BFS graph traversal tracing multi-hop pivot routes from IT/Enterprise networks (Purdue Level 4/5) down to safety-critical PLC control zones (Level 1/0).
+- **Simulated IEC 62443 Compliance Auditor:** Generates downloadable "Simulated View" compliance audit reports (`simulated_compliance_report.json`) based on virtual firewall rule simulation.
+- **PLC Configuration & Ladder Logic Change Tracking:** Automated tracking for PLC program block modifications (`CIP_LADDER_LOGIC_CHANGE`, `DNP3_CONFIG_CHANGE`, `BACNET_UNAUTH_WRITE`, `MODBUS_DIAGNOSTIC_FC8`).
+- **Integrated Code Viewer Modals:** Interactive document viewer for inspecting STIX 2.1 bundles, Ansible playbooks, firewall ACLs, and compliance reports with line numbers, copy-to-clipboard, and download actions.
 
 ---
 
