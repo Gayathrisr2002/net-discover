@@ -2702,6 +2702,7 @@ textarea.ms-input {
       <div class="ms-lens-divider"></div>
       <a class="ms-btn" href="/api/reports/{{ filename }}/assets{% if viewer_context.project_id %}?project_id={{ viewer_context.project_id }}{% endif %}" target="_blank">{{ t('viewer.utilities.assets') }}</a>
       <button class="ms-btn" onclick="MS.exportCsvAssets()">{{ t('viewer.utilities.csv_assets') }}</button>
+      <button class="ms-btn" onclick="MS.downloadAllFindings('csv')" title="Download single consolidated file of all PCAP findings (CSV)" style="border-color: #f59e0b; color: #f59e0b; font-weight: 600;">📥 Download All Findings File</button>
       <button class="ms-btn" onclick="MS.exportCsvFindings()">{{ t('viewer.utilities.csv_findings') }}</button>
       <button class="ms-btn" onclick="MS.viewOcsf()" title="View OCSF Telemetry JSON">📊 OCSF</button>
       <button class="ms-btn" onclick="MS.viewNavigator()" title="View ATT&CK Navigator Layer">🗺️ Navigator</button>
@@ -6762,6 +6763,12 @@ var MS = (function() {
     fetchAndShowModal('/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/snort' + pidQuery, '🐽 Snort 3 / Suricata IDS Rules', REPORT_FILENAME.replace('.json', '.snort.rules'));
   }
 
+  function downloadAllFindings(format) {
+    var pidQuery = VIEWER_CONTEXT && VIEWER_CONTEXT.project_id ? '&project_id=' + VIEWER_CONTEXT.project_id : '';
+    var fmt = format || 'csv';
+    window.location.href = '/api/reports/' + encodeURIComponent(REPORT_FILENAME) + '/findings/download?format=' + fmt + pidQuery;
+  }
+
   // ── Vulnerability Lifecycle & Status Management ──
   var findingStatuses = {};
   try {
@@ -8966,6 +8973,7 @@ var MS = (function() {
     viewSbom: viewSbom,
     viewSwitchAcl: viewSwitchAcl,
     viewSnort: viewSnort,
+    downloadAllFindings: downloadAllFindings,
     viewSigma: viewSigma,
     viewOcsf: viewOcsf,
     viewNavigator: viewNavigator,

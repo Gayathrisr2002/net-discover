@@ -2348,6 +2348,7 @@ var PROJ = (function() {
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'switch-acl\')" style="margin-left:4px;" title="View Switch ACL Hardening Script">🔌 Switch ACL</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'snort\')" style="margin-left:4px;" title="View Snort 3 / Suricata IDS Rules">🐽 Snort 3</button>'
           + '<button class="ms-mini-btn" onclick="PROJ.viewReportCode(\'' + escjs(r.filename) + '\', \'sigma\')" style="margin-left:4px;" title="View Sigma Rules Stream">🎯 Sigma</button>'
+          + '<a class="ms-mini-btn" href="/api/reports/' + encodeURIComponent(r.filename) + '/findings/download?format=csv&project_id=' + currentProject.id + '" style="margin-left:4px; border-color: #f59e0b; color: #f59e0b;" title="Download single consolidated file of all PCAP findings (CSV)">📥 All Findings</a>'
           + '<a class="dl-link" href="/api/reports/' + encodeURIComponent(r.filename) + '?project_id=' + currentProject.id + '" style="margin-left:4px;">⬇ ' + msT('projects.btn_download', 'Download') + '</a>'
           + deleteBtn
           + '</td>';

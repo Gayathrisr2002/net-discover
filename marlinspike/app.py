@@ -6209,6 +6209,108 @@ def create_app():
             },
         )
 
+    @app.route("/api/reports/<filename>/findings/download")
+    @login_required
+    @limiter.limit("30 per minute")
+    def api_report_findings_download(filename):
+        """Generate a single downloadable consolidated file containing all PCAP findings."""
+        safe_name = os.path.basename(filename)
+        project_id = request.args.get("project_id", None, type=int)
+        fmt = (request.args.get("format") or "csv").lower()
+
+        r_dir = user_reports_dir(project_id)
+        primary_name = _get_primary_report_filename(safe_name)
+        json_path = os.path.join(r_dir, primary_name)
+        if not os.path.isfile(json_path):
+            json_path = os.path.join(r_dir, safe_name)
+            if not os.path.isfile(json_path):
+                return jsonify({"error": "Report not found"}), 404
+
+        try:
+            report = _load_report_with_extensions(json_path, ensure_mitre=True)
+        except Exception as exc:
+            log.warning("Report loading failed for findings download %s: %s", safe_name, exc)
+            return jsonify({"error": "Failed to load report data"}), 500
+
+        if fmt == "json":
+            findings_export = {
+                "report_filename": safe_name,
+                "project_id": project_id,
+                "findings_summary": report.get("findings_summary", {}),
+                "risk_findings": report.get("findings") or report.get("risk_findings") or [],
+                "purdue_violations": report.get("purdue_violations") or [],
+                "timeline_events": report.get("timeline") or [],
+                "discovered_nodes": report.get("nodes") or [],
+            }
+            resp = make_response(json.dumps(findings_export, indent=2))
+            resp.headers["Content-Type"] = "application/json; charset=utf-8"
+            resp.headers["Content-Disposition"] = f'attachment; filename="{safe_name.replace(".json", "")}_all_findings.json"'
+            return resp
+
+        # Default CSV export
+        import csv
+        import io
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Category",
+            "Severity",
+            "Description",
+            "Affected Nodes / IPs",
+            "Protocol",
+            "Purdue Level",
+            "Remediation",
+            "Notes / PCAP Evidence"
+        ])
+
+        findings = report.get("findings") or report.get("risk_findings") or []
+        for f in findings:
+            if isinstance(f, dict):
+                writer.writerow([
+                    f.get("category", "RISK_FINDING"),
+                    f.get("severity", "MEDIUM"),
+                    f.get("description", ""),
+                    ", ".join(f.get("affected_nodes", [])) if isinstance(f.get("affected_nodes"), list) else str(f.get("affected_nodes", "")),
+                    f.get("protocol", "OT"),
+                    f.get("purdue_level", "N/A"),
+                    f.get("remediation", ""),
+                    f.get("notes", "")
+                ])
+
+        violations = report.get("purdue_violations") or []
+        for v in violations:
+            if isinstance(v, dict):
+                writer.writerow([
+                    "PURDUE_ZONE_VIOLATION",
+                    "HIGH",
+                    f"Cross-Purdue boundary violation from {v.get('src')} to {v.get('dst')}",
+                    f"{v.get('src')} -> {v.get('dst')}",
+                    v.get("protocol", "IP"),
+                    "Purdue Boundary Leak",
+                    "Enforce strict firewall microsegmentation between IT and OT layers.",
+                    v.get("details", "")
+                ])
+
+        timeline = report.get("timeline") or []
+        for t in timeline:
+            if isinstance(t, dict):
+                writer.writerow([
+                    f"INCIDENT_STORYBOARD_{t.get('event_type', 'EVENT')}",
+                    t.get("severity", "INFO"),
+                    t.get("description", ""),
+                    f"{t.get('src_ip', '')} -> {t.get('dst_ip', '')}",
+                    t.get("protocol", ""),
+                    "Timeline Event",
+                    "Audit packet capture sequence timestamp",
+                    f"Timestamp: {t.get('timestamp', '')}"
+                ])
+
+        csv_content = output.getvalue()
+        resp = make_response(csv_content)
+        resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+        resp.headers["Content-Disposition"] = f'attachment; filename="{safe_name.replace(".json", "")}_all_findings.csv"'
+        return resp
+
     @app.route("/api/reports/<filename>/viewer")
     @login_required
     def api_report_viewer(filename):

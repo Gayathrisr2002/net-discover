@@ -179,6 +179,17 @@ class TestMarlinSpikeE2E(unittest.TestCase):
         self.assertEqual(res_p_snort.status_code, 200)
         self.assertIn("Snort 3", res_p_snort.get_data(as_text=True))
 
+        # Single consolidated findings download endpoints
+        res_f_csv = c.get(f"/api/reports/test-report.json/findings/download?format=csv&project_id={self.test_project_id}")
+        self.assertEqual(res_f_csv.status_code, 200)
+        self.assertEqual(res_f_csv.mimetype, "text/csv")
+        self.assertIn("Category,Severity,Description", res_f_csv.get_data(as_text=True))
+
+        res_f_json = c.get(f"/api/reports/test-report.json/findings/download?format=json&project_id={self.test_project_id}")
+        self.assertEqual(res_f_json.status_code, 200)
+        self.assertEqual(res_f_json.mimetype, "application/json")
+        self.assertIn("risk_findings", res_f_json.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()
